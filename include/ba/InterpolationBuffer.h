@@ -2,6 +2,7 @@
 #define INTERPOLATIONBUFFER_H
 
 
+namespace ba{
 ///////////////////////////////////////////////////////////////////////////////////////////////
 /// Templated interpolation buffer. Used to smoothly interpolate between stored elements. The
 /// interplation is delimited by the time value.
@@ -21,9 +22,8 @@ struct InterpolationBuffer
         Elements.reserve(uSize);
     }
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    /// \brief AddElement - Adds an element to the interpolation buffer, updates the average and end
-    /// times
-    /// \param element - the new element to add
+    /// \brief Adds an element to the interpolation buffer, updates the average and end times
+    /// \param element The new element to add
     ///
     void AddElement(const ElementType& element)
     {
@@ -38,12 +38,11 @@ struct InterpolationBuffer
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    /// \brief GetNext - Gets the next element in the buffer, depending on the maximum time interval
-    /// specified
-    /// \param dMaxTime - The maximum time interval. The returned element time will be <= to this
-    /// \param indexOut - The output index of the returned element
-    /// \param output - The output element
-    /// \return - True if the function returned an intermediate element, false if we had to interpolate
+    /// \brief Gets the next element in the buffer, depending on the maximum time interval specified
+    /// \param dMaxTime The maximum time interval. The returned element time will be <= to this
+    /// \param indexOut The output index of the returned element
+    /// \param output The output element
+    /// \return True if the function returned an intermediate element, false if we had to interpolate
     /// in which case we've reached the end
     ///
     bool GetNext(const ScalarType dMaxTime, size_t& indexOut, ElementType& output)
@@ -52,7 +51,7 @@ struct InterpolationBuffer
         if(indexOut + 1 >= Elements.size()){
             output = GetElement(dMaxTime,&indexOut);
             return false;
-        }else if( Elements[indexOut+1] < dMaxTime ){
+        }else if( Elements[indexOut+1].Time < dMaxTime ){
             output = GetElement(dMaxTime,&indexOut);
             return false;
         }else{
@@ -63,9 +62,20 @@ struct InterpolationBuffer
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    /// \brief GetElement - Returns an interpolated element
-    /// \param dTime - The time for which we require the element
-    /// \return - The element
+    /// \brief Returns whether or not an element exists for the given time
+    /// \param dTime The time for which we check the element
+    /// \return True if an element exists for this time
+    ///
+    bool HasElement(const ScalarType dTime)
+    {
+        return (dTime >= StartTime && dTime <= EndTime);
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    /// \brief Returns an interpolated element. Call HasElement before this function to make sure
+    ///        an element exists for this time
+    /// \param dTime The time for which we require the element
+    /// \return The element
     ///
     ElementType GetElement(const ScalarType dTime)
     {
@@ -74,10 +84,11 @@ struct InterpolationBuffer
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    /// \brief GetElement - Returns an interpolated element
-    /// \param dTime - The time for which we require the element
-    /// \param pIndex - The output index
-    /// \return - The element
+    /// \brief Returns an interpolated element. Call HasElement before this function to make sure
+    ///        an element exists for this time
+    /// \param dTime The time for which we require the element
+    /// \param pIndex The output index
+    /// \return The element
     ///
     ElementType GetElement(const ScalarType dTime, size_t* pIndex) {
         assert(dTime >= StartTime && dTime <= EndTime);
@@ -116,6 +127,7 @@ struct InterpolationBuffer
         }
     }
 };
+}
 
 
 #endif // INTERPOLATIONBUFFER_H

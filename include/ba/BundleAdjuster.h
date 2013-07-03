@@ -8,187 +8,23 @@
 #include <Eigen/Sparse>
 #include "SparseBlockMatrix.h"
 #include "SparseBlockMatrixOps.h"
-#include <sys/time.h>
-#include <time.h>
 #include "Utils.h"
-#include "InterpolationBuffer.h"
+#include "Types.h"
 
-inline double Tic() {
-    struct timeval tv;
-    gettimeofday(&tv, 0);
-    return tv.tv_sec  + 1e-6 * (tv.tv_usec);
-}
 
-inline double Toc(double dTic) {
-    return Tic() - dTic;
-}
 
-namespace Eigen
-{
-    typedef Matrix<double,6,1> Vector6d;
-    typedef Matrix<double,9,1> Vector9d;
-}
-
-namespace Sophus
-{
-    // this function implements d vee(log(A * exp(x) * B) ) / dx , which is in R^{6x6}
-    inline Eigen::Matrix<double,6,6> dLog_dX(const Sophus::SE3d& A,const Sophus::SE3d& B)
-    {
-        const Eigen::Vector6d d_2 = Sophus::SE3d::log(A*B)/2;
-        const double d1 = d_2[3], d2 = d_2[4], d3 = d_2[5], dx = d_2[0], dy = d_2[1], dz = d_2[2];
-        // this is using the 2nd order cbh expansion, to evaluate (I + 0.5 [Adj*x, log(AB)])*Adj
-        // refer to the thesis by Hauke Strasdat, Appendix 3.
-        return (Eigen::Matrix<double, 6, 6>() <<
-                  1,  d3, -d2,   0,  dz, -dy,
-                -d3,   1,  d1, -dz,   0,  dx,
-                 d2, -d1,   1,  dy, -dx,   0,
-                  0,   0,   0,   1,  d3, -d2,
-                  0,   0,   0, -d3,   1,  d1,
-                  0,   0,   0,  d2, -d1,   1
-               ).finished() * A.Adj();
-    }
-
-    inline std::vector<Eigen::Matrix<double,3,3> > dLog_dR(const Eigen::Matrix3d R)
-    {
-        std::vector<Eigen::Matrix<double,3,3> > vRes(3);
-        const double s1 = R(0)/2 + R(4)/2 + R(8)/2 - 0.5;
-        const double s2 = - (R(5) - R(7))/(4*(powi(s1,2) - 1)) - (s1*acos(s1)*(R(5) - R(7)))/(4*pow(1 - powi(s1,2),3.0/2.0));
-        const double s3 = acos(s1)/(2*sqrt(1 - powi(s1,2)));
-        vRes[0] << s2, 0, 0, 0, s2, s3, 0, -s3, s2;
-
-        const double s4 = s1; // r0/2 + R(4)/2 + R(8)/2 - 1/2
-        const double s5 = (R(2) - R(6))/(4*(powi(s4,2) - 1)) + (s4*acos(s4)*(R(2) - R(6)))/(4*pow(1 - powi(s4,2),3.0/2.0));
-        const double s6 = ( 1/sqrt(1 - powi(s4,2)) )*acos(s4)*0.5;
-        vRes[1] << s5, 0, -s6, 0, s5, 0, s6, 0, s5;
-
-        const double s7 = s1; // r0/2 + R(4)/2 + R(8)/2 - 1/2;
-        const double s8 = -(R(1) - R(3))/(4*(powi(s7,2) - 1)) - (s7*acos(s7)*(R(1) - R(3)))/(4*pow(1 - powi(s7,2),3.0/2.0));
-        const double s9 = acos(s7)/(2*sqrt(1 - powi(s7,2)));
-        vRes[2] << s8, s9, 0, -s9, s8, 0, 0, 0, s8;
-
-        return vRes;
-    }
-}
+namespace ba {
 
 template< int LmSize, int PoseSize >
 class BundleAdjuster
 {
+    typedef PoseT<LmSize> Pose;
+    typedef LandmarkT<LmSize> Landmark;
+    typedef ProjectionResidualT<LmSize> ProjectionResidual;
 public:
-    struct ImuPose
-    {
-        Sophus::SE3d Twp;
-        Eigen::Vector3d V;
-        Eigen::Vector3d W;
-        double Time;
-    };
-
-    struct ImuMeasurement
-    {
-        ImuMeasurement(const Eigen::Vector3d& w,const Eigen::Vector3d& a): W(w), A(a) {}
-        Eigen::Vector3d W;
-        Eigen::Vector3d A;
-        double Time;
-        ImuMeasurement operator*(const double &rhs) {
-            return ImuMeasurement( W*rhs, A*rhs );
-        }
-        ImuMeasurement operator+(const ImuMeasurement &rhs) {
-            return ImuMeasurement( W+rhs.W, A+rhs.A );
-        }
-    };
-
-    struct UnaryResidual
-    {
-        unsigned int PoseId;
-        unsigned int ResidualId;
-        unsigned int ResidualOffset;
-        double       W;
-        Sophus::SE3d Twp;
-        Eigen::Matrix<double,6,6> dZ_dX;
-        Eigen::Vector6d Residual;
-    };
-
-    struct BinaryResidual
-    {
-        unsigned int PoseAId;
-        unsigned int PoseBId;
-        unsigned int ResidualId;
-        unsigned int ResidualOffset;
-        double       W;
-        Sophus::SE3d Tab;
-        Eigen::Matrix<double,6,6> dZ_dX1;
-        Eigen::Matrix<double,6,6> dZ_dX2;
-        Eigen::Vector6d Residual;
-    };
-
-    struct ProjectionResidual
-    {
-        Eigen::Vector2d Z;
-        unsigned int PoseId;
-        unsigned int LandmarkId;
-        unsigned int CameraId;
-        unsigned int ResidualId;
-        unsigned int ResidualOffset;
-        double       W;
-
-        Eigen::Matrix<double,2,LmSize> dZ_dX;
-        Eigen::Matrix<double,2,6> dZ_dP;
-        Eigen::Vector2d Residual;
-    };
-
-    struct ImuResidual
-    {
-        unsigned int PoseAId;
-        unsigned int PoseBId;
-        unsigned int ResidualId;
-        unsigned int ResidualOffset;
-        double       W;
-        Sophus::SE3d Tab;
-        Eigen::Matrix<double,6,6> dZ_dX1;
-        Eigen::Matrix<double,6,6> dZ_dX2;
-        Eigen::Vector9d Residual;
-    };
-
-    InterpolationBuffer<ImuMeasurement,double> m_ImuBuffer;
-
-    struct Pose
-    {
-        Sophus::SE3d T_wp;
-        Eigen::Vector3d V;
-        bool IsActive;
-        unsigned int Id;
-        unsigned int OptId;
-        std::vector<ProjectionResidual*> ProjResiduals;
-        std::vector<BinaryResidual*> BinaryResiduals;
-        std::vector<UnaryResidual*> UnaryResiduals;
-        std::vector<Sophus::SE3d> T_sw;
-
-        // imu data associated with this pose
-        std::vector<ImuMeasurement> ImuMeasurements;
-        std::vector<ImuPose> ImuPoses;
-
-        const Sophus::SE3d& GetTsw(const unsigned int camId, const calibu::CameraRig& rig)
-        {
-            while(T_sw.size() <= camId ){
-              T_sw.push_back( (T_wp*rig.cameras[T_sw.size()].T_wc).inverse());
-            }
-            return T_sw[camId];
-        }
-    };
-
-
-
-    struct Landmark
-    {
-        Eigen::Vector4d X_s;
-        Eigen::Vector4d X_w;
-        std::vector<ProjectionResidual*> ProjResiduals;
-        unsigned int OptId;
-        unsigned int RefPoseId;
-        unsigned int RefCamId;
-    };
-
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    BundleAdjuster() {}
+    BundleAdjuster() :
+        m_Imu(Sophus::SE3d(),Eigen::Vector3d::Zero(),Eigen::Vector3d::Zero(),Eigen::Vector2d::Zero()) {}
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     Eigen::Matrix<double,9,1> GetPoseDerivative(const Sophus::SE3d& tTwb,const Eigen::Vector3d& tV_w,
@@ -210,7 +46,7 @@ public:
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    Pose IntegrateImu(ImuPose& pose, const ImuMeasurement& zStart,
+    ImuPose IntegrateImu(ImuPose& pose, const ImuMeasurement& zStart,
                      const ImuMeasurement& zEnd, const Eigen::Vector3d& vBg,
                      const Eigen::Vector3d vBa,const Eigen::Vector3d dG)
     {
@@ -226,7 +62,7 @@ public:
 
         aug_Twv.translation() += k1.head<3>()*h;
         const Sophus::SO3d Rv2v1(Sophus::SO3d::exp(k1.segment<3>(3)*h));
-        aug_Twv.so3() = Rv2v1*pose.T_wp.so3();
+        aug_Twv.so3() = Rv2v1*pose.Twp.so3();
         // do euler integration for now
         aug_V += k1.tail<3>()*h;
 
@@ -241,15 +77,22 @@ public:
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    void Init(const calibu::CameraRig &rig, const unsigned int uNumPoses,
-                                   const unsigned int uNumLandmarks,
-                                   const unsigned int uNumMeasurements)
+    void Init(const unsigned int uNumPoses,
+              const unsigned int uNumMeasurements,
+              const unsigned int uNumLandmarks = 0,
+              const calibu::CameraRig *pRig = 0 )
     {
+        // if LmSize == 0, there is no need for a camera rig or landmarks
+        assert(pRig != 0 || LmSize == 0);
+        assert(uNumLandmarks != 0 || LmSize == 0);
+
         m_uNumActivePoses = 0;
         m_uProjResidualOffset = 0;
         m_uBinaryResidualOffset = 0;
         m_uUnaryResidualOffset = 0;
-        m_Rig = rig;
+        if(pRig != 0){
+            m_Rig = *pRig;
+        }
         m_vLandmarks.reserve(uNumLandmarks);
         m_vProjResiduals.reserve(uNumMeasurements);
         m_vPoses.reserve(uNumPoses);
@@ -260,16 +103,16 @@ public:
         m_vBinaryResiduals.clear();
         m_vLandmarks.clear();
 
-        AddImuResidual(0,1);
     }    
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    unsigned int AddPose(const Sophus::SE3d& T_wp, const bool bIsActive = true)
+    unsigned int AddPose(const Sophus::SE3d& Twp, const bool bIsActive = true, const double dTime = -1)
     {
         Pose pose;
-        pose.T_wp = T_wp;
+        pose.Time = dTime;
+        pose.Twp = Twp;
         pose.IsActive = bIsActive;
-        pose.T_sw.reserve(m_Rig.cameras.size());
+        pose.Tsw.reserve(m_Rig.cameras.size());
         // assume equal distribution of measurements amongst poses
         pose.ProjResiduals.reserve(m_vProjResiduals.capacity()/m_vPoses.capacity());
         pose.Id = m_vPoses.size();
@@ -288,11 +131,11 @@ public:
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    unsigned int AddLandmark(const Eigen::Vector4d& X_w,const unsigned int uRefPoseId, const unsigned int uRefCamId = 0)
+    unsigned int AddLandmark(const Eigen::Vector4d& Xw,const unsigned int uRefPoseId, const unsigned int uRefCamId = 0)
     {
         assert(uRefPoseId < m_vPoses.size());
         Landmark landmark;
-        landmark.X_w = X_w;
+        landmark.Xw = Xw;
         // assume equal distribution of measurements amongst landmarks
         landmark.ProjResiduals.reserve(m_vProjResiduals.capacity()/m_vLandmarks.capacity());
         landmark.OptId = m_vLandmarks.size();
@@ -309,19 +152,19 @@ public:
         assert(uPoseId < m_vPoses.size());
 
         //now add this constraint to pose A
-        UnaryResidual meas;
-        meas.W = 1.0;
-        meas.PoseId = uPoseId;
-        meas.ResidualId = m_vUnaryResiduals.size();
-        meas.ResidualOffset = m_uUnaryResidualOffset;
-        meas.Twp = Twp;
+        UnaryResidual residual;
+        residual.W = 1.0;
+        residual.PoseId = uPoseId;
+        residual.ResidualId = m_vUnaryResiduals.size();
+        residual.ResidualOffset = m_uUnaryResidualOffset;
+        residual.Twp = Twp;
 
-        m_vUnaryResiduals.push_back(meas);
+        m_vUnaryResiduals.push_back(residual);
         m_uUnaryResidualOffset += 6;
 
         // we add this to both poses, as each one has a jacobian cell associated
-        m_vPoses[uPoseId].BinaryResiduals.push_back(&m_vUnaryResiduals.back());
-        return meas.ResidualId;
+        m_vPoses[uPoseId].UnaryResiduals.push_back(&m_vUnaryResiduals.back());
+        return residual.ResidualId;
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -333,21 +176,21 @@ public:
         assert(uPoseBId < m_vPoses.size());
 
         //now add this constraint to pose A
-        BinaryResidual meas;
-        meas.W = 1.0;
-        meas.PoseAId = uPoseAId;
-        meas.PoseBId = uPoseBId;
-        meas.ResidualId = m_vBinaryResiduals.size();
-        meas.ResidualOffset = m_uBinaryResidualOffset;
-        meas.Tab = Tab;
+        BinaryResidual residual;
+        residual.W = 1.0;
+        residual.PoseAId = uPoseAId;
+        residual.PoseBId = uPoseBId;
+        residual.ResidualId = m_vBinaryResiduals.size();
+        residual.ResidualOffset = m_uBinaryResidualOffset;
+        residual.Tab = Tab;
 
-        m_vBinaryResiduals.push_back(meas);
+        m_vBinaryResiduals.push_back(residual);
         m_uBinaryResidualOffset += 6;
 
         // we add this to both poses, as each one has a jacobian cell associated
         m_vPoses[uPoseAId].BinaryResiduals.push_back(&m_vBinaryResiduals.back());
         m_vPoses[uPoseBId].BinaryResiduals.push_back(&m_vBinaryResiduals.back());
-        return meas.ResidualId;
+        return residual.ResidualId;
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -359,32 +202,46 @@ public:
         assert(uLandmarkId < m_vLandmarks.size());
         assert(uPoseId < m_vPoses.size());
 
-        ProjectionResidual meas;
-        meas.W = 1.0;
-        meas.LandmarkId = uLandmarkId;
-        meas.PoseId = uPoseId;
-        meas.Z = z;
-        meas.CameraId = uCameraId;
-        meas.ResidualId = m_vProjResiduals.size();
-        meas.ResidualOffset = m_uProjResidualOffset;
+        ProjectionResidual residual;
+        residual.W = 1.0;
+        residual.LandmarkId = uLandmarkId;
+        residual.PoseId = uPoseId;
+        residual.Z = z;
+        residual.CameraId = uCameraId;
+        residual.ResidualId = m_vProjResiduals.size();
+        residual.ResidualOffset = m_uProjResidualOffset;
 
-        m_vProjResiduals.push_back(meas);
+        m_vProjResiduals.push_back(residual);
         m_uProjResidualOffset += 2;
 
         m_vLandmarks[uLandmarkId].ProjResiduals.push_back(&m_vProjResiduals.back());
         m_vPoses[uPoseId].ProjResiduals.push_back(&m_vProjResiduals.back());
 
-        return meas.ResidualId;
+        return residual.ResidualId;
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     unsigned int AddImuResidual(const unsigned int uPoseAId,
-                                const unsigned int uPoseBId)
+                                const unsigned int uPoseBId,
+                                const std::vector<ba::ImuMeasurement>& vImuMeas)
     {
-        // we must be using 9DOF poses for IMU
+        assert(uPoseAId < m_vPoses.size());
+        assert(uPoseBId < m_vPoses.size());
+        // we must be using 9DOF poses for IMU residuals
         assert(PoseSize == 9);
-        m_ImuBuffer.AddElement(ImuMeasurement(Eigen::Vector3d(),Eigen::Vector3d()));
-        ImuMeasurement data = m_ImuBuffer.GetElement(0.1);
+
+        ImuResidual residual;
+        residual.PoseAId = uPoseAId;
+        residual.PoseBId = uPoseBId;
+        residual.Measurements = vImuMeas;
+        residual.ResidualId = m_vImuResiduals.size();
+        residual.ResidualOffset = m_uImuResidualOffset;
+
+        m_vImuResiduals.push_back(residual);
+        m_uImuResidualOffset += 9;
+
+        m_vPoses[uPoseAId].ImuResiduals.push_back(&m_vImuResiduals.back());
+        return residual.ResidualId;
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -404,46 +261,65 @@ public:
     //        const unsigned int uNumMeas = m_vMeasurements.size();
             // calculate bp and bl
             double dMatTime = Tic();
-            Eigen::VectorXd bp(uNumPoses*6);
-            Eigen::VectorXd bl(uNumLm*LmSize);
-            Eigen::SparseBlockVectorProductDenseResult(m_Jpt,m_R,bp);
+            Eigen::VectorXd bp(uNumPoses*PoseSize);
+            Eigen::VectorXd bl;
             Eigen::SparseBlockMatrix< Eigen::Matrix<double,LmSize,LmSize> > V_inv(uNumLm,uNumLm);
-            Eigen::VectorXd rhs_p(uNumPoses*6);
-            Eigen::SparseBlockMatrix< Eigen::Matrix<double,LmSize,6> > Wt(uNumLm,uNumPoses);
-            Eigen::MatrixXd S(uNumPoses*6,uNumPoses*6);
+            Eigen::VectorXd rhs_p(uNumPoses*PoseSize);
+            Eigen::SparseBlockMatrix< Eigen::Matrix<double,LmSize,PoseSize> > Wt(uNumLm,uNumPoses);
+            Eigen::MatrixXd S(uNumPoses*PoseSize,uNumPoses*PoseSize);
             std::cout << "  Rhs vector mult took " << Toc(dMatTime) << " seconds." << std::endl;
 
             dMatTime = Tic();
 
             // TODO: suboptimal, the matrices are symmetric. We should only multipl one half
-            Eigen::SparseBlockMatrix< Eigen::Matrix<double,6,6> > U(uNumPoses,uNumPoses);
-            Eigen::SparseBlockProduct(m_Jpt,m_Jp,U);
+            Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,PoseSize> > U(uNumPoses,uNumPoses);
+            U.setZero();
+            bp.setZero();
+
+            if( m_vProjResiduals.size() > 0 ){
+                Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,PoseSize> > Jprt_Jpr(uNumPoses,uNumPoses);
+                Eigen::SparseBlockProduct(m_Jprt,m_Jpr,Jprt_Jpr);
+                Eigen::SparseBlockAdd(U,Jprt_Jpr,U);
+
+                Eigen::VectorXd Jprt_Rpr(uNumPoses*PoseSize);
+                Eigen::SparseBlockVectorProductDenseResult(m_Jprt,m_R.segment(m_vProjResiduals.front().ResidualOffset,m_vProjResiduals.size()*2),Jprt_Rpr);
+                bp += Jprt_Rpr;
+            }
 
             // add the contribution from the binary terms if any
             if( m_vBinaryResiduals.size() > 0 ) {
-                Eigen::SparseBlockMatrix< Eigen::Matrix<double,6,6> > Jppt_Jpp(uNumPoses,uNumPoses);
+                Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,PoseSize> > Jppt_Jpp(uNumPoses,uNumPoses);
                 Eigen::SparseBlockProduct(m_Jppt,m_Jpp,Jppt_Jpp);
                 Eigen::SparseBlockAdd(U,Jppt_Jpp,U);
+
+                Eigen::VectorXd Jppt_Rpp(uNumPoses*PoseSize);
+                Eigen::SparseBlockVectorProductDenseResult(m_Jppt,m_R.segment(m_vBinaryResiduals.front().ResidualOffset,m_vBinaryResiduals.size()*6),Jppt_Rpp);
+                bp += Jppt_Rpp;
             }
 
             // add the contribution from the unary terms if any
             if( m_vUnaryResiduals.size() > 0 ) {
-                Eigen::SparseBlockMatrix< Eigen::Matrix<double,6,6> > Jut_Ju(uNumPoses,uNumPoses);
+                Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,PoseSize> > Jut_Ju(uNumPoses,uNumPoses);
                 Eigen::SparseBlockProduct(m_Jut,m_Ju,Jut_Ju);
                 Eigen::SparseBlockAdd(U,Jut_Ju,U);
+
+                Eigen::VectorXd Jut_Ru(uNumPoses*PoseSize);
+                Eigen::SparseBlockVectorProductDenseResult(m_Jut,m_R.segment(m_vUnaryResiduals.front().ResidualOffset,m_vUnaryResiduals.size()*6),Jut_Ru);
+                bp += Jut_Ru;
             }
 
-            if( uNumLm > 0) {
+            if( LmSize > 0 && uNumLm > 0) {
+                bl.resize(uNumLm*LmSize);
                 Eigen::SparseBlockVectorProductDenseResult(m_Jlt,m_R,bl);
 
                 Eigen::SparseBlockMatrix< Eigen::Matrix<double,LmSize,LmSize> > V(uNumLm,uNumLm);
                 Eigen::SparseBlockProduct(m_Jlt,m_Jl,V);
 
                 // TODO this is really suboptimal, we should write a function to transpose the matrix
-                Eigen::SparseBlockMatrix< Eigen::Matrix<double,6,LmSize> > W(uNumPoses,uNumLm);
-                Eigen::SparseBlockProduct(m_Jpt,m_Jl,W);
+                Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,LmSize> > W(uNumPoses,uNumLm);
+                Eigen::SparseBlockProduct(m_Jprt,m_Jl,W);
 
-                Eigen::SparseBlockProduct(m_Jlt,m_Jp,Wt);
+                Eigen::SparseBlockProduct(m_Jlt,m_Jpr,Wt);
 
                 std::cout << "  Outer produce took " << Toc(dMatTime) << " seconds." << std::endl;
 
@@ -457,38 +333,42 @@ public:
 
                 dMatTime = Tic();
                 // attempt to solve for the poses. W_V_inv is used later on, so we cache it
-                Eigen::SparseBlockMatrix< Eigen::Matrix<double,6,LmSize> > W_V_inv(uNumPoses,uNumLm);
+                Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,LmSize> > W_V_inv(uNumPoses,uNumLm);
                 Eigen::SparseBlockProduct(W,V_inv,W_V_inv);
 
-                Eigen::SparseBlockMatrix< Eigen::Matrix<double,6,6> > WV_invWt(uNumPoses,uNumPoses);
+                Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,PoseSize> > WV_invWt(uNumPoses,uNumPoses);
                 Eigen::SparseBlockProduct(W_V_inv,Wt,WV_invWt);
 
                 // this in-place operation should be fine for subtraction
                 Eigen::SparseBlockSubtractDenseResult(U,WV_invWt,S);
 
                 // now form the rhs for the pose equations
-                Eigen::VectorXd WV_inv_bl(uNumPoses*6);
+                Eigen::VectorXd WV_inv_bl(uNumPoses*PoseSize);
                 Eigen::SparseBlockVectorProductDenseResult(W_V_inv,bl,WV_inv_bl);
 
                 rhs_p = bp - WV_inv_bl;
                 std::cout << "  Rhs calculation took " << Toc(dMatTime) << " seconds." << std::endl;
             }else{
                 Eigen::LoadDenseFromSparse(U,S);
+                rhs_p = bp;
             }
 
             std::cout << "Setup took " << Toc(dTime) << " seconds." << std::endl;
 
             // now we have to solve for the pose constraints
             dTime = Tic();
-            Eigen::VectorXd delta_p = uNumPoses == 0 ? Eigen::VectorXd() : S.ldlt().solve(rhs_p);
-            Eigen::VectorXd delta_l( uNumLm*LmSize );
+            Eigen::VectorXd delta_p = uNumPoses == 0 ? Eigen::VectorXd() : S.ldlt().solve(rhs_p);            
             std::cout << "Cholesky solve of " << uNumPoses << " by " << uNumPoses << "matrix took " << Toc(dTime) << " seconds." << std::endl;
 
             if( uNumLm > 0) {
                 dTime = Tic();
-                Eigen::VectorXd Wt_delta_p( uNumLm*LmSize );
+                Eigen::VectorXd delta_l;
+                delta_l.resize(uNumLm*LmSize);
+                Eigen::VectorXd Wt_delta_p;
+                Wt_delta_p.resize(uNumLm*LmSize );
                 Eigen::SparseBlockVectorProductDenseResult(Wt,delta_p,Wt_delta_p);
-                Eigen::VectorXd rhs_l( uNumLm*LmSize );
+                Eigen::VectorXd rhs_l;
+                rhs_l.resize(uNumLm*LmSize );
                 rhs_l =  bl - Wt_delta_p;
 
                 for(size_t ii = 0 ; ii < uNumLm ; ii++){
@@ -498,9 +378,9 @@ public:
                 // update the landmarks
                 for (size_t ii = 0 ; ii < uNumLm ; ii++){
                     if(LmSize == 1){
-                        m_vLandmarks[ii].X_s.template tail<LmSize>() += delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize);
+                        m_vLandmarks[ii].Xs.template tail<LmSize>() += delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize);
                     }else{
-                        m_vLandmarks[ii].X_s.template head<LmSize>() += delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize);
+                        m_vLandmarks[ii].Xs.template head<LmSize>() += delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize);
                     }
                 }
                 std::cout << "Backsubstitution of " << uNumLm << " landmarks took " << Toc(dTime) << " seconds." << std::endl;
@@ -514,9 +394,9 @@ public:
                 // only update active poses, as inactive ones are not part of the optimization
                 if( m_vPoses[ii].IsActive ){
                     // std::cout << "Pose delta for " << ii << " is " << delta_p.block<6,1>(m_vPoses[ii].OptId*6,0).transpose() << std::endl;
-                    m_vPoses[ii].T_wp *= Sophus::SE3d::exp(delta_p.block<6,1>(m_vPoses[ii].OptId*6,0));
+                    m_vPoses[ii].Twp *= Sophus::SE3d::exp(delta_p.block<6,1>(m_vPoses[ii].OptId*6,0));
                     // clear the vector of Tsw values as they will need to be recalculated
-                    m_vPoses[ii].T_sw.clear();
+                    m_vPoses[ii].Tsw.clear();
                 }
                 // else{
                 //  std::cout << " Pose " << ii << " is inactive." << std::endl;
@@ -524,18 +404,23 @@ public:
             }
             std::cout << "BA iteration " << kk <<  " error: " << m_R.norm() << std::endl;
         }
+
+        // update the global position of the landmarks from the sensor position
+        for (Landmark& lm : m_vLandmarks) {
+            lm.Xw = MultHomogeneous(m_vPoses[lm.RefPoseId].GetTsw(lm.RefCamId,m_Rig).inverse(), lm.Xs);
+//            return lm.Xw;
+        }
+
             // std::cout << "Solve took " << Toc(dTime) << " seconds." << std::endl;
     }
 
 
-    const Sophus::SE3d& GetPose(const unsigned int id) const  { return m_vPoses[id].T_wp; }
+    const ImuResidual& GetImuResidual(const unsigned int id) const { return m_vImuResiduals[id]; }
+    const ImuCalibration& GetImuCalibration() const { return m_Imu; }
+    const Sophus::SE3d& GetPose(const unsigned int id) const  { return m_vPoses[id].Twp; }
     // return the landmark in the world frame
-    const Eigen::Vector4d& GetLandmark(const unsigned int id)
-    {
-        Landmark& lm = m_vLandmarks[id];
-        lm.X_w = Sophus::MultHomogeneous(m_vPoses[lm.RefPoseId].GetTsw(lm.RefCamId,m_Rig).inverse(), lm.X_s);
-        return lm.X_w;
-    }
+    const Eigen::Vector4d& GetLandmark(const unsigned int id) const { return m_vLandmarks[id].Xw; }
+
 
 
 private:
@@ -544,28 +429,30 @@ private:
         // resize as needed
         const unsigned int uNumPoses = m_uNumActivePoses;
         const unsigned int uNumLm = m_vLandmarks.size();
-        const unsigned int uNumProjMeas = m_vProjResiduals.size();
-        const unsigned int uNumBinMeas = m_vBinaryResiduals.size();
-        const unsigned int uNumUnMeas = m_vUnaryResiduals.size();
+        const unsigned int uNumProjRes = m_vProjResiduals.size();
+        const unsigned int uNumBinRes = m_vBinaryResiduals.size();
+        const unsigned int uNumUnRes = m_vUnaryResiduals.size();
+        const unsigned int uNumImuRes = m_vImuResiduals.size();
 
-        m_Jp.resize(uNumProjMeas,uNumPoses);
-        m_Jpt.resize(uNumPoses,uNumProjMeas);
+        m_Jpr.resize(uNumProjRes,uNumPoses);
+        m_Jprt.resize(uNumPoses,uNumProjRes);
 
-        m_Jpp.resize(uNumBinMeas,uNumPoses);
-        m_Jppt.resize(uNumPoses,uNumBinMeas);
+        m_Jpp.resize(uNumBinRes,uNumPoses);
+        m_Jppt.resize(uNumPoses,uNumBinRes);
 
-        m_Ju.resize(uNumUnMeas,uNumPoses);
-        m_Jut.resize(uNumPoses,uNumUnMeas);
+        m_Ju.resize(uNumUnRes,uNumPoses);
+        m_Jut.resize(uNumPoses,uNumUnRes);
 
-        m_Jl.resize(uNumProjMeas,uNumLm);
-        m_Jlt.resize(uNumLm,uNumProjMeas);
+        m_Jl.resize(uNumProjRes,uNumLm);
+        m_Jlt.resize(uNumLm,uNumProjRes);
 
-        m_R.resize(uNumProjMeas*2,1);
+        // calculate the total number of residuals
+        m_R.resize(uNumProjRes*2+uNumBinRes*6+uNumUnRes*6+uNumImuRes*9,1);
 
 
         // these calls remove all the blocks, but KEEP allocated memory as long as the object is alive
-        m_Jp.setZero();
-        m_Jpt.setZero();
+        m_Jpr.setZero();
+        m_Jprt.setZero();
 
         m_Jpp.setZero();
         m_Jppt.setZero();
@@ -576,14 +463,18 @@ private:
         m_Ju.setZero();
         m_Jut.setZero();
 
+        m_Jl.setZero();
+        m_Jlt.setZero();
+
         m_R.setZero();
 
         // used to store errors for robust norm calculation
-        m_vErrors.reserve(uNumProjMeas);
+        m_vErrors.reserve(uNumProjRes);
         m_vErrors.clear();
 
 
         double dPortionTransfer = 0, dPortionJac = 0, dPortionSparse = 0;
+        unsigned int uPrevBlockResId = 0;
 
         // set all jacobians
         double dTime = Tic();
@@ -591,15 +482,15 @@ private:
             double dPortTime = Tic();
             // calculate measurement jacobians
 
-            // T_sw = T_cv * T_vw
+            // Tsw = T_cv * T_vw
             Landmark& lm = m_vLandmarks[res.LandmarkId];
             Pose& pose = m_vPoses[res.PoseId];
             Pose& refPose = m_vPoses[lm.RefPoseId];
-            lm.X_s = Sophus::MultHomogeneous(refPose.GetTsw(lm.RefCamId,m_Rig) ,lm.X_w);
+            lm.Xs = MultHomogeneous(refPose.GetTsw(lm.RefCamId,m_Rig) ,lm.Xw);
             const Sophus::SE3d parentTws = refPose.GetTsw(lm.RefCamId,m_Rig).inverse();
 
             const Eigen::Vector2d p = m_Rig.cameras[res.CameraId].camera.Transfer3D(pose.GetTsw(res.CameraId,m_Rig)*parentTws,
-                                                                                    lm.X_s.template head<3>(),lm.X_s(3));
+                                                                                    lm.Xs.template head<3>(),lm.Xs(3));
             res.Residual = res.Z - p;
 //            std::cout << "Residual for meas " << meas.MeasurementId << " and landmark " << meas.LandmarkId << " with camera " << meas.CameraId << " is " << meas.Residual.transpose() << std::endl;
 
@@ -610,14 +501,14 @@ private:
 
             dPortTime = Tic();            
             const Eigen::Matrix<double,2,4> dTdP = m_Rig.cameras[res.CameraId].camera.dTransfer3D_dP(pose.GetTsw(res.CameraId,m_Rig)*parentTws,
-                                                                                                     lm.X_s.template head<3>(),lm.X_s(3));
+                                                                                                     lm.Xs.template head<3>(),lm.Xs(3));
             res.dZ_dX = dTdP.block<2,LmSize>( 0, LmSize == 3 ? 0 : 3 );
 
             if( pose.IsActive ) {
                 for(unsigned int ii=0; ii<6; ++ii){
                     const Eigen::Matrix<double,2,4> dTdP = m_Rig.cameras[res.CameraId].camera.dTransfer3D_dP(pose.GetTsw(res.CameraId,m_Rig),
-                                                                                                             lm.X_w.template head<3>(),lm.X_w(3));
-                    res.dZ_dP.template block<2,1>(0,ii) = dTdP * -Sophus::SE3::generator(ii) * lm.X_w;
+                                                                                                             lm.Xw.template head<3>(),lm.Xw(3));
+                    res.dZ_dP.template block<2,1>(0,ii) = dTdP * -Sophus::SE3::generator(ii) * lm.Xw;
                 }
                 //Eigen::Matrix<double,2,6> J_fd;
                 //double dEps = 1e-6;
@@ -625,11 +516,11 @@ private:
                 //    Eigen::Matrix<double,6,1> delta;
                 //    delta.setZero();
                 //    delta[ii] = dEps;
-                //    Sophus::SE3d Tsw = (pose.T_wp*Sophus::SE3d::exp(delta)*m_Rig.cameras[meas.CameraId].T_wc).inverse();
-                //    const Eigen::Vector2d pPlus = m_Rig.cameras[meas.CameraId].camera.Transfer3D(Tsw,X_w.head(3),X_w[3]);
+                //    Sophus::SE3d Tsw = (pose.Twp*Sophus::SE3d::exp(delta)*m_Rig.cameras[meas.CameraId].T_wc).inverse();
+                //    const Eigen::Vector2d pPlus = m_Rig.cameras[meas.CameraId].camera.Transfer3D(Tsw,Xw.head(3),Xw[3]);
                 //    delta[ii] = -dEps;
-                //    Tsw = (pose.T_wp*Sophus::SE3d::exp(delta)*m_Rig.cameras[meas.CameraId].T_wc).inverse();
-                //    const Eigen::Vector2d pMinus = m_Rig.cameras[meas.CameraId].camera.Transfer3D(Tsw,X_w.head(3),X_w[3]);
+                //    Tsw = (pose.Twp*Sophus::SE3d::exp(delta)*m_Rig.cameras[meas.CameraId].T_wc).inverse();
+                //    const Eigen::Vector2d pMinus = m_Rig.cameras[meas.CameraId].camera.Transfer3D(Tsw,Xw.head(3),Xw[3]);
                 //    J_fd.col(ii) = (pPlus-pMinus)/(2*dEps);
                 //}
                 //std::cout << "J:" << meas.dZ_dP << std::endl;
@@ -640,16 +531,18 @@ private:
             dPortionJac += Toc(dPortTime);
 
             // set the residual in m_R which is dense
+            res.ResidualOffset = res.ResidualOffset+uPrevBlockResId;
             m_R.segment<2>(res.ResidualOffset) = res.Residual;
         }
+        uPrevBlockResId += m_vProjResiduals.size()*2;
 
         // build binary residual jacobians
         for( BinaryResidual& res : m_vBinaryResiduals ){
-            const Sophus::SE3d& Twa = m_vPoses[res.PoseAId].T_wp;
-            const Sophus::SE3d& Twb = m_vPoses[res.PoseBId].T_wp;
-            res.dZ_dX1 = Sophus::dLog_dX(Twa, res.Tab * Twb.inverse());
+            const Sophus::SE3d& Twa = m_vPoses[res.PoseAId].Twp;
+            const Sophus::SE3d& Twb = m_vPoses[res.PoseBId].Twp;
+            res.dZ_dX1 = dLog_dX(Twa, res.Tab * Twb.inverse());
             // the negative sign here is because exp(x) is inside the inverse when we invert (Twb*exp(x)).inverse
-            res.dZ_dX2 = -Sophus::dLog_dX(Twa * res.Tab , Twb.inverse());
+            res.dZ_dX2 = -dLog_dX(Twa * res.Tab , Twb.inverse());
 
             // finite difference checking
 //            Eigen::Matrix<double,6,6> J_fd;
@@ -665,30 +558,97 @@ private:
 //            }
 //            std::cout << "J:" << res.dZ_dX1 << std::endl;
 //            std::cout << "J_fd:" << J_fd << std::endl;
+            m_R.segment<6>(res.ResidualOffset+uPrevBlockResId) = (Twa*res.Tab*Twb.inverse()).log();
         }
+        uPrevBlockResId += m_vBinaryResiduals.size()*6;
 
         for( UnaryResidual& res : m_vUnaryResiduals ){
-            const Sophus::SE3d& Twp = m_vPoses[res.PoseId].T_wp;
-            res.dZ_dX = Sophus::dLog_dX(Twp, res.Twp.inverse());
+            const Sophus::SE3d& Twp = m_vPoses[res.PoseId].Twp;
+            res.dZ_dX = dLog_dX(Twp, res.Twp.inverse());
+
+            m_R.segment<6>(res.ResidualOffset+uPrevBlockResId) = (Twp*res.Twp.inverse()).log();
+        }
+        uPrevBlockResId += m_vUnaryResiduals.size()*6;
+
+        for( ImuResidual& res : m_vImuResiduals ){
+            // set up the initial pose for the integration
+            const Eigen::Vector3d gravity = ImuCalibration::GetGravityVector(m_Imu.G);
+            const Eigen::Matrix<double,3,2> dGravity = ImuCalibration::dGravity_dDirection(m_Imu.G);
+            const Pose& startPose = m_vPoses[res.PoseAId];
+            double totalDt = 0;
+            ImuPose imuPose(startPose.Twp,startPose.V,Eigen::Vector3d::Zero(),startPose.Time);
+            ImuMeasurement* pPrevMeas = 0;
+            res.Poses.clear();
+            res.Poses.reserve(res.Measurements.size()+1);
+            res.Poses.push_back(imuPose);
+
+            // integrate forward in time, and retain all the poses
+            for(ImuMeasurement& meas : res.Measurements){
+                if(pPrevMeas != 0){
+                    totalDt += meas.Time - pPrevMeas->Time;
+                    imuPose = IntegrateImu(imuPose,*pPrevMeas,meas,m_Imu.Bg,m_Imu.Ba,gravity);
+                    res.Poses.push_back(imuPose);
+                }
+                pPrevMeas = &meas;
+            }
+            const ImuPose& endPose = res.Poses.back();
+            const Sophus::SE3d Tab = startPose.Twp.inverse()*endPose.Twp;
+            const Sophus::SE3d& Twa = startPose.Twp;
+            const Sophus::SE3d& Twb = endPose.Twp;
+
+            // now given the poses, calculate the jacobians.
+            // First subtract gravity, initial pose and velocity from the delta T and delta V
+            Sophus::SE3d Tab_0 = endPose.Twp;
+            Eigen::Vector3d Vab_0 = endPose.V;            
+            Tab_0.translation() -=(-gravity*0.5*powi(totalDt,2) + startPose.V*totalDt);   // subtract starting velocity and gravity
+            Tab_0 = startPose.Twp.inverse() * Tab_0;                                       // subtract starting pose
+            // Augment the velocity delta by subtracting effects of gravity
+            Vab_0 = endPose.V - startPose.V;
+            Vab_0 += gravity*totalDt;
+            // rotate the velocity delta so that it starts from orientation=Ident
+            Vab_0 = startPose.Twp.so3().inverse() * Vab_0;
+
+            // derivative with respect to the start pose
+            res.dZ_dX1.setZero();
+            res.dZ_dX2.setZero();
+            res.dZ_dG.setZero();
+
+            res.dZ_dX1.block<6,6>(0,0) = dLog_dX(Twa,Tab*Twb.inverse());
+            res.dZ_dX1.block<3,3>(0,6) = Eigen::Matrix3d::Identity()*totalDt;
+            for( int ii = 0; ii < 3 ; ++ii ){
+                res.dZ_dX1.block<3,1>(6,3+ii) = Twa.so3().matrix() * Sophus::SO3d::generator(ii) * Vab_0;
+            }
+            res.dZ_dX1.block<3,3>(6,6) = Eigen::Matrix3d::Identity();
+            // the - sign is here because of the exp(-x) within the log
+            res.dZ_dX2.block<6,6>(0,0) = -dLog_dX(Twa*Tab,Twb.inverse());
+
+            res.dZ_dG.block<3,2>(0,0) = -0.5*powi(totalDt,2)*Eigen::Matrix3d::Identity()*dGravity;
+            res.dZ_dG.block<3,2>(6,0) = -totalDt*Eigen::Matrix3d::Identity()*dGravity;
+
+            // now that we have the deltas with subtracted initial velocity, transform and gravity, we can construt the jacobian
+
+            //            m_R.segment<9>(uMaxResId) = (Twp*res.Twp.inverse());
         }
 
         // get the sigma for robust norm calculation. This call is O(n) on average,
         // which is desirable over O(nlogn) sort
-        auto it = m_vErrors.begin()+std::floor(m_vErrors.size()/2);
-        std::nth_element(m_vErrors.begin(),it,m_vErrors.end());
-        const double dSigma = sqrt(*it);
-        // See "Parameter Estimation Techniques: A Tutorial with Application to Conic
-        // Fitting" by Zhengyou Zhang. PP 26 defines this magic number:
-        const double c_huber = 1.2107*dSigma;
+        if( m_vErrors.size() > 0 ){
+            auto it = m_vErrors.begin()+std::floor(m_vErrors.size()/2);
+            std::nth_element(m_vErrors.begin(),it,m_vErrors.end());
+            const double dSigma = sqrt(*it);
+            // See "Parameter Estimation Techniques: A Tutorial with Application to Conic
+            // Fitting" by Zhengyou Zhang. PP 26 defines this magic number:
+            const double c_huber = 1.2107*dSigma;
 
-        // now go through the measurements and assign weights
-        for( ProjectionResidual& res : m_vProjResiduals ){
-            // calculate the huber norm weight for this measurement
-            const double e = res.Residual.norm();
-            // this is square rooted as normally we use JtWJ and JtWr, therefore in order to multiply
-            // the weight directly into the jacobian/residual we must use the square root
-            res.W = sqrt(e > c_huber ? c_huber/e : 1.0);
-            m_R.segment<2>(res.ResidualOffset) *= res.W;
+            // now go through the measurements and assign weights
+            for( ProjectionResidual& res : m_vProjResiduals ){
+                // calculate the huber norm weight for this measurement
+                const double e = res.Residual.norm();
+                // this is square rooted as normally we use JtWJ and JtWr, therefore in order to multiply
+                // the weight directly into the jacobian/residual we must use the square root
+                res.W = sqrt(e > c_huber ? c_huber/e : 1.0);
+                m_R.segment<2>(res.ResidualOffset) *= res.W;
+            }
         }
 
         // here we sort the measurements and insert them per pose and per landmark, this will mean
@@ -702,8 +662,8 @@ private:
 
                 for( ProjectionResidual* pRes: pose.ProjResiduals ) {
                     // insert the jacobians into the sparse matrices
-                    m_Jp.insert(pRes->ResidualId,pose.OptId).template block<2,6>(0,0) = pRes->dZ_dP * pRes->W;
-                    m_Jpt.insert(pose.OptId,pRes->ResidualId).template block<6,2>(0,0) = pRes->dZ_dP.transpose() * pRes->W;
+                    m_Jpr.insert(pRes->ResidualId,pose.OptId).template block<2,6>(0,0) = pRes->dZ_dP * pRes->W;
+                    m_Jprt.insert(pose.OptId,pRes->ResidualId).template block<6,2>(0,0) = pRes->dZ_dP.transpose() * pRes->W;
                 }
 
                 // add the pose/pose constraints
@@ -742,8 +702,8 @@ private:
     }
 
     // reprojection jacobians
-    Eigen::SparseBlockMatrix< Eigen::Matrix<double,2,PoseSize> > m_Jp;
-    Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,2> > m_Jpt;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<double,2,PoseSize> > m_Jpr;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,2> > m_Jprt;
 
     // pose/pose jacobian for binary constraints
     Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,PoseSize> > m_Jpp;
@@ -775,14 +735,23 @@ private:
     calibu::CameraRig m_Rig;
     std::vector<Pose> m_vPoses;
     std::vector<Landmark> m_vLandmarks;
-    std::vector<ProjectionResidual> m_vProjResiduals;
+    std::vector<ProjectionResidual > m_vProjResiduals;
     std::vector<BinaryResidual> m_vBinaryResiduals;
     std::vector<UnaryResidual> m_vUnaryResiduals;
     std::vector<ImuResidual> m_vImuResiduals;
     std::vector<double> m_vErrors;
+
+    ImuCalibration m_Imu;
 };
 
+static const int NOT_USED = 0;
 
+// typedefs for convenience
+typedef BundleAdjuster<ba::NOT_USED,9> GlobalInertialBundleAdjuster;
+typedef BundleAdjuster<1,9> InverseDepthVisualInertialBundleAdjuster;
+typedef BundleAdjuster<3,9> VisualInertialBundleAdjuster;
+
+}
 
 
 

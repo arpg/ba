@@ -34,7 +34,11 @@ list(APPEND HEADERS
     ${INCDIR}/LocalParamSe3.h
     ${INCDIR}/SparseBlockMatrix.h
     ${INCDIR}/SparseBlockMatrixOps.h
+    ${INCDIR}/Types.h
+    ${INCDIR}/Utils.h
 )
+
+add_custom_target(${PROJECT_NAME} SOURCES ${HEADERS})
 
 
 

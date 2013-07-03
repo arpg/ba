@@ -209,7 +209,7 @@ static void LoadDenseFromSparse(const SparseMatrix& sparse,DenseMatrix& dense)
     const int _BlockCols = BlockType::ColsAtCompileTime;
 
     dense.setZero();
-    for (unsigned int jj=0; jj<sparse.cols(); ++jj)
+    for (int jj=0; jj<sparse.cols(); ++jj)
     {
         for (typename SparseMatrix::InnerIterator sparseIt(sparse, jj); sparseIt; ++sparseIt)
         {

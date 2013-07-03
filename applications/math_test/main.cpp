@@ -2,15 +2,17 @@
 #include <ba/SparseBlockMatrixOps.h>
 #include <ba/InterpolationBuffer.h>
 
+using namespace ba;
+
 /////////////////////////////////////////////////////////////////////////////
 int main( int argc, char** argv )
 {
     // test imu data
-    BundleAdjuster<1,6>::ImuMeasurement meas(Eigen::Vector3d::Random(),Eigen::Vector3d::Random());
+    ImuMeasurement meas(Eigen::Vector3d::Random(),Eigen::Vector3d::Random(),0);
     std::cout << "Measurement w:" << meas.W.transpose() << " a " << meas.A.transpose() << std::endl;
-    BundleAdjuster<1,6>::ImuMeasurement meas2 = meas*2;
+    ImuMeasurement meas2 = meas*2;
     std::cout << "Measurement*2 w:" << meas2.W.transpose() << " a " << meas2.A.transpose() << std::endl;
-    BundleAdjuster<1,6>::ImuMeasurement measAdd = meas + meas2;
+    ::ImuMeasurement measAdd = meas + meas2;
     std::cout << "Measurement sum w:" << measAdd.W.transpose() << " a " << measAdd.A.transpose() << std::endl;
 
 

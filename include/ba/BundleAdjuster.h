@@ -407,7 +407,7 @@ public:
 
         // update the global position of the landmarks from the sensor position
         for (Landmark& lm : m_vLandmarks) {
-            lm.Xw = MultHomogeneous(m_vPoses[lm.RefPoseId].GetTsw(lm.RefCamId,m_Rig).inverse(), lm.Xs);
+            lm.Xw = ba::MultHomogeneous(m_vPoses[lm.RefPoseId].GetTsw(lm.RefCamId,m_Rig).inverse(), lm.Xs);
 //            return lm.Xw;
         }
 
@@ -486,7 +486,7 @@ private:
             Landmark& lm = m_vLandmarks[res.LandmarkId];
             Pose& pose = m_vPoses[res.PoseId];
             Pose& refPose = m_vPoses[lm.RefPoseId];
-            lm.Xs = MultHomogeneous(refPose.GetTsw(lm.RefCamId,m_Rig) ,lm.Xw);
+            lm.Xs = ba::MultHomogeneous(refPose.GetTsw(lm.RefCamId,m_Rig) ,lm.Xw);
             const Sophus::SE3d parentTws = refPose.GetTsw(lm.RefCamId,m_Rig).inverse();
 
             const Eigen::Vector2d p = m_Rig.cameras[res.CameraId].camera.Transfer3D(pose.GetTsw(res.CameraId,m_Rig)*parentTws,

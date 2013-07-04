@@ -95,31 +95,34 @@ struct ImuMeasurement
 
 struct UnaryResidual
 {
+    static const unsigned int ResSize = 6;
     unsigned int PoseId;
     unsigned int ResidualId;
     unsigned int ResidualOffset;
     double       W;
     Sophus::SE3d Twp;
-    Eigen::Matrix<double,6,6> dZ_dX;
+    Eigen::Matrix<double,ResSize,6> dZ_dX;
     Eigen::Vector6d Residual;
 };
 
 struct BinaryResidual
 {
+    static const unsigned int ResSize = 6;
     unsigned int PoseAId;
     unsigned int PoseBId;
     unsigned int ResidualId;
     unsigned int ResidualOffset;
     double       W;
     Sophus::SE3d Tab;
-    Eigen::Matrix<double,6,6> dZ_dX1;
-    Eigen::Matrix<double,6,6> dZ_dX2;
+    Eigen::Matrix<double,ResSize,6> dZ_dX1;
+    Eigen::Matrix<double,ResSize,6> dZ_dX2;
     Eigen::Vector6d Residual;
 };
 
 template<int LmSize>
 struct ProjectionResidualT
 {
+    static const unsigned int ResSize = 2;
     Eigen::Vector2d Z;
     unsigned int PoseId;
     unsigned int LandmarkId;
@@ -128,13 +131,14 @@ struct ProjectionResidualT
     unsigned int ResidualOffset;
     double       W;
 
-    Eigen::Matrix<double,2,LmSize> dZ_dX;
+    Eigen::Matrix<double,ResSize,LmSize> dZ_dX;
     Eigen::Matrix<double,2,6> dZ_dP;
     Eigen::Vector2d Residual;
 };
 
 struct ImuResidual
 {
+    static const unsigned int ResSize = 9;
     unsigned int PoseAId;
     unsigned int PoseBId;
     unsigned int ResidualId;
@@ -142,10 +146,10 @@ struct ImuResidual
     double       W;
     std::vector<ImuMeasurement> Measurements;
     std::vector<ImuPose> Poses;
-    Eigen::Matrix<double,9,9> dZ_dX1;
-    Eigen::Matrix<double,9,9> dZ_dX2;
-    Eigen::Matrix<double,9,2> dZ_dG;
-    Eigen::Matrix<double,9,6> dZ_dB;
+    Eigen::Matrix<double,ResSize,9> dZ_dX1;
+    Eigen::Matrix<double,ResSize,9> dZ_dX2;
+    Eigen::Matrix<double,ResSize,2> dZ_dG;
+    Eigen::Matrix<double,ResSize,6> dZ_dB;
     Eigen::Vector9d Residual;
 };
 
@@ -158,10 +162,10 @@ struct PoseT
     unsigned int Id;
     unsigned int OptId;
     double Time;
-    std::vector<ProjectionResidualT<LmSize> *> ProjResiduals;
-    std::vector<ImuResidual *> ImuResiduals;
-    std::vector<BinaryResidual*> BinaryResiduals;
-    std::vector<UnaryResidual*> UnaryResiduals;
+    std::vector<int> ProjResiduals;
+    std::vector<int> ImuResiduals;
+    std::vector<int> BinaryResiduals;
+    std::vector<int> UnaryResiduals;
     std::vector<Sophus::SE3d> Tsw;
 
     const Sophus::SE3d& GetTsw(const unsigned int camId, const calibu::CameraRig& rig)

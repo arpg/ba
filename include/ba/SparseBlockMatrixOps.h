@@ -92,6 +92,9 @@ static void SparseBlockProduct(const Lhs& lhs, const Rhs& rhs, ResultType& res)
 template<typename Matrix>
 static void SparseBlockAdd(const Matrix& lhs, const Matrix& rhs, Matrix& res, const int nRhsCoef = 1 )
 {
+    // cannot add in-place.
+    assert(&lhs!=&res && &rhs != &res);
+
     const typename Matrix::Scalar zero = Matrix::Scalar::Zero();
     // return sparse_sparse_product_with_pruning_impl2(lhs,rhs,res);
     typedef typename Matrix::Scalar Scalar;

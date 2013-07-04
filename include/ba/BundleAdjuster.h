@@ -45,6 +45,26 @@ public:
         return deriv;
     }
 
+    ImuPose IntegrateResidual(Pose& pose, ImuResidual res)
+    {
+        ImuPose imuPose(pose.Twp,pose.V,Eigen::Vector3d::Zero(),pose.Time);
+        ImuMeasurement* pPrevMeas = 0;
+        res.Poses.clear();
+        res.Poses.reserve(res.Measurements.size()+1);
+        res.Poses.push_back(imuPose);
+
+        // integrate forward in time, and retain all the poses
+        for(ImuMeasurement& meas : res.Measurements){
+            if(pPrevMeas != 0){
+                totalDt += meas.Time - pPrevMeas->Time;
+                imuPose = IntegrateImu(imuPose,*pPrevMeas,meas,m_Imu.Bg,m_Imu.Ba,gravity);
+                res.Poses.push_back(imuPose);
+            }
+            pPrevMeas = &meas;
+        }
+        return imuPose;
+    }
+
     ///////////////////////////////////////////////////////////////////////////////////////////////
     ImuPose IntegrateImu(ImuPose& pose, const ImuMeasurement& zStart,
                      const ImuMeasurement& zEnd, const Eigen::Vector3d& vBg,
@@ -101,6 +121,8 @@ public:
         m_vPoses.clear();
         m_vProjResiduals.clear();
         m_vBinaryResiduals.clear();
+        m_vUnaryResiduals.clear();
+        m_vImuResiduals.clear();
         m_vLandmarks.clear();
 
     }    
@@ -163,7 +185,7 @@ public:
         m_uUnaryResidualOffset += 6;
 
         // we add this to both poses, as each one has a jacobian cell associated
-        m_vPoses[uPoseId].UnaryResiduals.push_back(&m_vUnaryResiduals.back());
+        m_vPoses[uPoseId].UnaryResiduals.push_back(residual.ResidualId);
         return residual.ResidualId;
     }
 
@@ -188,8 +210,8 @@ public:
         m_uBinaryResidualOffset += 6;
 
         // we add this to both poses, as each one has a jacobian cell associated
-        m_vPoses[uPoseAId].BinaryResiduals.push_back(&m_vBinaryResiduals.back());
-        m_vPoses[uPoseBId].BinaryResiduals.push_back(&m_vBinaryResiduals.back());
+        m_vPoses[uPoseAId].BinaryResiduals.push_back(residual.ResidualId);
+        m_vPoses[uPoseBId].BinaryResiduals.push_back(residual.ResidualId);
         return residual.ResidualId;
     }
 
@@ -214,8 +236,8 @@ public:
         m_vProjResiduals.push_back(residual);
         m_uProjResidualOffset += 2;
 
-        m_vLandmarks[uLandmarkId].ProjResiduals.push_back(&m_vProjResiduals.back());
-        m_vPoses[uPoseId].ProjResiduals.push_back(&m_vProjResiduals.back());
+        m_vLandmarks[uLandmarkId].ProjResiduals.push_back(residual.ResidualId);
+        m_vPoses[uPoseId].ProjResiduals.push_back(residual.ResidualId);
 
         return residual.ResidualId;
     }
@@ -240,13 +262,14 @@ public:
         m_vImuResiduals.push_back(residual);
         m_uImuResidualOffset += 9;
 
-        m_vPoses[uPoseAId].ImuResiduals.push_back(&m_vImuResiduals.back());
+        m_vPoses[uPoseAId].ImuResiduals.push_back(residual.ResidualId);
         return residual.ResidualId;
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     void Solve(const unsigned int uMaxIter)
     {
+        Eigen::IOFormat cleanFmt(2, 0, ", ", "\n" , "[" , "]");
         // double dTime = Tic();
         // first build the jacobian and residual vector
         for( unsigned int kk = 0 ; kk < uMaxIter ; kk++){
@@ -279,10 +302,11 @@ public:
             if( m_vProjResiduals.size() > 0 ){
                 Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,PoseSize> > Jprt_Jpr(uNumPoses,uNumPoses);
                 Eigen::SparseBlockProduct(m_Jprt,m_Jpr,Jprt_Jpr);
-                Eigen::SparseBlockAdd(U,Jprt_Jpr,U);
+                auto Temp = U;
+                Eigen::SparseBlockAdd(Temp,Jprt_Jpr,U);
 
                 Eigen::VectorXd Jprt_Rpr(uNumPoses*PoseSize);
-                Eigen::SparseBlockVectorProductDenseResult(m_Jprt,m_R.segment(m_vProjResiduals.front().ResidualOffset,m_vProjResiduals.size()*2),Jprt_Rpr);
+                Eigen::SparseBlockVectorProductDenseResult(m_Jprt,m_Rpr,Jprt_Rpr);
                 bp += Jprt_Rpr;
             }
 
@@ -290,10 +314,11 @@ public:
             if( m_vBinaryResiduals.size() > 0 ) {
                 Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,PoseSize> > Jppt_Jpp(uNumPoses,uNumPoses);
                 Eigen::SparseBlockProduct(m_Jppt,m_Jpp,Jppt_Jpp);
-                Eigen::SparseBlockAdd(U,Jppt_Jpp,U);
+                auto Temp = U;
+                Eigen::SparseBlockAdd(Temp,Jppt_Jpp,U);
 
                 Eigen::VectorXd Jppt_Rpp(uNumPoses*PoseSize);
-                Eigen::SparseBlockVectorProductDenseResult(m_Jppt,m_R.segment(m_vBinaryResiduals.front().ResidualOffset,m_vBinaryResiduals.size()*6),Jppt_Rpp);
+                Eigen::SparseBlockVectorProductDenseResult(m_Jppt,m_Rpp,Jppt_Rpp);
                 bp += Jppt_Rpp;
             }
 
@@ -301,16 +326,34 @@ public:
             if( m_vUnaryResiduals.size() > 0 ) {
                 Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,PoseSize> > Jut_Ju(uNumPoses,uNumPoses);
                 Eigen::SparseBlockProduct(m_Jut,m_Ju,Jut_Ju);
-                Eigen::SparseBlockAdd(U,Jut_Ju,U);
+                auto Temp = U;
+                Eigen::SparseBlockAdd(Temp,Jut_Ju,U);
 
                 Eigen::VectorXd Jut_Ru(uNumPoses*PoseSize);
-                Eigen::SparseBlockVectorProductDenseResult(m_Jut,m_R.segment(m_vUnaryResiduals.front().ResidualOffset,m_vUnaryResiduals.size()*6),Jut_Ru);
+                Eigen::SparseBlockVectorProductDenseResult(m_Jut,m_Ru,Jut_Ru);
                 bp += Jut_Ru;
+
+//                Eigen::LoadDenseFromSparse(U,S);
+//                std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
+            }
+
+            // add the contribution from the imu terms if any
+            if( m_vImuResiduals.size() > 0 ) {
+                Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,PoseSize> > Jit_Ji(uNumPoses,uNumPoses);
+                Eigen::SparseBlockProduct(m_Jit,m_Ji,Jit_Ji);
+                auto Temp = U;
+                Eigen::SparseBlockAdd(Temp,Jit_Ji,U);
+
+                Eigen::VectorXd Jit_Ri(uNumPoses*PoseSize);
+                Eigen::SparseBlockVectorProductDenseResult(m_Jit,m_Ri,Jit_Ri);
+                bp += Jit_Ri;
+//                Eigen::LoadDenseFromSparse(U,S);
+//                std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
             }
 
             if( LmSize > 0 && uNumLm > 0) {
                 bl.resize(uNumLm*LmSize);
-                Eigen::SparseBlockVectorProductDenseResult(m_Jlt,m_R,bl);
+                Eigen::SparseBlockVectorProductDenseResult(m_Jlt,m_Rpr,bl);
 
                 Eigen::SparseBlockMatrix< Eigen::Matrix<double,LmSize,LmSize> > V(uNumLm,uNumLm);
                 Eigen::SparseBlockProduct(m_Jlt,m_Jl,V);
@@ -351,6 +394,8 @@ public:
             }else{
                 Eigen::LoadDenseFromSparse(U,S);
                 rhs_p = bp;
+                std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
+                std::cout << "Dense rhs matrix is " << rhs_p.transpose().format(cleanFmt) << std::endl;
             }
 
             std::cout << "Setup took " << Toc(dTime) << " seconds." << std::endl;
@@ -393,7 +438,7 @@ public:
             for (size_t ii = 0 ; ii < m_vPoses.size() ; ii++){
                 // only update active poses, as inactive ones are not part of the optimization
                 if( m_vPoses[ii].IsActive ){
-                    // std::cout << "Pose delta for " << ii << " is " << delta_p.block<6,1>(m_vPoses[ii].OptId*6,0).transpose() << std::endl;
+//                     std::cout << "Pose delta for " << ii << " is " << delta_p.block<6,1>(m_vPoses[ii].OptId*6,0).transpose() << std::endl;
                     m_vPoses[ii].Twp *= Sophus::SE3d::exp(delta_p.block<6,1>(m_vPoses[ii].OptId*6,0));
                     // clear the vector of Tsw values as they will need to be recalculated
                     m_vPoses[ii].Tsw.clear();
@@ -402,7 +447,7 @@ public:
                 //  std::cout << " Pose " << ii << " is inactive." << std::endl;
                 //  }
             }
-            std::cout << "BA iteration " << kk <<  " error: " << m_R.norm() << std::endl;
+            std::cout << "BA iteration " << kk <<  " error: " << m_Rpr.norm() + m_Ru.norm() + m_Rpp.norm() + m_Ri.norm() << std::endl;
         }
 
         // update the global position of the landmarks from the sensor position
@@ -436,37 +481,43 @@ private:
 
         m_Jpr.resize(uNumProjRes,uNumPoses);
         m_Jprt.resize(uNumPoses,uNumProjRes);
+        m_Jl.resize(uNumProjRes,uNumLm);
+        m_Jlt.resize(uNumLm,uNumProjRes);
+        m_Rpr.resize(uNumProjRes*ProjectionResidual::ResSize);
 
         m_Jpp.resize(uNumBinRes,uNumPoses);
         m_Jppt.resize(uNumPoses,uNumBinRes);
+        m_Rpp.resize(uNumBinRes*BinaryResidual::ResSize);
 
         m_Ju.resize(uNumUnRes,uNumPoses);
         m_Jut.resize(uNumPoses,uNumUnRes);
+        m_Ru.resize(uNumUnRes*UnaryResidual::ResSize);
 
-        m_Jl.resize(uNumProjRes,uNumLm);
-        m_Jlt.resize(uNumLm,uNumProjRes);
-
-        // calculate the total number of residuals
-        m_R.resize(uNumProjRes*2+uNumBinRes*6+uNumUnRes*6+uNumImuRes*9,1);
+        m_Ji.resize(uNumImuRes,uNumPoses);
+        m_Jit.resize(uNumPoses,uNumImuRes);
+        m_Ri.resize(uNumImuRes*ImuResidual::ResSize);
 
 
         // these calls remove all the blocks, but KEEP allocated memory as long as the object is alive
         m_Jpr.setZero();
         m_Jprt.setZero();
+        m_Rpr.setZero();
 
         m_Jpp.setZero();
         m_Jppt.setZero();
-
-        m_Jpp.setZero();
-        m_Jppt.setZero();
+        m_Rpp.setZero();
 
         m_Ju.setZero();
         m_Jut.setZero();
+        m_Ru.setZero();
+
+        m_Ji.setZero();
+        m_Jit.setZero();
+        m_Ri.setZero();
 
         m_Jl.setZero();
         m_Jlt.setZero();
 
-        m_R.setZero();
 
         // used to store errors for robust norm calculation
         m_vErrors.reserve(uNumProjRes);
@@ -474,7 +525,6 @@ private:
 
 
         double dPortionTransfer = 0, dPortionJac = 0, dPortionSparse = 0;
-        unsigned int uPrevBlockResId = 0;
 
         // set all jacobians
         double dTime = Tic();
@@ -531,10 +581,8 @@ private:
             dPortionJac += Toc(dPortTime);
 
             // set the residual in m_R which is dense
-            res.ResidualOffset = res.ResidualOffset+uPrevBlockResId;
-            m_R.segment<2>(res.ResidualOffset) = res.Residual;
+            m_Rpr.segment<ProjectionResidual::ResSize>(res.ResidualOffset) = res.Residual;
         }
-        uPrevBlockResId += m_vProjResiduals.size()*2;
 
         // build binary residual jacobians
         for( BinaryResidual& res : m_vBinaryResiduals ){
@@ -558,25 +606,24 @@ private:
 //            }
 //            std::cout << "J:" << res.dZ_dX1 << std::endl;
 //            std::cout << "J_fd:" << J_fd << std::endl;
-            m_R.segment<6>(res.ResidualOffset+uPrevBlockResId) = (Twa*res.Tab*Twb.inverse()).log();
+            m_Rpp.segment<BinaryResidual::ResSize>(res.ResidualOffset) = (Twa*res.Tab*Twb.inverse()).log();
         }
-        uPrevBlockResId += m_vBinaryResiduals.size()*6;
 
         for( UnaryResidual& res : m_vUnaryResiduals ){
             const Sophus::SE3d& Twp = m_vPoses[res.PoseId].Twp;
             res.dZ_dX = dLog_dX(Twp, res.Twp.inverse());
 
-            m_R.segment<6>(res.ResidualOffset+uPrevBlockResId) = (Twp*res.Twp.inverse()).log();
+            m_Ru.segment<UnaryResidual::ResSize>(res.ResidualOffset) = (Twp*res.Twp.inverse()).log();
         }
-        uPrevBlockResId += m_vUnaryResiduals.size()*6;
 
         for( ImuResidual& res : m_vImuResiduals ){
             // set up the initial pose for the integration
             const Eigen::Vector3d gravity = ImuCalibration::GetGravityVector(m_Imu.G);
             const Eigen::Matrix<double,3,2> dGravity = ImuCalibration::dGravity_dDirection(m_Imu.G);
-            const Pose& startPose = m_vPoses[res.PoseAId];
+            const Pose& poseA = m_vPoses[res.PoseAId];
+            const Pose& poseB = m_vPoses[res.PoseBId];
             double totalDt = 0;
-            ImuPose imuPose(startPose.Twp,startPose.V,Eigen::Vector3d::Zero(),startPose.Time);
+            ImuPose imuPose(poseA.Twp,poseA.V,Eigen::Vector3d::Zero(),poseA.Time);
             ImuMeasurement* pPrevMeas = 0;
             res.Poses.clear();
             res.Poses.reserve(res.Measurements.size()+1);
@@ -591,22 +638,20 @@ private:
                 }
                 pPrevMeas = &meas;
             }
-            const ImuPose& endPose = res.Poses.back();
-            const Sophus::SE3d Tab = startPose.Twp.inverse()*endPose.Twp;
-            const Sophus::SE3d& Twa = startPose.Twp;
-            const Sophus::SE3d& Twb = endPose.Twp;
+            const Sophus::SE3d Tab = poseA.Twp.inverse()*imuPose.Twp;
+            const Sophus::SE3d& Twa = poseA.Twp;
+            const Sophus::SE3d& Twb = poseB.Twp;
 
             // now given the poses, calculate the jacobians.
             // First subtract gravity, initial pose and velocity from the delta T and delta V
-            Sophus::SE3d Tab_0 = endPose.Twp;
-            Eigen::Vector3d Vab_0 = endPose.V;            
-            Tab_0.translation() -=(-gravity*0.5*powi(totalDt,2) + startPose.V*totalDt);   // subtract starting velocity and gravity
-            Tab_0 = startPose.Twp.inverse() * Tab_0;                                       // subtract starting pose
+            Sophus::SE3d Tab_0 = imuPose.Twp;
+            Tab_0.translation() -=(-gravity*0.5*powi(totalDt,2) + poseA.V*totalDt);   // subtract starting velocity and gravity
+            Tab_0 = poseA.Twp.inverse() * Tab_0;                                       // subtract starting pose
             // Augment the velocity delta by subtracting effects of gravity
-            Vab_0 = endPose.V - startPose.V;
+            Eigen::Vector3d Vab_0 = imuPose.V - poseA.V;
             Vab_0 += gravity*totalDt;
             // rotate the velocity delta so that it starts from orientation=Ident
-            Vab_0 = startPose.Twp.so3().inverse() * Vab_0;
+            Vab_0 = poseA.Twp.so3().inverse() * Vab_0;
 
             // derivative with respect to the start pose
             res.dZ_dX1.setZero();
@@ -626,8 +671,8 @@ private:
             res.dZ_dG.block<3,2>(6,0) = -totalDt*Eigen::Matrix3d::Identity()*dGravity;
 
             // now that we have the deltas with subtracted initial velocity, transform and gravity, we can construt the jacobian
-
-            //            m_R.segment<9>(uMaxResId) = (Twp*res.Twp.inverse());
+            m_Ri.segment<6>(res.ResidualOffset) = (Twa*Tab,Twb.inverse()).log();
+            m_Ri.segment<3>(res.ResidualOffset+6) = imuPose.V - poseB.V;
         }
 
         // get the sigma for robust norm calculation. This call is O(n) on average,
@@ -647,9 +692,12 @@ private:
                 // this is square rooted as normally we use JtWJ and JtWr, therefore in order to multiply
                 // the weight directly into the jacobian/residual we must use the square root
                 res.W = sqrt(e > c_huber ? c_huber/e : 1.0);
-                m_R.segment<2>(res.ResidualOffset) *= res.W;
+                m_Rpr.segment<ProjectionResidual::ResSize>(res.ResidualOffset) *= res.W;
             }
         }
+
+        //TODO : The transpose insertions here are hideously expensive as they are not in order.
+        // find a way around this.
 
         // here we sort the measurements and insert them per pose and per landmark, this will mean
         // each insert operation is O(1)
@@ -657,30 +705,37 @@ private:
         for( Pose& pose : m_vPoses ){
             if( pose.IsActive ) {
                 // sort the measurements by id so the sparse insert is O(1)
-                std::sort(pose.ProjResiduals.begin(), pose.ProjResiduals.end(),
-                    [](const ProjectionResidual * pA, const ProjectionResidual * pB) -> bool { return pA->ResidualId < pB->ResidualId;  });
-
-                for( ProjectionResidual* pRes: pose.ProjResiduals ) {
+                std::sort(pose.ProjResiduals.begin(), pose.ProjResiduals.end());
+                for( const int id: pose.ProjResiduals ) {
+                    const ProjectionResidual& res = m_vProjResiduals[id];
                     // insert the jacobians into the sparse matrices
-                    m_Jpr.insert(pRes->ResidualId,pose.OptId).template block<2,6>(0,0) = pRes->dZ_dP * pRes->W;
-                    m_Jprt.insert(pose.OptId,pRes->ResidualId).template block<6,2>(0,0) = pRes->dZ_dP.transpose() * pRes->W;
+                    m_Jpr.insert(res.ResidualId,pose.OptId).setZero().template block<2,6>(0,0) = res.dZ_dP * res.W;
+                    m_Jprt.insert(pose.OptId,res.ResidualId).setZero().template block<6,2>(0,0) = res.dZ_dP.transpose() * res.W;
                 }
 
                 // add the pose/pose constraints
-                std::sort(pose.BinaryResiduals.begin(), pose.BinaryResiduals.end(),
-                    [](const BinaryResidual * pA, const BinaryResidual * pB) -> bool { return pA->ResidualId < pB->ResidualId;  });
-                for( BinaryResidual* pRes: pose.BinaryResiduals ) {
-                    const Eigen::Matrix<double,6,6>& dZ_dZ = pRes->PoseAId == pose.Id ? pRes->dZ_dX1 : pRes->dZ_dX2;
-                    m_Jpp.insert(pRes->ResidualId,pose.OptId).template block<6,6>(0,0) = dZ_dZ * pRes->W;
-                    m_Jppt.insert(pose.OptId,pRes->ResidualId).template block<6,6>(0,0) = dZ_dZ.transpose() * pRes->W;
+                std::sort(pose.BinaryResiduals.begin(), pose.BinaryResiduals.end());
+                for( const int id: pose.BinaryResiduals ) {
+                    const BinaryResidual& res = m_vBinaryResiduals[id];
+                    const Eigen::Matrix<double,6,6>& dZ_dZ = res.PoseAId == pose.Id ? res.dZ_dX1 : res.dZ_dX2;
+                    m_Jpp.insert(res.ResidualId,pose.OptId).setZero().template block<6,6>(0,0) = dZ_dZ * res.W;
+                    m_Jppt.insert(pose.OptId,res.ResidualId).setZero().template block<6,6>(0,0) = dZ_dZ.transpose() * res.W;
                 }
 
                 // add the unary constraints
-                std::sort(pose.UnaryResiduals.begin(), pose.UnaryResiduals.end(),
-                    [](const UnaryResidual * pA, const UnaryResidual * pB) -> bool { return pA->ResidualId < pB->ResidualId;  });
-                for( UnaryResidual* pRes: pose.UnaryResiduals ) {
-                    m_Ju.insert(pRes->ResidualId,pose.OptId).template block<6,6>(0,0) = pRes->dZ_dX * pRes->W;
-                    m_Jut.insert(pose.OptId,pRes->ResidualId).template block<6,6>(0,0) = pRes->dZ_dX.transpose() * pRes->W;
+                std::sort(pose.UnaryResiduals.begin(), pose.UnaryResiduals.end());
+                for( const int id: pose.UnaryResiduals ) {
+                    const UnaryResidual& res = m_vUnaryResiduals[id];
+                    m_Ju.insert(res.ResidualId,pose.OptId).setZero().template block<6,6>(0,0) = res.dZ_dX * res.W;
+                    m_Jut.insert(pose.OptId,res.ResidualId).setZero().template block<6,6>(0,0) = res.dZ_dX.transpose() * res.W;
+                }
+
+                std::sort(pose.ImuResiduals.begin(), pose.ImuResiduals.end());
+                for( const int id: pose.ImuResiduals ) {
+                    const ImuResidual& res = m_vImuResiduals[id];
+                    const Eigen::Matrix<double,9,9>& dZ_dZ = res.PoseAId == pose.Id ? res.dZ_dX1 : res.dZ_dX2;
+                    m_Ji.insert(res.ResidualId,pose.OptId).setZero().template block<9,9>(0,0) = dZ_dZ * res.W;
+                    m_Jit.insert(pose.OptId,res.ResidualId).setZero().template block<9,9>(0,0) = dZ_dZ.transpose() * res.W;
                 }
             }
         }
@@ -701,31 +756,33 @@ private:
                      dPortionJac << "s sparse time " << dPortionSparse << "s" << std::endl;
     }
 
-    // reprojection jacobians
-    Eigen::SparseBlockMatrix< Eigen::Matrix<double,2,PoseSize> > m_Jpr;
-    Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,2> > m_Jprt;
+    // reprojection jacobians and residual
+    Eigen::SparseBlockMatrix< Eigen::Matrix<double,ProjectionResidual::ResSize,PoseSize> > m_Jpr;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,ProjectionResidual::ResSize> > m_Jprt;
+    // landmark jacobians
+    Eigen::SparseBlockMatrix< Eigen::Matrix<double,ProjectionResidual::ResSize,LmSize> > m_Jl;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<double,LmSize,ProjectionResidual::ResSize> > m_Jlt;
+    Eigen::VectorXd m_Rpr;
 
     // pose/pose jacobian for binary constraints
-    Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,PoseSize> > m_Jpp;
-    Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,PoseSize> > m_Jppt;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<double,BinaryResidual::ResSize,PoseSize> > m_Jpp;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,BinaryResidual::ResSize> > m_Jppt;
+    Eigen::VectorXd m_Rpp;
 
     // pose/pose jacobian for unary constraints
-    Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,PoseSize> > m_Ju;
-    Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,PoseSize> > m_Jut;
-
-    // landmark jacobians
-    Eigen::SparseBlockMatrix< Eigen::Matrix<double,2,LmSize> > m_Jl;
-    Eigen::SparseBlockMatrix< Eigen::Matrix<double,LmSize,2> > m_Jlt;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<double,UnaryResidual::ResSize,PoseSize> > m_Ju;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,UnaryResidual::ResSize> > m_Jut;
+    Eigen::VectorXd m_Ru;
 
     // imu jacobian
-    Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,PoseSize> > m_Ji;
-    Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,PoseSize> > m_Jit;
-
+    Eigen::SparseBlockMatrix< Eigen::Matrix<double,ImuResidual::ResSize,PoseSize> > m_Ji;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,ImuResidual::ResSize> > m_Jit;
     // gravity jacobian
     Eigen::SparseBlockMatrix< Eigen::Matrix<double,2,1> > m_Jg;
     Eigen::SparseBlockMatrix< Eigen::Matrix<double,1,2> > m_Jgt;
+    Eigen::VectorXd m_Ri;
 
-    Eigen::VectorXd m_R;
+
 
     unsigned int m_uNumActivePoses;
     unsigned int m_uBinaryResidualOffset;

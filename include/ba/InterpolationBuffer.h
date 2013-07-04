@@ -17,7 +17,8 @@ struct InterpolationBuffer
     ScalarType StartTime;
     ScalarType EndTime;
     ScalarType AverageDt;
-    InterpolationBuffer(unsigned int uSize = 1000)
+    InterpolationBuffer(unsigned int uSize = 1000) :
+        StartTime(-1),EndTime(-1)
     {
         Elements.reserve(uSize);
     }
@@ -35,6 +36,7 @@ struct InterpolationBuffer
         // add the element and update the end time
         Elements.push_back(element);
         EndTime = element.Time;
+        StartTime = Elements.front().Time;
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -51,7 +53,7 @@ struct InterpolationBuffer
         if(indexOut + 1 >= Elements.size()){
             output = GetElement(dMaxTime,&indexOut);
             return false;
-        }else if( Elements[indexOut+1].Time < dMaxTime ){
+        }else if( Elements[indexOut+1].Time > dMaxTime ){
             output = GetElement(dMaxTime,&indexOut);
             return false;
         }else{

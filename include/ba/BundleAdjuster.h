@@ -635,6 +635,8 @@ private:
             J_fd.setZero();
             Eigen::Matrix<double,9,2> Jg_fd;
             Jg_fd.setZero();
+            Eigen::Matrix<double,9,6> Jb_fd;
+            Jb_fd.setZero();
 
             for(int ii = 0 ; ii < 6 ; ii++){
                 Eigen::Vector6d eps = Eigen::Vector6d::Zero();
@@ -696,12 +698,38 @@ private:
                 Jg_fd.col(ii).tail<3>() = (vErrorPlus - vErrorMinus)/(2*dEps);
             }
 
+            Eigen::Vector6d biasVec;
+            biasVec.head<3>() = m_Imu.Bg;
+            biasVec.tail<3>() = m_Imu.Ba;
+            for(int ii = 0 ; ii < 6 ; ii++){
+                Eigen::Vector6d eps = Eigen::Vector6d::Zero();
+                eps[ii] += dEps;
+                std::vector<ImuPose> poses;
+                const Eigen::Vector6d plusBiases = biasVec + eps;
+                const ImuPose imuPosePlus = ImuResidual::IntegrateResidual(poseA,res.Measurements,plusBiases.head<3>(),plusBiases.tail<3>(),gravity,poses);
+                const Eigen::Vector6d dErrorPlus = (imuPosePlus.Twp * Twb.inverse()).log();
+//                std::cout << "Pose plus: " << imuPosePlus.Twp.matrix() << std::endl;
+                const Eigen::Vector3d vErrorPlus = imuPosePlus.V - poseB.V;
+                eps[ii] -= 2*dEps;
+                const Eigen::Vector6d minusBiases = biasVec + eps;
+                poses.clear();
+                const ImuPose imuPoseMinus = ImuResidual::IntegrateResidual(poseA,res.Measurements,minusBiases.head<3>(),minusBiases.tail<3>(),gravity,poses);
+                const Eigen::Vector6d dErrorMinus = (imuPoseMinus.Twp * Twb.inverse()).log();
+//                std::cout << "Pose minus: " << imuPoseMinus.Twp.matrix() << std::endl;
+                const Eigen::Vector3d vErrorMinus = imuPoseMinus.V - poseB.V;
+                Jb_fd.col(ii).head<6>() = (dErrorPlus - dErrorMinus)/(2*dEps);
+                Jb_fd.col(ii).tail<3>() = (vErrorPlus - vErrorMinus)/(2*dEps);
+            }
+
 
             std::cout << "J = [" << res.dZ_dX1.format(cleanFmt) << "]" << std::endl;
             std::cout << "Jf = [" << J_fd.format(cleanFmt) << "]" << std::endl;
 
             std::cout << "Jg = [" << res.dZ_dG.format(cleanFmt) << "]" << std::endl;
             std::cout << "Jgf = [" << Jg_fd.format(cleanFmt) << "]" << std::endl;
+
+            std::cout << "Jb = [" << res.dZ_dG.format(cleanFmt) << "]" << std::endl;
+            std::cout << "Jb = [" << Jb_fd.format(cleanFmt) << "]" << std::endl;
 
             // now that we have the deltas with subtracted initial velocity, transform and gravity, we can construt the jacobian
             m_Ri.segment<6>(res.ResidualOffset) = (Twa*Tab,Twb.inverse()).log();

@@ -26,75 +26,6 @@ public:
     BundleAdjuster() :
         m_Imu(Sophus::SE3d(),Eigen::Vector3d::Zero(),Eigen::Vector3d::Zero(),Eigen::Vector2d::Zero()) {}
 
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    Eigen::Matrix<double,9,1> GetPoseDerivative(const Sophus::SE3d& tTwb,const Eigen::Vector3d& tV_w,
-                                                   const Eigen::Vector3d& tG_w, const ImuMeasurement& zStart,
-                                                   const ImuMeasurement& zEnd, const Eigen::Vector3d& vBg,
-                                                   const Eigen::Vector3d& vBa, const double dt)
-    {
-        double alpha = (zEnd.Time - (zStart.Time+dt))/(zEnd.Time - zStart.Time);
-        Eigen::Vector3d zb = zStart.W*alpha + zEnd.W*(1.0-alpha);
-        Eigen::Vector3d za = zStart.A*alpha + zEnd.A*(1.0-alpha);
-
-        Eigen::Matrix<double,9,1> deriv;
-        //derivative of position is velocity
-        deriv.head<3>() = tV_w;
-        //deriv.template segment<3>(3) = Sophus::SO3Group<T>::vee(tTwb.so3().matrix()*Sophus::SO3Group<T>::hat(zb));
-        deriv.template segment<3>(3) = tTwb.so3().Adj()*(zb+vBg);
-        deriv.template segment<3>(6) = tTwb.so3()*(za+vBa) - tG_w;
-        return deriv;
-    }
-
-    ImuPose IntegrateResidual(Pose& pose, ImuResidual res)
-    {
-        ImuPose imuPose(pose.Twp,pose.V,Eigen::Vector3d::Zero(),pose.Time);
-        ImuMeasurement* pPrevMeas = 0;
-        res.Poses.clear();
-        res.Poses.reserve(res.Measurements.size()+1);
-        res.Poses.push_back(imuPose);
-
-        // integrate forward in time, and retain all the poses
-        for(ImuMeasurement& meas : res.Measurements){
-            if(pPrevMeas != 0){
-                totalDt += meas.Time - pPrevMeas->Time;
-                imuPose = IntegrateImu(imuPose,*pPrevMeas,meas,m_Imu.Bg,m_Imu.Ba,gravity);
-                res.Poses.push_back(imuPose);
-            }
-            pPrevMeas = &meas;
-        }
-        return imuPose;
-    }
-
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    ImuPose IntegrateImu(ImuPose& pose, const ImuMeasurement& zStart,
-                     const ImuMeasurement& zEnd, const Eigen::Vector3d& vBg,
-                     const Eigen::Vector3d vBa,const Eigen::Vector3d dG)
-    {
-        //construct the state matrix
-        double h = zEnd.Time - zStart.Time;
-        if(h == 0){
-            return pose;
-        }
-
-        Sophus::SE3d aug_Twv = pose.Twp;
-        Eigen::Vector3d aug_V = pose.V;
-        Eigen::Matrix<double,9,1> k1 = GetPoseDerivative(aug_Twv,aug_V,dG,zStart,zEnd,vBg,vBa,0);
-
-        aug_Twv.translation() += k1.head<3>()*h;
-        const Sophus::SO3d Rv2v1(Sophus::SO3d::exp(k1.segment<3>(3)*h));
-        aug_Twv.so3() = Rv2v1*pose.Twp.so3();
-        // do euler integration for now
-        aug_V += k1.tail<3>()*h;
-
-        //and now output the state
-        pose.Twp = aug_Twv;
-        pose.V = aug_V;
-        pose.W = k1.segment<3>(3);
-        pose.Time = zEnd.Time;
-//        pose.m_dW = currentPose.m_dW;
-//        pose.m_dTime = zEnd.m_dTime;
-        return pose;
-    }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     void Init(const unsigned int uNumPoses,
@@ -110,6 +41,7 @@ public:
         m_uProjResidualOffset = 0;
         m_uBinaryResidualOffset = 0;
         m_uUnaryResidualOffset = 0;
+        m_uImuResidualOffset = 0;
         if(pRig != 0){
             m_Rig = *pRig;
         }
@@ -269,7 +201,7 @@ public:
     ///////////////////////////////////////////////////////////////////////////////////////////////
     void Solve(const unsigned int uMaxIter)
     {
-        Eigen::IOFormat cleanFmt(2, 0, ", ", "\n" , "[" , "]");
+        Eigen::IOFormat cleanFmt(2, 0, ", ", ";\n" , "" , "");
         // double dTime = Tic();
         // first build the jacobian and residual vector
         for( unsigned int kk = 0 ; kk < uMaxIter ; kk++){
@@ -394,8 +326,8 @@ public:
             }else{
                 Eigen::LoadDenseFromSparse(U,S);
                 rhs_p = bp;
-                std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
-                std::cout << "Dense rhs matrix is " << rhs_p.transpose().format(cleanFmt) << std::endl;
+//                std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
+//                std::cout << "Dense rhs matrix is " << rhs_p.transpose().format(cleanFmt) << std::endl;
             }
 
             std::cout << "Setup took " << Toc(dTime) << " seconds." << std::endl;
@@ -439,7 +371,11 @@ public:
                 // only update active poses, as inactive ones are not part of the optimization
                 if( m_vPoses[ii].IsActive ){
 //                     std::cout << "Pose delta for " << ii << " is " << delta_p.block<6,1>(m_vPoses[ii].OptId*6,0).transpose() << std::endl;
-                    m_vPoses[ii].Twp *= Sophus::SE3d::exp(delta_p.block<6,1>(m_vPoses[ii].OptId*6,0));
+                    m_vPoses[ii].Twp *= Sophus::SE3d::exp(delta_p.block<6,1>(m_vPoses[ii].OptId*PoseSize,0));
+                    // update the velocities if they are parametrized
+                    if(PoseSize == 9){
+                        m_vPoses[ii].V += delta_p.block<3,1>(m_vPoses[ii].OptId*PoseSize+6,0);
+                    }
                     // clear the vector of Tsw values as they will need to be recalculated
                     m_vPoses[ii].Tsw.clear();
                 }
@@ -471,6 +407,8 @@ public:
 private:
     void _BuildProblem()
     {
+        Eigen::IOFormat cleanFmt(2, 0, ", ", ";\n" , "" , "");
+
         // resize as needed
         const unsigned int uNumPoses = m_uNumActivePoses;
         const unsigned int uNumLm = m_vLandmarks.size();
@@ -622,22 +560,26 @@ private:
             const Eigen::Matrix<double,3,2> dGravity = ImuCalibration::dGravity_dDirection(m_Imu.G);
             const Pose& poseA = m_vPoses[res.PoseAId];
             const Pose& poseB = m_vPoses[res.PoseBId];
-            double totalDt = 0;
-            ImuPose imuPose(poseA.Twp,poseA.V,Eigen::Vector3d::Zero(),poseA.Time);
-            ImuMeasurement* pPrevMeas = 0;
-            res.Poses.clear();
-            res.Poses.reserve(res.Measurements.size()+1);
-            res.Poses.push_back(imuPose);
 
-            // integrate forward in time, and retain all the poses
-            for(ImuMeasurement& meas : res.Measurements){
-                if(pPrevMeas != 0){
-                    totalDt += meas.Time - pPrevMeas->Time;
-                    imuPose = IntegrateImu(imuPose,*pPrevMeas,meas,m_Imu.Bg,m_Imu.Ba,gravity);
-                    res.Poses.push_back(imuPose);
-                }
-                pPrevMeas = &meas;
-            }
+
+//            ImuPose imuPose(poseA.Twp,poseA.V,Eigen::Vector3d::Zero(),poseA.Time);
+//            ImuMeasurement* pPrevMeas = 0;
+//            res.Poses.clear();
+//            res.Poses.reserve(res.Measurements.size()+1);
+//            res.Poses.push_back(imuPose);
+
+//            // integrate forward in time, and retain all the poses
+//            for(ImuMeasurement& meas : res.Measurements){
+//                if(pPrevMeas != 0){
+//                    totalDt += meas.Time - pPrevMeas->Time;
+//                    imuPose = ImuResidual::IntegrateImu(imuPose,*pPrevMeas,meas,m_Imu.Bg,m_Imu.Ba,gravity);
+//                    res.Poses.push_back(imuPose);
+//                }
+//                pPrevMeas = &meas;
+//            }
+
+            ImuPose imuPose = ImuResidual::IntegrateResidual(poseA,res.Measurements,m_Imu.Bg,m_Imu.Ba,gravity,res.Poses);
+            double totalDt = res.Measurements.back().Time - res.Measurements.front().Time;
             const Sophus::SE3d Tab = poseA.Twp.inverse()*imuPose.Twp;
             const Sophus::SE3d& Twa = poseA.Twp;
             const Sophus::SE3d& Twb = poseB.Twp;
@@ -658,8 +600,42 @@ private:
             res.dZ_dX2.setZero();
             res.dZ_dG.setZero();
 
-            res.dZ_dX1.block<6,6>(0,0) = dLog_dX(Twa,Tab*Twb.inverse());
-            res.dZ_dX1.block<3,3>(0,6) = Eigen::Matrix3d::Identity()*totalDt;
+
+            Pose p;
+            p.Twp = Sophus::SE3d();
+            p.V.setZero();
+            std::vector<ImuPose> posesTem2;
+            ImuPose imuPoseTemp = ImuResidual::IntegrateResidual(p,res.Measurements,m_Imu.Bg,m_Imu.Ba,Eigen::Vector3d::Zero(),posesTem2);
+            std::cout << "Error between: " << Sophus::SE3d::log(Tab_0.inverse() * imuPoseTemp.Twp).transpose() << std::endl;
+            std::cout << "Rwa = " << Twa.so3().matrix().format(cleanFmt) << std::endl;
+            Tab_0 = imuPoseTemp.Twp;
+
+
+            Sophus::SE3d Tstar(Sophus::SO3d(),(poseA.V*totalDt - 0.5*gravity*powi(totalDt,2)));
+//            Tab_0 = poseA.Twp * Tab_0;
+//            Tab_0.translation() +=(poseA.V*totalDt);
+//            std::cout << "Pose before gravity: " << Tab_0.matrix() << std::endl;
+//            Tab_0.translation() += (-gravity*0.5*powi(totalDt,2));
+
+            Sophus::SE3d reconstruction = Tstar*Twa * Tab_0;
+            std::vector<ImuPose> posesTemp;
+            ImuPose imuPoseC = ImuResidual::IntegrateResidual(poseA,res.Measurements,m_Imu.Bg,m_Imu.Ba,gravity,posesTemp);
+            std::cout << "Error is :" << Sophus::SE3d::log(reconstruction * imuPoseC.Twp.inverse() ).transpose() << std::endl;
+            std::cout << "Final pose is: " << imuPoseC.Twp.matrix() << std::endl;
+            std::cout << "Reconstructed pose is: " << reconstruction.matrix() << std::endl;
+
+            Eigen::Matrix<double,6,6> test  = dLog_dX(Tstar*Twa,Tab_0*Twb.inverse());
+            Eigen::Matrix<double,6,3> test2;
+            test2.setZero();
+            std::cout << "dlog_dx = " << test.format(cleanFmt) << std::endl;
+            test2.block<3,3>(0,0) = Twa.so3().inverse().matrix() * Eigen::Matrix3d::Identity()*totalDt;
+//            std::cout << "Test 2: " << test2 << " test " << test << std::endl;
+            test2 = test*test2;
+            std::cout << "dlog_dx_I_dt = " << test2.block<3,3>(0,0).format(cleanFmt) << std::endl;
+//            std::cout << "Test 2: " << test2 << std::endl;
+
+            res.dZ_dX1.block<6,6>(0,0) = dLog_dX(Tstar*Twa,Tab_0*Twb.inverse());
+            res.dZ_dX1.block<3,3>(0,6) = /*Eigen::Matrix3d::Identity()*totalDt*/ test2.block<3,3>(0,0);
             for( int ii = 0; ii < 3 ; ++ii ){
                 res.dZ_dX1.block<3,1>(6,3+ii) = Twa.so3().matrix() * Sophus::SO3d::generator(ii) * Vab_0;
             }
@@ -669,6 +645,70 @@ private:
 
             res.dZ_dG.block<3,2>(0,0) = -0.5*powi(totalDt,2)*Eigen::Matrix3d::Identity()*dGravity;
             res.dZ_dG.block<3,2>(6,0) = -totalDt*Eigen::Matrix3d::Identity()*dGravity;
+
+            double dEps = 1e-12;
+//            Eigen::Matrix<double,6,6> Jlog;
+//            for(int ii = 0 ; ii < 6 ; ii++){
+//                Eigen::Vector6d eps = Eigen::Vector6d::Zero();
+//                eps[ii] += dEps;
+//                const Eigen::Vector6d resPlus = Sophus::SE3d::log(Twa*Sophus::SE3d::exp(eps)*Tab*Twb.inverse());
+//                eps[ii] -= 2*dEps;
+//                const Eigen::Vector6d resMinus = Sophus::SE3d::log(Twa*Sophus::SE3d::exp(eps)*Tab*Twb.inverse());
+//                Jlog.col(ii) = (resPlus-resMinus)/(2*dEps);
+//            }
+
+//            std::cout << "Jlog = [" << dLog_dX(Twa,Tab*Twb.inverse()) << "]" << std::endl;
+//            std::cout << "Jlogf = [" << Jlog.format(cleanFmt) << "]" << std::endl;
+
+            // verify using finite differences
+            Eigen::Matrix<double,9,9> J_fd;
+            J_fd.setZero();
+
+            for(int ii = 0 ; ii < 6 ; ii++){
+                Eigen::Vector6d eps = Eigen::Vector6d::Zero();
+                eps[ii] += dEps;
+                Pose poseEps = poseA;
+                poseEps.Twp = poseEps.Twp * Sophus::SE3d::exp(eps);
+                std::vector<ImuPose> poses;
+                const ImuPose imuPosePlus = ImuResidual::IntegrateResidual(poseEps,res.Measurements,m_Imu.Bg,m_Imu.Ba,gravity,poses);
+                const Eigen::Vector6d dErrorPlus = (imuPosePlus.Twp * Twb.inverse()).log();
+                const Eigen::Vector3d vErrorPlus = imuPosePlus.V - poseB.V;
+                eps[ii] -= 2*dEps;
+                poseEps = poseA;
+                poseEps.Twp = poseEps.Twp * Sophus::SE3d::exp(eps);
+                poses.clear();
+                const ImuPose imuPoseMinus = ImuResidual::IntegrateResidual(poseEps,res.Measurements,m_Imu.Bg,m_Imu.Ba,gravity,poses);
+                const Eigen::Vector6d dErrorMinus = (imuPoseMinus.Twp * Twb.inverse()).log();
+                const Eigen::Vector3d vErrorMinus = imuPoseMinus.V - poseB.V;
+                J_fd.col(ii).head<6>() = (dErrorPlus - dErrorMinus)/(2*dEps);
+                J_fd.col(ii).tail<3>() = (vErrorPlus - vErrorMinus)/(2*dEps);
+            }
+
+            for(int ii = 0 ; ii < 3 ; ii++){
+                Eigen::Vector3d eps = Eigen::Vector3d::Zero();
+                eps[ii] += dEps;
+                Pose poseEps = poseA;
+                poseEps.V += eps;
+                std::vector<ImuPose> poses;
+                const ImuPose imuPosePlus = ImuResidual::IntegrateResidual(poseEps,res.Measurements,m_Imu.Bg,m_Imu.Ba,gravity,poses);
+                const Eigen::Vector6d dErrorPlus = (imuPosePlus.Twp * Twb.inverse()).log();
+//                std::cout << "Pose plus: " << imuPosePlus.Twp.matrix() << std::endl;
+                const Eigen::Vector3d vErrorPlus = imuPosePlus.V - poseB.V;
+                eps[ii] -= 2*dEps;
+                poseEps = poseA;
+                poseEps.V += eps;
+                poses.clear();
+                const ImuPose imuPoseMinus = ImuResidual::IntegrateResidual(poseEps,res.Measurements,m_Imu.Bg,m_Imu.Ba,gravity,poses);
+                const Eigen::Vector6d dErrorMinus = (imuPoseMinus.Twp * Twb.inverse()).log();
+//                std::cout << "Pose minus: " << imuPoseMinus.Twp.matrix() << std::endl;
+                const Eigen::Vector3d vErrorMinus = imuPoseMinus.V - poseB.V;
+                J_fd.col(ii+6).head<6>() = (dErrorPlus - dErrorMinus)/(2*dEps);
+                J_fd.col(ii+6).tail<3>() = (vErrorPlus - vErrorMinus)/(2*dEps);
+            }
+
+
+            std::cout << "J = [" << res.dZ_dX1.format(cleanFmt) << "]" << std::endl;
+            std::cout << "Jf = [" << J_fd.format(cleanFmt) << "]" << std::endl;
 
             // now that we have the deltas with subtracted initial velocity, transform and gravity, we can construt the jacobian
             m_Ri.segment<6>(res.ResidualOffset) = (Twa*Tab,Twb.inverse()).log();
@@ -742,13 +782,12 @@ private:
 
         for( Landmark& lm : m_vLandmarks ){
             // sort the measurements by id so the sparse insert is O(1)
-            std::sort(lm.ProjResiduals.begin(), lm.ProjResiduals.end(),
-                [](const ProjectionResidual * pA, const ProjectionResidual * pB) -> bool { return pA->ResidualId < pB->ResidualId; });
-
-            for( ProjectionResidual* pRes: lm.ProjResiduals ) {
+            std::sort(lm.ProjResiduals.begin(), lm.ProjResiduals.end());
+            for( const int id: lm.ProjResiduals ) {
+                const ProjectionResidual& res = m_vProjResiduals[id];
 //                std::cout << "      Adding jacobian cell for measurement " << pMeas->MeasurementId << " in landmark " << pMeas->LandmarkId << std::endl;
-                m_Jl.insert(pRes->ResidualId,lm.OptId) = pRes->dZ_dX * pRes->W;
-                m_Jlt.insert(lm.OptId,pRes->ResidualId) = pRes->dZ_dX.transpose() * pRes->W;
+                m_Jl.insert(res.ResidualId,lm.OptId) = res.dZ_dX * res.W;
+                m_Jlt.insert(lm.OptId,res.ResidualId) = res.dZ_dX.transpose() * res.W;
             }
         }
         dPortionSparse += Toc(dPortTime);

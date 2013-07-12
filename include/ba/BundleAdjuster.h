@@ -614,7 +614,45 @@ private:
             // now add the log jacobians to the bias jacobian terms
             res.dZ_dB.block<3,6>(3,0) = dLog_dq((imuPose.Twp.so3() * Twb.so3().inverse()).unit_quaternion()) *
                                             dq1q2_dq1(Twb.so3().inverse().unit_quaternion()) * jb_q.block<4,6>(3,0);
-            res.dZ_dB.block<3,6>(0,0) = dLog_b.block<3,3>(0,0) * imuPose.Twp.so3().inverse().matrix() * jb_q.block<3,6>(0,0);
+
+//            const Sophus::SE3d se3 = imuPose.Twp*Twb.inverse();
+//            Eigen::Vector3d upsilon_omega;
+//            double theta;
+//            upsilon_omega = Sophus::SO3d::logAndTheta(se3.so3(), &theta);
+
+//              const Eigen::Matrix3d Omega = Sophus::SO3d::hat(upsilon_omega.template tail<3>());
+//              const Eigen::Matrix3d V_inv =
+//                  ( Eigen::Matrix3d::Identity() - 0.5*Omega + ( 1 - theta/(2*tan(theta/2))) / (theta*theta)*(Omega*Omega) );
+//            std::cout << "Vinv " << std::endl << V_inv << std::endl;
+//            upsilon_omega = V_inv*se3.translation();
+
+//            Eigen::Matrix<double,6,6> temp;
+//            temp.block<3,6>(0,0) = V_inv * jb_q.block<3,6>(0,0);
+//            temp.block<3,6>(3,0) =dLog_dq((imuPose.Twp.so3() * Twb.so3().inverse()).unit_quaternion()) *
+//                                    dq1q2_dq1(Twb.so3().inverse().unit_quaternion()) * jb_q.block<4,6>(3,0);
+            Eigen::Matrix<double,6,7> dLog_dqx;
+            for(int ii = 0 ; ii < 7 ; ii++){
+                double dEps = 1e-9;
+                Eigen::Matrix<double,7,1> epsVec = Eigen::Matrix<double,7,1>::Zero();
+                epsVec[ii] += dEps;
+                Sophus::SE3d Twp_imu_plus = imuPose.Twp;
+                Twp_imu_plus.translation() += epsVec.head<3>();
+                const Eigen::Vector4d coeffsPlus = Twp_imu_plus.unit_quaternion().coeffs() + epsVec.tail<4>();
+                memcpy(Twp_imu_plus.so3().data(),coeffsPlus.data(),sizeof(double)*4);
+                const Eigen::Vector6d resPlus = (Twp_imu_plus * Twb.inverse()).log();
+
+                epsVec[ii] -= 2*dEps;
+                Sophus::SE3d Twp_imu_minus = imuPose.Twp;
+                Twp_imu_minus.translation() += epsVec.head<3>();
+                const Eigen::Vector4d coeffsMinus = Twp_imu_minus.unit_quaternion().coeffs() + epsVec.tail<4>();
+                memcpy(Twp_imu_minus.so3().data(),coeffsMinus.data(),sizeof(double)*4);
+                const Eigen::Vector6d resMinus = (Twp_imu_minus * Twb.inverse()).log();
+                dLog_dqx.col(ii) = (resPlus-resMinus)/(2*dEps);
+            }
+            std::cout << "dLog_dqx = " << std::endl << dLog_dqx << std::endl;
+            res.dZ_dB.block<3,6>(0,0) = (dLog_dqx*jb_q.block<7,6>(0,0)).block<3,6>(0,0);
+//            res.dZ_dB.block<3,6>(0,0) = dLog_b.block<3,3>(0,0) * imuPose.Twp.so3().inverse().matrix() * jb_q.block<3,6>(0,0) +
+//                                        dLog_dq((imuPose.Twp.so3() * Twb.so3().inverse()).unit_quaternion()) * jb_q.block<4,6>(3,0);
             res.dZ_dB.block<3,6>(6,0) = jb_q.block<3,6>(7,0);
 
             res.dZ_dX1.block<6,6>(0,0) = dLog;

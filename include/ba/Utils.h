@@ -76,7 +76,7 @@ namespace ba
     }
 
     ///////////////////////////////////////////////////////////////////////////////
-    // this function implements the derivative of log with respect to the input jacobian
+    // this function implements the derivative of log with respect to the input quaternion
     inline Eigen::Matrix<double,3,4> dLog_dq(const Eigen::Quaterniond& q)
     {
         const double s1 = powi(q.x(),2) + powi(q.y(),2) + powi(q.z(),2);
@@ -88,8 +88,6 @@ namespace ba
 //        const double s7 = s3*s4;
 //        const double s8 = s2*s5;
 
-        // this is using the 2nd order cbh expansion, to evaluate (I + 0.5 [Adj*x, log(AB)])*Adj
-        // refer to the thesis by Hauke Strasdat, Appendix 3.
         return (Eigen::Matrix<double, 3, 4>() <<
                  - 2*s2*s5*powi(q.x(),2) + s6,      -2*q.x()*q.y()*s2*s5,      -2*q.x()*q.z()*s2*s5, -2*q.x()*s3*s4,
                       -2*q.x()*q.y()*s2*s5, - 2*s2*s5*powi(q.y(),2) + s6,      -2*q.y()*q.z()*s2*s5, -2*q.y()*s3*s4,

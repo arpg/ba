@@ -433,6 +433,7 @@ private:
 
         m_Ji.resize(uNumImuRes,uNumPoses);
         m_Jit.resize(uNumPoses,uNumImuRes);
+        m_Jki.resize(uNumImuRes*ImuResidual::ResSize,8);
         m_Ri.resize(uNumImuRes*ImuResidual::ResSize);
 
 
@@ -451,6 +452,8 @@ private:
 
         m_Ji.setZero();
         m_Jit.setZero();
+//        m_Jki.setZero();
+//        m_Jkit.setZero();
         m_Ri.setZero();
 
         m_Jl.setZero();
@@ -578,7 +581,8 @@ private:
 //                pPrevMeas = &meas;
 //            }
 
-            ImuPose imuPose = ImuResidual::IntegrateResidual(poseA,res.Measurements,m_Imu.Bg,m_Imu.Ba,gravity,res.Poses);
+            Eigen::Matrix<double,10,6> jb_q;
+            ImuPose imuPose = ImuResidual::IntegrateResidual(poseA,res.Measurements,m_Imu.Bg,m_Imu.Ba,gravity,res.Poses,&jb_q   );
             double totalDt = res.Measurements.back().Time - res.Measurements.front().Time;
             const Sophus::SE3d Tab = poseA.Twp.inverse()*imuPose.Twp;
             const Sophus::SE3d& Twa = poseA.Twp;
@@ -599,18 +603,30 @@ private:
             res.dZ_dX1.setZero();
             res.dZ_dX2.setZero();
             res.dZ_dG.setZero();
+            res.dZ_dB.setZero();
 
             Sophus::SE3d Tstar(Sophus::SO3d(),(poseA.V*totalDt - 0.5*gravity*powi(totalDt,2)));
 
-            Eigen::Matrix<double,6,6> dLog  = dLog_dX(Tstar*Twa,Tab_0*Twb.inverse());
+            // calculate the derivative of the lie log with respect to the tangent plane at Twa
+            const Eigen::Matrix<double,6,6> dLog  = dLog_dX(Tstar*Twa,Tab_0*Twb.inverse());
+            const Eigen::Matrix<double,6,6> dLog_b  = dLog_dX(imuPose.Twp,Twb.inverse());
+
+            // now add the log jacobians to the bias jacobian terms
+            res.dZ_dB.block<3,6>(3,0) = dLog_dq((imuPose.Twp.so3() * Twb.so3().inverse()).unit_quaternion()) *
+                                            dq1q2_dq1(Twb.so3().inverse().unit_quaternion()) * jb_q.block<4,6>(3,0);
+            res.dZ_dB.block<3,6>(0,0) = dLog_b.block<3,3>(0,0) * imuPose.Twp.so3().inverse().matrix() * jb_q.block<3,6>(0,0);
+            res.dZ_dB.block<3,6>(6,0) = jb_q.block<3,6>(7,0);
+
             res.dZ_dX1.block<6,6>(0,0) = dLog;
+            // Twa^-1 is multiplied here as we need the velocity derivative in the frame of pose A, as the log is taken from this frame
             res.dZ_dX1.block<3,3>(0,6) = dLog.block<3,3>(0,0) * Twa.so3().inverse().matrix() * Eigen::Matrix3d::Identity()*totalDt;
             for( int ii = 0; ii < 3 ; ++ii ){
                 res.dZ_dX1.block<3,1>(6,3+ii) = Twa.so3().matrix() * Sophus::SO3d::generator(ii) * Vab_0;
             }
             res.dZ_dX1.block<3,3>(6,6) = Eigen::Matrix3d::Identity();
             // the - sign is here because of the exp(-x) within the log
-            res.dZ_dX2.block<6,6>(0,0) = -dLog_dX(Twa*Tab,Twb.inverse());
+            res.dZ_dX2.block<6,6>(0,0) = -dLog_dX(imuPose.Twp,Twb.inverse());//-dLog_dX(Twa*Tab,Twb.inverse());
+            res.dZ_dX2.block<3,3>(6,6) = -Eigen::Matrix3d::Identity();
 
             res.dZ_dG.block<3,2>(0,0) = dLog.block<3,3>(0,0) * Twa.so3().inverse().matrix() *
                                         -0.5*powi(totalDt,2)*Eigen::Matrix3d::Identity()*dGravity;
@@ -637,6 +653,34 @@ private:
             Jg_fd.setZero();
             Eigen::Matrix<double,9,6> Jb_fd;
             Jb_fd.setZero();
+
+            Eigen::Matrix<double,9,9>  dRi_dx2_fd;
+            for(int ii = 0; ii < 9 ; ii++){
+                Eigen::Matrix<double,9,1> epsVec = Eigen::Matrix<double,9,1>::Zero();
+                epsVec[ii] += dEps;
+                ImuPose y0_eps(poseB.Twp,poseB.V, Eigen::Vector3d::Zero(),0);
+                y0_eps.Twp = y0_eps.Twp * Sophus::SE3d::exp(epsVec.head<6>());
+                y0_eps.V += epsVec.tail<3>();
+                Eigen::Matrix<double,9,1> r_plus;
+                r_plus.head<6>() = (imuPose.Twp*y0_eps.Twp.inverse()).log();
+                r_plus.tail<3>() = imuPose.V - y0_eps.V;
+
+
+
+                epsVec[ii] -= 2*dEps;
+                y0_eps = ImuPose(poseB.Twp,poseB.V, Eigen::Vector3d::Zero(),0);;
+                y0_eps.Twp = y0_eps.Twp * Sophus::SE3d::exp(epsVec.head<6>());
+                y0_eps.V += epsVec.tail<3>();
+                Eigen::Matrix<double,9,1> r_minus;
+                r_minus.head<6>() = (imuPose.Twp*y0_eps.Twp.inverse()).log();
+                r_minus.tail<3>() = imuPose.V - y0_eps.V;
+
+                dRi_dx2_fd.col(ii) = (r_plus-r_minus)/(2*dEps);
+            }
+            std::cout << "res.dZ_dX2= " << std::endl << res.dZ_dX2 << std::endl;
+            std::cout << "dRi_dx2_fd = " << std::endl <<  dRi_dx2_fd << std::endl;
+            std::cout << "res.dZ_dX2-dRi_dx2_fd = " << std::endl << res.dZ_dX2-dRi_dx2_fd << "norm: " << (res.dZ_dX2-dRi_dx2_fd).norm() <<  std::endl;
+
 
             for(int ii = 0 ; ii < 6 ; ii++){
                 Eigen::Vector6d eps = Eigen::Vector6d::Zero();
@@ -707,31 +751,44 @@ private:
                 std::vector<ImuPose> poses;
                 const Eigen::Vector6d plusBiases = biasVec + eps;
                 const ImuPose imuPosePlus = ImuResidual::IntegrateResidual(poseA,res.Measurements,plusBiases.head<3>(),plusBiases.tail<3>(),gravity,poses);
+//                Eigen::Matrix<double,10,1> plusVec;
+//                plusVec.head<3>() = imuPosePlus.Twp.translation();
+//                plusVec.segment<4>(3) = imuPosePlus.Twp.so3().unit_quaternion().coeffs();
+//                plusVec.tail<3>() = imuPosePlus.V;
                 const Eigen::Vector6d dErrorPlus = (imuPosePlus.Twp * Twb.inverse()).log();
 //                std::cout << "Pose plus: " << imuPosePlus.Twp.matrix() << std::endl;
                 const Eigen::Vector3d vErrorPlus = imuPosePlus.V - poseB.V;
+
                 eps[ii] -= 2*dEps;
                 const Eigen::Vector6d minusBiases = biasVec + eps;
                 poses.clear();
                 const ImuPose imuPoseMinus = ImuResidual::IntegrateResidual(poseA,res.Measurements,minusBiases.head<3>(),minusBiases.tail<3>(),gravity,poses);
+//                Eigen::Matrix<double,10,1> minusVec;
+//                minusVec.head<3>() = imuPoseMinus.Twp.translation();
+//                minusVec.segment<4>(3) = imuPoseMinus.Twp.so3().unit_quaternion().coeffs();
+//                minusVec.tail<3>() = imuPoseMinus.V;
                 const Eigen::Vector6d dErrorMinus = (imuPoseMinus.Twp * Twb.inverse()).log();
 //                std::cout << "Pose minus: " << imuPoseMinus.Twp.matrix() << std::endl;
                 const Eigen::Vector3d vErrorMinus = imuPoseMinus.V - poseB.V;
                 Jb_fd.col(ii).head<6>() = (dErrorPlus - dErrorMinus)/(2*dEps);
                 Jb_fd.col(ii).tail<3>() = (vErrorPlus - vErrorMinus)/(2*dEps);
+//                Jb_fd.col(ii) = (plusVec-minusVec)/(2*dEps);
             }
 
 
-            std::cout << "J = [" << res.dZ_dX1.format(cleanFmt) << "]" << std::endl;
-            std::cout << "Jf = [" << J_fd.format(cleanFmt) << "]" << std::endl;
+            std::cout << "J = [" << std::endl << res.dZ_dX1 << "]" << std::endl;
+            std::cout << "Jf = [" << std::endl << J_fd << "]" << std::endl;
+            std::cout << "J-Jf = [" << std::endl << res.dZ_dX1-J_fd << "] norm = " << (res.dZ_dX1-J_fd).norm() << std::endl;
 
-            std::cout << "Jg = [" << res.dZ_dG.format(cleanFmt) << "]" << std::endl;
-            std::cout << "Jgf = [" << Jg_fd.format(cleanFmt) << "]" << std::endl;
+            std::cout << "Jg = [" << std::endl << res.dZ_dG << "]" << std::endl;
+            std::cout << "Jgf = [" << std::endl << Jg_fd << "]" << std::endl;
+            std::cout << "Jg-Jgf = [" << std::endl << res.dZ_dG-Jg_fd << "] norm = " << (res.dZ_dG-Jg_fd).norm() << std::endl;
 
-            std::cout << "Jb = [" << res.dZ_dG.format(cleanFmt) << "]" << std::endl;
-            std::cout << "Jb = [" << Jb_fd.format(cleanFmt) << "]" << std::endl;
+            std::cout << "Jb = [" << std::endl << res.dZ_dB/*jb_q*/ << "]" << std::endl;
+            std::cout << "Jbf = [" << std::endl << Jb_fd << "]" << std::endl;
+            std::cout << "Jb-Jbf = [" << std::endl << res.dZ_dB-Jb_fd << "] norm = " << (res.dZ_dB-Jb_fd).norm() << std::endl;
 
-            // now that we have the deltas with subtracted initial velocity, transform and gravity, we can construt the jacobian
+            // now that we have the deltas with subtracted initial velocity, transform and gravity, we can construct the jacobian
             m_Ri.segment<6>(res.ResidualOffset) = (Twa*Tab,Twb.inverse()).log();
             m_Ri.segment<3>(res.ResidualOffset+6) = imuPose.V - poseB.V;
         }
@@ -797,6 +854,8 @@ private:
                     const Eigen::Matrix<double,9,9>& dZ_dZ = res.PoseAId == pose.Id ? res.dZ_dX1 : res.dZ_dX2;
                     m_Ji.insert(res.ResidualId,pose.OptId).setZero().template block<9,9>(0,0) = dZ_dZ * res.W;
                     m_Jit.insert(pose.OptId,res.ResidualId).setZero().template block<9,9>(0,0) = dZ_dZ.transpose() * res.W;
+                    m_Jki.block<ImuResidual::ResSize,2>(res.ResidualId*ImuResidual::ResSize,0) = res.dZ_dG;
+                    m_Jki.block<ImuResidual::ResSize,6>(res.ResidualId*ImuResidual::ResSize,2) = res.dZ_dB;
                 }
             }
         }
@@ -837,9 +896,10 @@ private:
     // imu jacobian
     Eigen::SparseBlockMatrix< Eigen::Matrix<double,ImuResidual::ResSize,PoseSize> > m_Ji;
     Eigen::SparseBlockMatrix< Eigen::Matrix<double,PoseSize,ImuResidual::ResSize> > m_Jit;
-    // gravity jacobian
-    Eigen::SparseBlockMatrix< Eigen::Matrix<double,2,1> > m_Jg;
-    Eigen::SparseBlockMatrix< Eigen::Matrix<double,1,2> > m_Jgt;
+
+    // jacobian reserved for biases, gravity, etc
+    // 2 for gravity, 6 for biases
+    Eigen::MatrixXd m_Jki;
     Eigen::VectorXd m_Ri;
 
 

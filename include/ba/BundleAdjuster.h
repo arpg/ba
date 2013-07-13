@@ -4,7 +4,7 @@
 #include <sophus/se3.hpp>
 #include <vector>
 #include <calibu/Calibu.h>
-#include <cholmod.h>
+//#include <cholmod.h>
 #include <Eigen/Sparse>
 #include "SparseBlockMatrix.h"
 #include "SparseBlockMatrixOps.h"

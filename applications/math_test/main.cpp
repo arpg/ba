@@ -8,11 +8,11 @@ using namespace ba;
 int main( int argc, char** argv )
 {
     // test imu data
-    ImuMeasurement meas(Eigen::Vector3d::Random(),Eigen::Vector3d::Random(),0);
+    ImuMeasurementT<double> meas(Eigen::Vector3d::Random(),Eigen::Vector3d::Random(),0);
     std::cout << "Measurement w:" << meas.W.transpose() << " a " << meas.A.transpose() << std::endl;
-    ImuMeasurement meas2 = meas*2;
+    ImuMeasurementT<double> meas2 = meas*2;
     std::cout << "Measurement*2 w:" << meas2.W.transpose() << " a " << meas2.A.transpose() << std::endl;
-    ::ImuMeasurement measAdd = meas + meas2;
+    ImuMeasurementT<double> measAdd = meas + meas2;
     std::cout << "Measurement sum w:" << measAdd.W.transpose() << " a " << measAdd.A.transpose() << std::endl;
 
 

@@ -211,6 +211,7 @@ static void LoadDenseFromSparse(const SparseMatrix& sparse,DenseMatrix& dense)
     const int _BlockRows = BlockType::RowsAtCompileTime;
     const int _BlockCols = BlockType::ColsAtCompileTime;
 
+    dense.resize(_BlockRows*sparse.rows(), _BlockCols*sparse.cols());
     dense.setZero();
     for (int jj=0; jj<sparse.cols(); ++jj)
     {

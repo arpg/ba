@@ -536,7 +536,7 @@ private:
                 for(unsigned int ii=0; ii<6; ++ii){
                     const Eigen::Matrix<Scalar,2,4> dTdP = m_Rig.cameras[res.CameraId].camera.dTransfer3D_dP(pose.GetTsw(res.CameraId,m_Rig),
                                                                                                              lm.Xw.template head<3>(),lm.Xw(3));
-                    res.dZ_dP.template block<2,1>(0,ii) = dTdP * -Sophus::SE3::generator(ii) * lm.Xw;
+                    res.dZ_dP.template block<2,1>(0,ii) = dTdP * -Sophus::SE3Group<Scalar>::generator(ii) * lm.Xw;
                 }
                 //Eigen::Matrix<Scalar,2,6> J_fd;
                 //Scalar dEps = 1e-6;

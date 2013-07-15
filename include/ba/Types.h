@@ -16,7 +16,7 @@ struct PoseT
     bool IsActive;
     unsigned int Id;
     unsigned int OptId;
-    Scalar Time;
+    double Time;
     std::vector<int> ProjResiduals;
     std::vector<int> ImuResiduals;
     std::vector<int> BinaryResiduals;
@@ -109,21 +109,21 @@ struct ImuCalibrationT
 template< typename Scalar=double >
 struct ImuPoseT
 {
-    ImuPoseT(const Sophus::SE3Group<Scalar>& twp, const Eigen::Matrix<Scalar,3,1>& v, const Eigen::Matrix<Scalar,3,1>& w, const Scalar time) :
+    ImuPoseT(const Sophus::SE3Group<Scalar>& twp, const Eigen::Matrix<Scalar,3,1>& v, const Eigen::Matrix<Scalar,3,1>& w, const double time) :
         Twp(twp), V(v), W(w), Time(time) {}
     Sophus::SE3Group<Scalar> Twp;
     Eigen::Matrix<Scalar,3,1> V;
     Eigen::Matrix<Scalar,3,1> W;
-    Scalar Time;
+    double Time;
 };
 
 template< typename Scalar=double >
 struct ImuMeasurementT
 {
-    ImuMeasurementT(const Eigen::Matrix<Scalar,3,1>& w,const Eigen::Matrix<Scalar,3,1>& a, const Scalar time): W(w), A(a), Time(time) {}
+    ImuMeasurementT(const Eigen::Matrix<Scalar,3,1>& w,const Eigen::Matrix<Scalar,3,1>& a, const double time): W(w), A(a), Time(time) {}
     Eigen::Matrix<Scalar,3,1> W;
     Eigen::Matrix<Scalar,3,1> A;
-    Scalar Time;
+    double Time;
     ImuMeasurementT operator*(const Scalar &rhs) {
         return ImuMeasurementT( W*rhs, A*rhs, Time );
     }
@@ -283,7 +283,7 @@ struct ImuResidualT
                                                        const Eigen::Matrix<Scalar,3,1>& vBa, const Scalar dt,
                                                        Eigen::Matrix<Scalar,9,6>* dk_db = 0,Eigen::Matrix<Scalar,9,10>* dk_dx = 0)
     {
-        Scalar alpha = (zEnd.Time - (zStart.Time+dt))/(zEnd.Time - zStart.Time);
+        double alpha = (zEnd.Time - (zStart.Time+dt))/(zEnd.Time - zStart.Time);
         Eigen::Matrix<Scalar,3,1> zg = zStart.W*alpha + zEnd.W*(1.0-alpha);
         Eigen::Matrix<Scalar,3,1> za = zStart.A*alpha + zEnd.A*(1.0-alpha);
 

@@ -224,7 +224,7 @@ public:
         for( unsigned int kk = 0 ; kk < 1 ; kk++){
             Scalar dTime = Tic();
             _BuildProblem();
-            std::cout << "Build problem took " << Toc(dTime) << " seconds." << std::endl;
+            // std::cout << "Build problem took " << Toc(dTime) << " seconds." << std::endl;
 
             dTime = Tic();
 
@@ -321,12 +321,17 @@ public:
 //                 Eigen::LoadDenseFromSparse(W,S);
 //                 std::cout << "W is " << S.format(cleanFmt) << std::endl;
 
-                std::cout << "  Outer produce took " << Toc(dMatTime) << " seconds." << std::endl;
+                // std::cout << "  Outer product took " << Toc(dMatTime) << " seconds." << std::endl;
 
                 dMatTime = Tic();
                 // calculate the inverse of the map hessian (it should be diagonal, unless a measurement is of more than
                 // one landmark, which doesn't make sense)
                 for(size_t ii = 0 ; ii < uNumLm ; ii++){
+                    if(LmSize == 1){
+                        if(V.coeffRef(ii,ii)(0,0) < 1e-6){
+                            V.coeffRef(ii,ii)(0,0) += 1e-6;
+                        }
+                    }
                     V_inv.coeffRef(ii,ii) = V.coeffRef(ii,ii).inverse();
                 }
                 // std::cout << "  Inversion of V took " << Toc(dMatTime) << " seconds." << std::endl;
@@ -355,7 +360,7 @@ public:
 
 //                 std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
 //                 std::cout << "Dense rhs matrix is " << rhs_p.transpose().format(cleanFmt) << std::endl;
-                std::cout << "  Rhs calculation took " << Toc(dMatTime) << " seconds." << std::endl;
+                // std::cout << "  Rhs calculation took " << Toc(dMatTime) << " seconds." << std::endl;
             }else{
                 Eigen::LoadDenseFromSparse(U,S);
                 rhs_p = bp;
@@ -363,12 +368,12 @@ public:
 //                std::cout << "Dense rhs matrix is " << rhs_p.transpose().format(cleanFmt) << std::endl;
             }
 
-            std::cout << "Setup took " << Toc(dTime) << " seconds." << std::endl;
+            // std::cout << "Setup took " << Toc(dTime) << " seconds." << std::endl;
 
             // now we have to solve for the pose constraints
             dTime = Tic();
             VectorXt delta_p = uNumPoses == 0 ? VectorXt() : S.ldlt().solve(rhs_p);
-            std::cout << "Cholesky solve of " << uNumPoses << " by " << uNumPoses << "matrix took " << Toc(dTime) << " seconds." << std::endl;
+            // std::cout << "Cholesky solve of " << uNumPoses << " by " << uNumPoses << "matrix took " << Toc(dTime) << " seconds." << std::endl;
 
             if( uNumLm > 0) {
                 dTime = Tic();
@@ -941,8 +946,8 @@ private:
             }
         }
         dPortionSparse += Toc(dPortTime);
-        std::cout << "Jacobian calculation took " << Toc(dTime) << " seconds. transfer time " << dPortionTransfer << "s jacobian time " <<
-                     dPortionJac << "s sparse time " << dPortionSparse << "s" << std::endl;
+        // std::cout << "Jacobian calculation took " << Toc(dTime) << " seconds. transfer time " << dPortionTransfer << "s jacobian time " <<
+                     // dPortionJac << "s sparse time " << dPortionSparse << "s" << std::endl;
     }
 
     // reprojection jacobians and residual

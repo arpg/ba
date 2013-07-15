@@ -341,7 +341,7 @@ public:
                 Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,PoseSize> > WV_invWt(uNumPoses,uNumPoses);
                 Eigen::SparseBlockProduct(W_V_inv,Wt,WV_invWt);
 
-                Eigen::LoadDenseFromSparse(WV_invWt,S);
+                // Eigen::LoadDenseFromSparse(WV_invWt,S);
                 // std::cout << "WV_invWt is " << S.format(cleanFmt) << std::endl;
 
                 // this in-place operation should be fine for subtraction

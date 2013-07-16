@@ -75,7 +75,7 @@ public:
     }    
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    unsigned int AddPose(const SE3t& Twp, const bool bIsActive = true, const Scalar dTime = -1)
+    unsigned int AddPose(const SE3t& Twp, const bool bIsActive = true, const double dTime = -1)
     {
         Pose pose;
         pose.Time = dTime;
@@ -238,7 +238,7 @@ public:
             Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,LmSize,LmSize> > V_inv(uNumLm,uNumLm);
             VectorXt rhs_p(uNumPoses*PoseSize);
             Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,LmSize,PoseSize> > Wt(uNumLm,uNumPoses);
-            Eigen::MatrixXd S(uNumPoses*PoseSize,uNumPoses*PoseSize);
+            Eigen::Matrix<Scalar,Eigen::Dynamic,Eigen::Dynamic> S(uNumPoses*PoseSize,uNumPoses*PoseSize);
             std::cout << "  Rhs vector mult took " << Toc(dMatTime) << " seconds." << std::endl;
 
             dMatTime = Tic();
@@ -642,7 +642,7 @@ private:
             res.dZ_dG.setZero();
             res.dZ_dB.setZero();
 
-            SE3t Tstar(Sophus::SO3d(),(poseA.V*totalDt - 0.5*gravity*powi(totalDt,2)));
+            SE3t Tstar(Sophus::SO3Group<Scalar>(),(poseA.V*totalDt - 0.5*gravity*powi(totalDt,2)));
 
             // calculate the derivative of the lie log with respect to the tangent plane at Twa
             const Eigen::Matrix<Scalar,6,6> dLog  = dLog_dX(Tstar*Twa,Tab_0*Twb.inverse());
@@ -655,9 +655,9 @@ private:
 //            const SE3t se3 = imuPose.Twp*Twb.inverse();
 //            Vector3t upsilon_omega;
 //            Scalar theta;
-//            upsilon_omega = Sophus::SO3d::logAndTheta(se3.so3(), &theta);
+//            upsilon_omega = Sophus::SO3Group<Scalar>::logAndTheta(se3.so3(), &theta);
 
-//              const Matrix3t Omega = Sophus::SO3d::hat(upsilon_omega.template tail<3>());
+//              const Matrix3t Omega = Sophus::SO3Group<Scalar>::hat(upsilon_omega.template tail<3>());
 //              const Matrix3t V_inv =
 //                  ( Matrix3t::Identity() - 0.5*Omega + ( 1 - theta/(2*tan(theta/2))) / (theta*theta)*(Omega*Omega) );
 //            std::cout << "Vinv " << std::endl << V_inv << std::endl;
@@ -696,7 +696,7 @@ private:
             // Twa^-1 is multiplied here as we need the velocity derivative in the frame of pose A, as the log is taken from this frame
             res.dZ_dX1.template block<3,3>(0,6) = dLog.template block<3,3>(0,0) * Twa.so3().inverse().matrix() * Matrix3t::Identity()*totalDt;
             for( int ii = 0; ii < 3 ; ++ii ){
-                res.dZ_dX1.template block<3,1>(6,3+ii) = Twa.so3().matrix() * Sophus::SO3d::generator(ii) * Vab_0;
+                res.dZ_dX1.template block<3,1>(6,3+ii) = Twa.so3().matrix() * Sophus::SO3Group<Scalar>::generator(ii) * Vab_0;
             }
             res.dZ_dX1.template block<3,3>(6,6) = Matrix3t::Identity();
             // the - sign is here because of the exp(-x) within the log
@@ -929,8 +929,8 @@ private:
                     const Eigen::Matrix<Scalar,9,9>& dZ_dZ = res.PoseAId == pose.Id ? res.dZ_dX1 : res.dZ_dX2;
                     m_Ji.insert(res.ResidualId,pose.OptId).setZero().template block<9,9>(0,0) = dZ_dZ * res.W;
                     m_Jit.insert(pose.OptId,res.ResidualId).setZero().template block<9,9>(0,0) = dZ_dZ.transpose() * res.W;
-                    m_Jki.block<ImuResidual::ResSize,2>(res.ResidualId*ImuResidual::ResSize,0) = res.dZ_dG;
-                    m_Jki.block<ImuResidual::ResSize,6>(res.ResidualId*ImuResidual::ResSize,2) = res.dZ_dB;
+                    m_Jki.template block<ImuResidual::ResSize,2>(res.ResidualId*ImuResidual::ResSize,0) = res.dZ_dG;
+                    m_Jki.template block<ImuResidual::ResSize,6>(res.ResidualId*ImuResidual::ResSize,2) = res.dZ_dB;
                 }
             }
         }
@@ -974,7 +974,7 @@ private:
 
     // jacobian reserved for biases, gravity, etc
     // 2 for gravity, 6 for biases
-    Eigen::MatrixXd m_Jki;
+    Eigen::Matrix<Scalar,Eigen::Dynamic,Eigen::Dynamic> m_Jki;
     VectorXt m_Ri;
 
 

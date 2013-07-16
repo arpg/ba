@@ -194,13 +194,13 @@ struct ImuResidualT
     Eigen::Matrix<Scalar,ResSize,9> dZ_dX2;
     Eigen::Matrix<Scalar,ResSize,2> dZ_dG;
     Eigen::Matrix<Scalar,ResSize,6> dZ_dB;
-    Eigen::Vector9d Residual;
+    Eigen::Matrix<Scalar,9,1> Residual;
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     static ImuPose IntegratePose(const ImuPose& pose, const Eigen::Matrix<Scalar,9,1>& k, const Scalar dt,
                                  Eigen::Matrix<Scalar,10,9>* pdy_dk = 0,Eigen::Matrix<Scalar,10,10>* pdy_dy = 0)
     {
-        const Sophus::SO3d Rv2v1(Sophus::SO3d::exp(k.template segment<3>(3)*dt));
+        const Sophus::SO3Group<Scalar> Rv2v1(Sophus::SO3Group<Scalar>::exp(k.template segment<3>(3)*dt));
 
         ImuPose y = pose;
         y.Twp.translation() += k.template head<3>()*dt;
@@ -212,17 +212,17 @@ struct ImuResidualT
         // jacobian of output pose relative to the derivative
         if( pdy_dk != 0 ){
             pdy_dk->setZero();
-            pdy_dk->template block<3,3>(0,0) = Eigen::Matrix3d::Identity()*dt;  // dt/dv
-            pdy_dk->template block<4,3>(3,3) = dq1q2_dq1(pose.Twp.so3().unit_quaternion()) * dqExp_dw(k.template segment<3>(3)*dt) *dt;  // dq/dw
-            pdy_dk->template block<3,3>(7,6) = Eigen::Matrix3d::Identity()*dt;  // dv/da
+            pdy_dk->template block<3,3>(0,0) = Eigen::Matrix<Scalar,3,3>::Identity()*dt;  // dt/dv
+            pdy_dk->template block<4,3>(3,3) = dq1q2_dq1<Scalar>(pose.Twp.so3().unit_quaternion()) * dqExp_dw<Scalar>(k.template segment<3>(3)*dt) *dt;  // dq/dw
+            pdy_dk->template block<3,3>(7,6) = Eigen::Matrix<Scalar,3,3>::Identity()*dt;  // dv/da
         }
 
         if( pdy_dy != 0 )
         {
             pdy_dy->setZero();
-            pdy_dy->template block<3,3>(0,0) = Eigen::Matrix3d::Identity();
+            pdy_dy->template block<3,3>(0,0) = Eigen::Matrix<Scalar,3,3>::Identity();
             pdy_dy->template block<4,4>(3,3) = dq1q2_dq2(Rv2v1.unit_quaternion());
-            pdy_dy->template block<3,3>(7,7) = Eigen::Matrix3d::Identity();
+            pdy_dy->template block<3,3>(7,7) = Eigen::Matrix<Scalar,3,3>::Identity();
 
 
             const Scalar dEps = 1e-9;
@@ -232,19 +232,19 @@ struct ImuResidualT
                 eps[ii] += dEps;
                 Eigen::Matrix<Scalar,3,1> kPlus = k.template segment<3>(3)*dt;
                 kPlus += eps;
-                Eigen::Matrix<Scalar,4,1> res_Plus = Sophus::SO3d::exp(kPlus).unit_quaternion().coeffs();
+                Eigen::Matrix<Scalar,4,1> res_Plus = Sophus::SO3Group<Scalar>::exp(kPlus).unit_quaternion().coeffs();
 
                 eps[ii] -= 2*dEps;
                 Eigen::Matrix<Scalar,3,1> kMinus = k.template segment<3>(3)*dt;
                 kMinus += eps;
-                Eigen::Matrix<Scalar,4,1> res_Minus = Sophus::SO3d::exp(kMinus).unit_quaternion().coeffs();
+                Eigen::Matrix<Scalar,4,1> res_Minus = Sophus::SO3Group<Scalar>::exp(kMinus).unit_quaternion().coeffs();
 
                 Jexp_fd.col(ii) = (res_Plus - res_Minus)/(2*dEps);
             }
 
-            std::cout << "Jexp= [" << std::endl << dqExp_dw(k.template segment<3>(3)*dt) <<  "]" << std::endl;
+            std::cout << "Jexp= [" << std::endl << dqExp_dw<Scalar>(k.template segment<3>(3)*dt) <<  "]" << std::endl;
             std::cout << "Jexpfd=[" << std::endl << Jexp_fd << "]" << std::endl;
-            std::cout << "Jexp-Jexpfd=[" << std::endl << dqExp_dw(k.template segment<3>(3)*dt)-Jexp_fd << "]" << std::endl;
+            std::cout << "Jexp-Jexpfd=[" << std::endl << dqExp_dw<Scalar>(k.template segment<3>(3)*dt)-Jexp_fd << "]" << std::endl;
 
 
             Eigen::Matrix<Scalar,10,9> Jfd;
@@ -255,7 +255,7 @@ struct ImuResidualT
                 kPlus += eps;
                 Eigen::Matrix<Scalar,10,1> res_Plus;
                 res_Plus.template head<3>() = pose.Twp.translation() + kPlus.template head<3>()*dt;
-                res_Plus.template segment<4>(3) = (Sophus::SO3d::exp(kPlus.template segment<3>(3)*dt).unit_quaternion() * pose.Twp.so3().unit_quaternion()).coeffs();
+                res_Plus.template segment<4>(3) = (Sophus::SO3Group<Scalar>::exp(kPlus.template segment<3>(3)*dt).unit_quaternion() * pose.Twp.so3().unit_quaternion()).coeffs();
                 res_Plus.template tail<3>() = pose.V + kPlus.template tail<3>()*dt;
 
                 eps[ii] -= 2*dEps;
@@ -263,7 +263,7 @@ struct ImuResidualT
                 kMinus += eps;
                 Eigen::Matrix<Scalar,10,1> res_Minus;
                 res_Minus.template head<3>() = pose.Twp.translation() + kMinus.template head<3>()*dt;
-                res_Minus.template segment<4>(3) = (Sophus::SO3d::exp(kMinus.template segment<3>(3)*dt) * pose.Twp.so3()).unit_quaternion().coeffs();
+                res_Minus.template segment<4>(3) = (Sophus::SO3Group<Scalar>::exp(kMinus.template segment<3>(3)*dt) * pose.Twp.so3()).unit_quaternion().coeffs();
                 res_Minus.template tail<3>() = pose.V + kMinus.template tail<3>()*dt;
 
                 Jfd.col(ii) = (res_Plus - res_Minus)/(2*dEps);
@@ -300,12 +300,12 @@ struct ImuResidualT
 //        for(int ii = 0; ii < 4 ; ii++){
 //            Eigen::Matrix<Scalar,4,1> eps = Eigen::Matrix<Scalar,4,1>::Zero();
 //            eps[ii] += dEps;
-//            Eigen::Quaterniond q_plus = pose.Twp.so3().unit_quaternion();
+//            Eigen::Quaternion<Scalar> q_plus = pose.Twp.so3().unit_quaternion();
 //            q_plus.coeffs() += eps;
 //            const Eigen::Matrix<Scalar,3,1> plus = q_plus._transformVector(zg) + q_plus._transformVector(vBg);
 
 //            eps[ii] -= 2*dEps;
-//            Eigen::Quaterniond q_minus = pose.Twp.so3().unit_quaternion();
+//            Eigen::Quaternion<Scalar> q_minus = pose.Twp.so3().unit_quaternion();
 //            q_minus.coeffs() += eps;
 //            const Eigen::Matrix<Scalar,3,1> minus = q_minus._transformVector(zg) + q_plus._transformVector(vBg);
 //            Jfd.col(ii) = (plus-minus)/(2*dEps);
@@ -320,7 +320,7 @@ struct ImuResidualT
         }
         if(dk_dx != 0){
             dk_dx->setZero();
-            dk_dx->template block<3,3>(0,7) = Eigen::Matrix3d::Identity(); // dv/dv
+            dk_dx->template block<3,3>(0,7) = Eigen::Matrix<Scalar,3,3>::Identity(); // dv/dv
             dk_dx->template block<3,4>(3,3) = dqx_dq(pose.Twp.so3().unit_quaternion(),zg) + dqx_dq(pose.Twp.so3().unit_quaternion(),vBg); // dw/dq
             dk_dx->template block<3,4>(6,3) = dqx_dq(pose.Twp.so3().unit_quaternion(),za) + dqx_dq(pose.Twp.so3().unit_quaternion(),vBa); // da/dq
         }
@@ -388,7 +388,7 @@ struct ImuResidualT
                 epsVec[ii] += dEps;
                 ImuPose y0_eps = y0;
                 y0_eps.Twp.translation() += epsVec.template head<3>();
-                Eigen::Quaterniond qPlus = y0_eps.Twp.so3().unit_quaternion();
+                Eigen::Quaternion<Scalar> qPlus = y0_eps.Twp.so3().unit_quaternion();
                 qPlus.coeffs() += epsVec.template segment<4>(3);
                 memcpy(y0_eps.Twp.so3().data(),qPlus.coeffs().data(),sizeof(Scalar)*4);
                 y0_eps.V += epsVec.template tail<3>();
@@ -397,9 +397,9 @@ struct ImuResidualT
                 epsVec[ii] -= 2*dEps;
                 y0_eps = y0;
                 y0_eps.Twp.translation() += epsVec.template head<3>();
-                Eigen::Quaterniond qMinus = y0_eps.Twp.so3().unit_quaternion();
+                Eigen::Quaternion<Scalar> qMinus = y0_eps.Twp.so3().unit_quaternion();
                 qMinus.coeffs() += epsVec.template segment<4>(3);
-                y0_eps.Twp.so3() = Sophus::SO3d(qMinus);
+                y0_eps.Twp.so3() = Sophus::SO3Group<Scalar>(qMinus);
                 memcpy(y0_eps.Twp.so3().data(),qMinus.coeffs().data(),sizeof(Scalar)*4);
                 y0_eps.V += epsVec.template tail<3>();
                 Eigen::Matrix<Scalar,9,1> k1_minus = GetPoseDerivative(y0_eps,dG,zStart,zEnd,vBg,vBa,0);
@@ -427,7 +427,7 @@ struct ImuResidualT
                 epsVec[ii] += dEps;
                 ImuPose y0_eps = y0;
                 y0_eps.Twp.translation() += epsVec.template head<3>();
-                Eigen::Quaterniond qPlus = y0_eps.Twp.so3().unit_quaternion();
+                Eigen::Quaternion<Scalar> qPlus = y0_eps.Twp.so3().unit_quaternion();
                 qPlus.coeffs() += epsVec.template segment<4>(3);
                 memcpy(y0_eps.Twp.so3().data(),qPlus.coeffs().data(),sizeof(Scalar)*4);
                 y0_eps.V += epsVec.template tail<3>();
@@ -441,9 +441,9 @@ struct ImuResidualT
                 epsVec[ii] -= 2*dEps;
                 y0_eps = y0;
                 y0_eps.Twp.translation() += epsVec.template head<3>();
-                Eigen::Quaterniond qMinus = y0_eps.Twp.so3().unit_quaternion();
+                Eigen::Quaternion<Scalar> qMinus = y0_eps.Twp.so3().unit_quaternion();
                 qMinus.coeffs() += epsVec.template segment<4>(3);
-                y0_eps.Twp.so3() = Sophus::SO3d(qMinus);
+                y0_eps.Twp.so3() = Sophus::SO3Group<Scalar>(qMinus);
                 memcpy(y0_eps.Twp.so3().data(),qMinus.coeffs().data(),sizeof(Scalar)*4);
                 y0_eps.V += epsVec.template tail<3>();
 
@@ -579,7 +579,7 @@ struct ImuResidualT
                         epsVec[ii] += dEps;
                         ImuPose y0_eps = y0;
                         y0_eps.Twp.translation() += epsVec.template head<3>();
-                        Eigen::Quaterniond qPlus = y0_eps.Twp.so3().unit_quaternion();
+                        Eigen::Quaternion<Scalar> qPlus = y0_eps.Twp.so3().unit_quaternion();
                         qPlus.coeffs() += epsVec.template segment<4>(3);
                         memcpy(y0_eps.Twp.so3().data(),qPlus.coeffs().data(),sizeof(Scalar)*4);
                         y0_eps.V += epsVec.template tail<3>();
@@ -595,9 +595,9 @@ struct ImuResidualT
                         epsVec[ii] -= 2*dEps;
                         y0_eps = y0;
                         y0_eps.Twp.translation() += epsVec.template head<3>();
-                        Eigen::Quaterniond qMinus = y0_eps.Twp.so3().unit_quaternion();
+                        Eigen::Quaternion<Scalar> qMinus = y0_eps.Twp.so3().unit_quaternion();
                         qMinus.coeffs() += epsVec.template segment<4>(3);
-                        y0_eps.Twp.so3() = Sophus::SO3d(qMinus);
+                        y0_eps.Twp.so3() = Sophus::SO3Group<Scalar>(qMinus);
                         memcpy(y0_eps.Twp.so3().data(),qMinus.coeffs().data(),sizeof(Scalar)*4);
                         y0_eps.V += epsVec.template tail<3>();
 

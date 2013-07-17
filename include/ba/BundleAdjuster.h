@@ -222,26 +222,26 @@ public:
         // first build the jacobian and residual vector
         // TODO: do more than 1 iteration
         for( unsigned int kk = 0 ; kk < 1 ; kk++){
-            Scalar dTime = Tic();
+            //double dTime = Tic();
             _BuildProblem();
             // std::cout << "Build problem took " << Toc(dTime) << " seconds." << std::endl;
 
-            dTime = Tic();
+            //dTime = Tic();
 
             const unsigned int uNumPoses = m_uNumActivePoses;
             const unsigned int uNumLm = m_vLandmarks.size();
     //        const unsigned int uNumMeas = m_vMeasurements.size();
             // calculate bp and bl
-            Scalar dMatTime = Tic();
+            //double dMatTime = Tic();
             VectorXt bp(uNumPoses*PoseSize);
             VectorXt bl;
             Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,LmSize,LmSize> > V_inv(uNumLm,uNumLm);
             VectorXt rhs_p(uNumPoses*PoseSize);
             Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,LmSize,PoseSize> > Wt(uNumLm,uNumPoses);
             Eigen::Matrix<Scalar,Eigen::Dynamic,Eigen::Dynamic> S(uNumPoses*PoseSize,uNumPoses*PoseSize);
-            std::cout << "  Rhs vector mult took " << Toc(dMatTime) << " seconds." << std::endl;
+//            std::cout << "  Rhs vector mult took " << Toc(dMatTime) << " seconds." << std::endl;
 
-            dMatTime = Tic();
+            //dMatTime = Tic();
 
             // TODO: suboptimal, the matrices are symmetric. We should only multipl one half
             Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,PoseSize> > U(uNumPoses,uNumPoses);
@@ -323,7 +323,7 @@ public:
 
                 // std::cout << "  Outer product took " << Toc(dMatTime) << " seconds." << std::endl;
 
-                dMatTime = Tic();
+                //dMatTime = Tic();
                 // calculate the inverse of the map hessian (it should be diagonal, unless a measurement is of more than
                 // one landmark, which doesn't make sense)
                 for(size_t ii = 0 ; ii < uNumLm ; ii++){
@@ -338,7 +338,7 @@ public:
 //                 Eigen::LoadDenseFromSparse(V_inv,S);
 //                 std::cout << "Vinv is " << S.format(cleanFmt) << std::endl;
 
-                dMatTime = Tic();
+//                dMatTime = Tic();
                 // attempt to solve for the poses. W_V_inv is used later on, so we cache it
                 Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,LmSize> > W_V_inv(uNumPoses,uNumLm);
                 Eigen::SparseBlockProduct(W,V_inv,W_V_inv);
@@ -371,12 +371,12 @@ public:
             // std::cout << "Setup took " << Toc(dTime) << " seconds." << std::endl;
 
             // now we have to solve for the pose constraints
-            dTime = Tic();
+            //dTime = Tic();
             VectorXt delta_p = uNumPoses == 0 ? VectorXt() : S.ldlt().solve(rhs_p);
             // std::cout << "Cholesky solve of " << uNumPoses << " by " << uNumPoses << "matrix took " << Toc(dTime) << " seconds." << std::endl;
 
             if( uNumLm > 0) {
-                dTime = Tic();
+//                dTime = Tic();
                 VectorXt delta_l;
                 delta_l.resize(uNumLm*LmSize);
                 VectorXt Wt_delta_p;
@@ -398,7 +398,7 @@ public:
                         m_vLandmarks[ii].Xs.template head<LmSize>() += delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize);
                     }
                 }
-                std::cout << "Backsubstitution of " << uNumLm << " landmarks took " << Toc(dTime) << " seconds." << std::endl;
+//                std::cout << "Backsubstitution of " << uNumLm << " landmarks took " << Toc(dTime) << " seconds." << std::endl;
             }
 
             // std::cout << delta_l << std::endl;
@@ -421,7 +421,7 @@ public:
                 //  std::cout << " Pose " << ii << " is inactive." << std::endl;
                 //  }
             }
-            std::cout << "BA iteration " << kk <<  " error: " << m_Rpr.norm() + m_Ru.norm() + m_Rpp.norm() + m_Ri.norm() << std::endl;
+//            std::cout << "BA iteration " << kk <<  " error: " << m_Rpr.norm() + m_Ru.norm() + m_Rpp.norm() + m_Ri.norm() << std::endl;
         }
 
         // update the global position of the landmarks from the sensor position
@@ -504,7 +504,7 @@ private:
         Scalar dPortionTransfer = 0, dPortionJac = 0, dPortionSparse = 0;
 
         // set all jacobians
-        Scalar dTime = Tic();
+        //double dTime = Tic();
         for( ProjectionResidual& res : m_vProjResiduals ){
             Scalar dPortTime = Tic();
             // calculate measurement jacobians
@@ -646,7 +646,7 @@ private:
 
             // calculate the derivative of the lie log with respect to the tangent plane at Twa
             const Eigen::Matrix<Scalar,6,6> dLog  = dLog_dX(Tstar*Twa,Tab_0*Twb.inverse());
-            const Eigen::Matrix<Scalar,6,6> dLog_b  = dLog_dX(imuPose.Twp,Twb.inverse());
+            //const Eigen::Matrix<Scalar,6,6> dLog_b  = dLog_dX(imuPose.Twp,Twb.inverse());
 
             // now add the log jacobians to the bias jacobian terms
             res.dZ_dB.template block<3,6>(3,0) = dLog_dq((imuPose.Twp.so3() * Twb.so3().inverse()).unit_quaternion()) *

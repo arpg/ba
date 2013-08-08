@@ -214,6 +214,7 @@ public:
         return residual.ResidualId;
     }
     void Solve(const unsigned int uMaxIter);
+
     const ImuResidual& GetImuResidual(const unsigned int id) const { return m_vImuResiduals[id]; }
     const ImuCalibration& GetImuCalibration() const { return m_Imu; }
     const SE3t& GetPose(const unsigned int id) const  { return m_vPoses[id].Twp; }
@@ -224,7 +225,6 @@ public:
 
 private:
     void _BuildProblem();
-
 
     // reprojection jacobians and residual
     Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,ProjectionResidual::ResSize,PoseSize> > m_Jpr;

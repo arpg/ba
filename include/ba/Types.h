@@ -535,7 +535,7 @@ struct ImuResidualT
             if(pPrevMeas != 0){
 //                std::cout << "Integrating from time " << pPrevMeas->Time << " to " << meas.Time << std::endl;
                 if( pJb != 0 ){
-                    Scalar dt = meas.Time - pPrevMeas->Time;
+                    //double dt = meas.Time - pPrevMeas->Time;
                     Eigen::Matrix<Scalar,10,6> dy_db;
                     Eigen::Matrix<Scalar,10,10> dy_dy;
                     const ImuPose y0 = imuPose;

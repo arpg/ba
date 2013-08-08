@@ -14,7 +14,7 @@ list( APPEND USER_INC    ${EIGEN3_INCLUDE_DIR}
                          ${Sophus_INCLUDE_DIR} )
 
 # this is done in baConfig.cmake.in
-#list( APPEND LINK_LIBS  ${Calibu_LIBRARIES} )
+list( APPEND LINK_LIBS  ${Calibu_LIBRARIES} )
 
 ################################################################################
 # Specify source files
@@ -22,6 +22,7 @@ list( APPEND USER_INC    ${EIGEN3_INCLUDE_DIR}
 set( INCDIR "../include/ba" )
 
 list(APPEND SOURCES    
+    BundleAdjuster.cpp
 )
 
 list(APPEND HEADERS
@@ -47,8 +48,8 @@ add_custom_target(${PROJECT_NAME} SOURCES ${HEADERS})
 
 include_directories( ${LIB_INC_DIR} )
 include_directories( ${USER_INC} )
-#add_library( ${LIBRARY_NAME} ${SOURCES} ${HEADERS} )
-#target_link_libraries( ${LIBRARY_NAME} ${LINK_LIBS} )
+add_library( ${LIBRARY_NAME} ${SOURCES} ${HEADERS} )
+target_link_libraries( ${LIBRARY_NAME} ${LINK_LIBS} )
 
 #######################################################
 ## Create configure file for inclusion in library
@@ -67,9 +68,9 @@ file( RELATIVE_PATH REL_INCLUDE_DIR
     "${CMAKE_INSTALL_PREFIX}/include" )
 
 # Export library for easy inclusion from other cmake projects.
-#file( REMOVE "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Targets.cmake" )
-#export( TARGETS ${LIBRARY_NAME}
-#        APPEND FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Targets.cmake" )
+file( REMOVE "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Targets.cmake" )
+export( TARGETS ${LIBRARY_NAME}
+        APPEND FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Targets.cmake" )
 
 # Version information
 configure_file("${PROJECT_NAME}ConfigVersion.cmake.in"
@@ -97,12 +98,12 @@ export( PACKAGE ${PROJECT_NAME} )
 install(FILES ${HEADERS}
   DESTINATION ${CMAKE_INSTALL_PREFIX}/include/${PROJECT_NAME}
 )
-#install(TARGETS ${LIBRARY_NAME}
-#  EXPORT "${PROJECT_NAME}Targets"
-#  RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin
-#  LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
-#  ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
-#)
+install(TARGETS ${LIBRARY_NAME}
+  EXPORT "${PROJECT_NAME}Targets"
+  RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin
+  LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+)
 
 #######################################################
 ## Install CMake config
@@ -112,4 +113,4 @@ INSTALL(
           "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
     DESTINATION ${CMAKECONFIG_INSTALL_DIR} )
 
-#install( EXPORT "${PROJECT_NAME}Targets" DESTINATION ${CMAKECONFIG_INSTALL_DIR} )
+install( EXPORT "${PROJECT_NAME}Targets" DESTINATION ${CMAKECONFIG_INSTALL_DIR} )

@@ -511,8 +511,10 @@ struct ImuResidualT
                                      const Eigen::Matrix<Scalar,3,1>& ba,
                                      const Eigen::Matrix<Scalar,3,1>& g,
                                      std::vector<ImuPose>& vPoses,
-                                     Eigen::Matrix<Scalar,10,6>* pJb = 0)
+                                     Eigen::Matrix<Scalar,10,6>* pJb = 0,
+                                     Eigen::Matrix<Scalar,10,10>* pJy = 0)
     {
+        Eigen::IOFormat cleanFmt(4, 0, ", ", ";\n" , "" , "");
         ImuPose imuPose(pose.Twp,pose.V,Eigen::Matrix<Scalar,3,1>::Zero(),pose.Time);
         const ImuPose origPose = imuPose;
         const ImuMeasurement* pPrevMeas = 0;
@@ -522,6 +524,10 @@ struct ImuResidualT
 
         if(pJb != 0){
             pJb->setZero();
+        }
+
+        if(pJy != 0){
+            pJy->setIdentity();
         }
 
         // integrate forward in time, and retain all the poses
@@ -622,7 +628,13 @@ struct ImuResidualT
                     // dq2_dq1 is complex, and is returned by IntegrateImu). dX/dB yis the jacobian from the previous
                     // step, which is stored in Jb. The following is the addition and multiplication unrolled into
                     // sparse operations.
-                    (*pJb) = dy_db + dy_dy*(*pJb);
+                    if(pJb != 0){
+                        (*pJb) = dy_db + dy_dy*(*pJb);
+                    }
+
+                    if(pJy != 0){
+                        *pJy = dy_dy*(*pJy);
+                    }
                 }else{
                     imuPose = IntegrateImu(imuPose,*pPrevMeas,meas,bg,ba,g);
                 }
@@ -673,10 +685,70 @@ struct ImuResidualT
 
                 Jb_fd.col(ii) = (plusVec-minusVec)/(2*dEps);
             }
-            std::cout << "Jres = " << std::endl << *pJb << std::endl;
-            std::cout << "Jres_fd = " << std::endl << Jb_fd << std::endl;
-            std::cout << "Jres-Jres_fd = " << std::endl << (*pJb-Jb_fd) << " norm: " << (*pJb-Jb_fd).norm() <<  std::endl;
+            std::cout << "Jres = " << std::endl << (*pJb).format(cleanFmt) << std::endl;
+            std::cout << "Jres_fd = " << std::endl << Jb_fd.format(cleanFmt) << std::endl;
+            std::cout << "Jres-Jres_fd = " << std::endl << (*pJb-Jb_fd).format(cleanFmt) << " norm: " << (*pJb-Jb_fd).norm() <<  std::endl;
         }
+
+        if(pJy != 0){
+            Eigen::Matrix<Scalar,10,10> Jy_fd;
+            const Scalar dEps = 1e-9;
+            for(int ii = 0; ii < 10 ; ii++){
+                Eigen::Matrix<Scalar,10,1> epsVec = Eigen::Matrix<Scalar,10,1>::Zero();
+                epsVec[ii] += dEps;
+                ImuPose posePlus = imuPose;
+                posePlus.Twp.translation() += epsVec.template head<3>();
+                Eigen::Quaternion<Scalar> qPlus = posePlus.Twp.so3().unit_quaternion();
+                qPlus.coeffs() += epsVec.template segment<4>(3);
+                memcpy(posePlus.Twp.so3().data(),qPlus.coeffs().data(),sizeof(Scalar)*4);
+                posePlus.V += epsVec.template tail<3>();
+
+                pPrevMeas = 0;
+                for(const ImuMeasurement& meas : vMeasurements){
+                    if(pPrevMeas != 0){
+                        posePlus = IntegrateImu(posePlus,*pPrevMeas,meas,bg,ba,g);
+                    }
+                    pPrevMeas = &meas;
+                }
+
+                Eigen::Matrix<Scalar,10,1> yPlus;
+                yPlus.template head<3>() = posePlus.Twp.translation();
+                yPlus.template segment<4>(3) = posePlus.Twp.so3().unit_quaternion().coeffs();
+                // do euler integration for now
+                yPlus.template tail<3>() = posePlus.V;
+
+                epsVec[ii] -= 2*dEps;
+                ImuPose poseMinus = imuPose;
+                poseMinus.Twp.translation() += epsVec.template head<3>();
+                Eigen::Quaternion<Scalar> qMinus = poseMinus.Twp.so3().unit_quaternion();
+                qMinus.coeffs() += epsVec.template segment<4>(3);
+                poseMinus.Twp.so3() = Sophus::SO3Group<Scalar>(qMinus);
+                memcpy(poseMinus.Twp.so3().data(),qMinus.coeffs().data(),sizeof(Scalar)*4);
+                poseMinus.V += epsVec.template tail<3>();
+
+                pPrevMeas = 0;
+                for(const ImuMeasurement& meas : vMeasurements){
+                    if(pPrevMeas != 0){
+                        poseMinus = IntegrateImu(poseMinus,*pPrevMeas,meas,bg,ba,g);
+                    }
+                    pPrevMeas = &meas;
+                }
+
+                Eigen::Matrix<Scalar,10,1> yMinus;
+                yMinus.template head<3>()= poseMinus.Twp.translation();
+                yMinus.template segment<4>(3) = poseMinus.Twp.so3().unit_quaternion().coeffs();
+                // do euler integration for now
+                yMinus.template tail<3>() = poseMinus.V;
+
+                Jy_fd.col(ii) = (yPlus-yMinus)/(2*dEps);
+            }
+            std::cout << "Jy = " << std::endl << (*pJy).format(cleanFmt) << std::endl;
+            std::cout << "Jy_fd = " << std::endl << Jy_fd.format(cleanFmt) << std::endl;
+            std::cout << "Jy-Jy_fd = " << std::endl << (*pJy-Jy_fd).format(cleanFmt) << " norm: " << (*pJy-Jy_fd).norm() <<  std::endl;
+
+        }
+
+
         return imuPose;
     }
 

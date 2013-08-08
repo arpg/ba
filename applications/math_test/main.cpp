@@ -7,6 +7,7 @@ using namespace ba;
 /////////////////////////////////////////////////////////////////////////////
 int main( int argc, char** argv )
 {
+    Eigen::IOFormat cleanFmt(4, 0, ", ", ";\n" , "" , "");
     // test imu data
     ImuMeasurementT<double> meas(Eigen::Vector3d::Random(),Eigen::Vector3d::Random(),0);
     std::cout << "Measurement w:" << meas.W.transpose() << " a " << meas.A.transpose() << std::endl;
@@ -14,6 +15,68 @@ int main( int argc, char** argv )
     std::cout << "Measurement*2 w:" << meas2.W.transpose() << " a " << meas2.A.transpose() << std::endl;
     ImuMeasurementT<double> measAdd = meas + meas2;
     std::cout << "Measurement sum w:" << measAdd.W.transpose() << " a " << measAdd.A.transpose() << std::endl;
+
+    Sophus::SO3d Twa = Sophus::SO3d::exp(Eigen::Vector3d::Random());
+    Sophus::SO3d Tab = Sophus::SO3d::exp(Eigen::Vector3d::Random());
+    Sophus::SO3d Twb = Sophus::SO3d::exp(Eigen::Vector3d::Random());
+
+    double dEps = 1e-9;
+    Eigen::Matrix<double,4,3> dExp_dq;
+    for( int ii = 0; ii < 3 ; ii++ ) {
+        Eigen::Vector3d vec = Eigen::Vector3d::Zero();
+        vec[ii] += dEps;
+        Eigen::Quaterniond quatPlus =  Twa.unit_quaternion() * Sophus::SO3d::exp(vec).unit_quaternion();
+        vec[ii] -= 2*dEps;
+        Eigen::Quaterniond quatMinus =  Twa.unit_quaternion() * Sophus::SO3d::exp(vec).unit_quaternion();
+        dExp_dq.col(ii) = (quatPlus.coeffs() - quatMinus.coeffs())/(2*dEps);
+    }
+
+    Eigen::Matrix<double,4,3> dExp_dq_analytical = dq1q2_dq2(Twa.unit_quaternion()) *  dqExp_dw<double>(Eigen::Vector3d::Zero());
+
+    std::cout << "dExp_dq_fd: " << std::endl << dExp_dq.format(cleanFmt) << std::endl;
+    std::cout << "dExp_dq: " << std::endl << (dExp_dq_analytical).format(cleanFmt) <<  std::endl;
+    std::cout << "dExp_dq_fd - dExp_dq" << std::endl << (dExp_dq - dExp_dq_analytical).format(cleanFmt) << std::endl
+                 << "norm: " << (dExp_dq - dExp_dq_analytical).norm() <<  std::endl;
+
+
+    Eigen::Matrix<double,4,3> dTerror;
+    for( int ii = 0; ii < 3 ; ii++ ) {
+        Eigen::Vector3d vec = Eigen::Vector3d::Zero();
+        vec[ii] += dEps;
+        Eigen::Quaterniond quatPlus =  ((Twa.unit_quaternion() * Sophus::SO3d::exp(vec).unit_quaternion()) * Tab.unit_quaternion() * Twb.inverse().unit_quaternion());
+        vec[ii] -= 2*dEps;
+        Eigen::Quaterniond quatMinus =  ((Twa.unit_quaternion() * Sophus::SO3d::exp(vec).unit_quaternion()) * Tab.unit_quaternion() * Twb.inverse().unit_quaternion());
+        dTerror.col(ii) = (quatPlus.coeffs() - quatMinus.coeffs())/(2*dEps);
+    }
+    Eigen::Matrix<double,4,3> dTerror_analytical = dq1q2_dq1((Tab * Twb.inverse()).unit_quaternion()) *
+                                                   dq1q2_dq2(Twa.unit_quaternion()) *
+                                                   dqExp_dw<double>(Eigen::Vector3d::Zero());;
+
+    std::cout << "dTerror_fd: " << std::endl << dTerror.format(cleanFmt) << std::endl;
+    std::cout << "dTerror: " << std::endl << dTerror_analytical.format(cleanFmt) <<  std::endl;
+    std::cout << "dTerror_fd - dTerror" << std::endl << (dTerror - dTerror_analytical).format(cleanFmt) << std::endl
+                 << "norm: " << (dTerror - dTerror_analytical).norm() <<  std::endl;
+
+    Eigen::Matrix<double,3,3> dlog_Terror;
+    for( int ii = 0; ii < 3 ; ii++ ) {
+        Eigen::Vector3d vec = Eigen::Vector3d::Zero();
+        vec[ii] += dEps;
+        Eigen::Vector3d errorPlus = Sophus::SO3d::log(Sophus::SO3d( (((Twa.unit_quaternion() * Sophus::SO3d::exp(vec).unit_quaternion()) * Tab.unit_quaternion() * Twb.inverse().unit_quaternion()) ) ) );
+        vec[ii] -= 2*dEps;
+        Eigen::Vector3d errorMinus = Sophus::SO3d::log(Sophus::SO3d(  ((Twa.unit_quaternion() * Sophus::SO3d::exp(vec).unit_quaternion()) * Tab.unit_quaternion() * Twb.inverse().unit_quaternion()) ) );
+        dlog_Terror.col(ii) = (errorPlus - errorMinus)/(2*dEps);
+    }
+    Eigen::Matrix<double,3,3> dlog_Terror_analytical =  dLog_dq((Twa*Tab*Twb.inverse()).unit_quaternion())*
+                                                    dq1q2_dq1((Tab * Twb.inverse()).unit_quaternion()) *
+                                                   dq1q2_dq2(Twa.unit_quaternion()) *
+                                                   dqExp_dw<double>(Eigen::Vector3d::Zero());;
+
+    std::cout << "dlog_Terror_fd: " << std::endl << dlog_Terror.format(cleanFmt) << std::endl;
+    std::cout << "dlog_Terror: " << std::endl << dlog_Terror_analytical.format(cleanFmt) <<  std::endl;
+    std::cout << "dlog_Terror_fd - dlog_Terror" << std::endl << (dlog_Terror - dlog_Terror_analytical).format(cleanFmt) << std::endl
+                 << "norm: " << (dlog_Terror - dlog_Terror_analytical).norm() <<  std::endl;
+
+
 
 
     // test the interpolation buffer

@@ -185,6 +185,45 @@ namespace ba
              ).finished();
     }
 
+    ///////////////////////////////////////////////////////////////////////////////
+    template<typename Scalar=double>
+    inline Eigen::Matrix<Scalar,6,1> log_decoupled(const Sophus::SE3Group<Scalar>& A,const Sophus::SE3Group<Scalar>& B)
+    {
+        Eigen::Matrix<Scalar,6,1> res;
+        res.template head<3>() = A.translation()-B.translation();
+        res.template tail<3>() = (A.so3()*B.so3().inverse()).log();
+        return res;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////
+    template<typename Scalar=double>
+    inline Sophus::SE3Group<Scalar> exp_decoupled(const Sophus::SE3Group<Scalar>& A,const Eigen::Matrix<Scalar,6,1> x)
+    {
+        return Sophus::SE3Group<Scalar>(A.so3() * Sophus::SO3Group<Scalar>::exp(x.template tail<3>()),A.translation() + x.template head<3>());
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////
+    // this function implements d vee(log(A * exp(x) * B) ) / dx , which is in R^{6x6}
+    template<typename Scalar=double>
+    inline Eigen::Matrix<Scalar,6,6> dLog_decoupled_dX(const Sophus::SE3Group<Scalar>& A,const Sophus::SE3Group<Scalar>& B)
+    {
+        const Eigen::Matrix<Scalar,6,1> d_2 = Sophus::SE3Group<Scalar>::log(A*B.inverse())/2;
+        const Scalar d1 = d_2[3], d2 = d_2[4], d3 = d_2[5], dx = d_2[0], dy = d_2[1], dz = d_2[2];
+        // this is using the 2nd order cbh expansion, to evaluate (I + 0.5 [Adj*x, log(AB)])*Adj
+        // refer to the thesis by Hauke Strasdat, Appendix 3.
+        const Eigen::Matrix<Scalar, 6, 6> dLog ((Eigen::Matrix<Scalar, 6, 6>() <<
+                  1,  d3, -d2,   0,  dz, -dy,
+                -d3,   1,  d1, -dz,   0,  dx,
+                 d2, -d1,   1,  dy, -dx,   0,
+                  0,   0,   0,   1,  d3, -d2,
+                  0,   0,   0, -d3,   1,  d1,
+                  0,   0,   0,  d2, -d1,   1
+               ).finished() * A.Adj());
+        Eigen::Matrix<Scalar,6,6> dLog_decoupled = Eigen::Matrix<Scalar,6,6>::Identity();
+        dLog_decoupled.template block<3,3>(3,3) = dLog.template block<3,3>(3,3);
+        return dLog_decoupled;
+    }
+
 //    ///////////////////////////////////////////////////////////////////////////////
 //    inline Eigen::Matrix<double,3,4> dqx_dq(const Eigen::Quaterniond& q, const Eigen::Vector3d& vec)
 //    {

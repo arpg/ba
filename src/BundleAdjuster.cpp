@@ -1,6 +1,6 @@
 #include <ba/BundleAdjuster.h>
-using namespace ba;
 
+namespace ba {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 template< typename Scalar,int LmSize, int PoseSize >
@@ -80,13 +80,14 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
             Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,PoseSize> > Jit_Ji(uNumPoses,uNumPoses);
             Eigen::SparseBlockProduct(m_Jit,m_Ji,Jit_Ji);
             auto Temp = U;
+            Eigen::LoadDenseFromSparse(Jit_Ji,S);
             Eigen::SparseBlockAdd(Temp,Jit_Ji,U);
 
             VectorXt Jit_Ri(uNumPoses*PoseSize);
             Eigen::SparseBlockVectorProductDenseResult(m_Jit,m_Ri,Jit_Ri);
             bp += Jit_Ri;
-//                Eigen::LoadDenseFromSparse(U,S);
-//                std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
+                // Eigen::LoadDenseFromSparse(U,S);
+                // std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
         }
 
         if( LmSize > 0 && uNumLm > 0) {
@@ -153,8 +154,8 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
         }else{
             Eigen::LoadDenseFromSparse(U,S);
             rhs_p = bp;
-//                std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
-//                std::cout << "Dense rhs matrix is " << rhs_p.transpose().format(cleanFmt) << std::endl;
+                std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
+                std::cout << "Dense rhs matrix is " << rhs_p.transpose().format(cleanFmt) << std::endl;
         }
 
         // std::cout << "Setup took " << Toc(dTime) << " seconds." << std::endl;
@@ -197,12 +198,13 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
         for (size_t ii = 0 ; ii < m_vPoses.size() ; ii++){
             // only update active poses, as inactive ones are not part of the optimization
             if( m_vPoses[ii].IsActive ){
-                // std::cout << "Pose delta for " << ii << " is " << delta_p.template block<6,1>(m_vPoses[ii].OptId*6,0).transpose() << std::endl;
-                 // m_vPoses[ii].Twp = exp_decoupled<Scalar>(m_vPoses[ii].Twp,delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));
-                 m_vPoses[ii].Twp = m_vPoses[ii].Twp * Sophus::SE3d::exp(delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));
+                 // std::cout << "Pose delta for " << ii << " is " << delta_p.template block<PoseSize,1>(m_vPoses[ii].OptId*PoseSize,0).transpose() << std::endl;
+                 m_vPoses[ii].Twp = exp_decoupled<Scalar>(m_vPoses[ii].Twp,delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));
+                 // m_vPoses[ii].Twp = m_vPoses[ii].Twp * Sophus::SE3d::exp(delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));
                 // update the velocities if they are parametrized
                 if(PoseSize == 9){
                     m_vPoses[ii].V += delta_p.template block<3,1>(m_vPoses[ii].OptId*PoseSize+6,0);
+                    std::cout << "Velocity for pose " << ii << " is " << m_vPoses[ii].V << std::endl;
                 }
                 // clear the vector of Tsw values as they will need to be recalculated
                 m_vPoses[ii].Tsw.clear();
@@ -216,7 +218,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
 
     // update the global position of the landmarks from the sensor position
     for (Landmark& lm : m_vLandmarks) {
-        lm.Xw = ba::MultHomogeneous(m_vPoses[lm.RefPoseId].GetTsw(lm.RefCamId,m_Rig).inverse(), lm.Xs);
+        lm.Xw = MultHomogeneous(m_vPoses[lm.RefPoseId].GetTsw(lm.RefCamId,m_Rig).inverse(), lm.Xs);
     }
         // std::cout << "Solve took " << Toc(dTime) << " seconds." << std::endl;
 }
@@ -270,8 +272,8 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
 
     m_Ji.setZero();
     m_Jit.setZero();
-//        m_Jki.setZero();
-//        m_Jkit.setZero();
+    // m_Jki.setZero();
+    // m_Jkit.setZero();
     m_Ri.setZero();
 
     m_Jl.setZero();
@@ -295,7 +297,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
         Landmark& lm = m_vLandmarks[res.LandmarkId];
         Pose& pose = m_vPoses[res.PoseId];
         Pose& refPose = m_vPoses[lm.RefPoseId];
-        lm.Xs = ba::MultHomogeneous(refPose.GetTsw(lm.RefCamId,m_Rig) ,lm.Xw);
+        lm.Xs = MultHomogeneous(refPose.GetTsw(lm.RefCamId,m_Rig) ,lm.Xw);
         const SE3t parentTws = refPose.GetTsw(lm.RefCamId,m_Rig).inverse();
 
         const Vector2t p = m_Rig.cameras[res.CameraId].camera.Transfer3D(pose.GetTsw(res.CameraId,m_Rig)*parentTws,
@@ -363,21 +365,43 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
 //                Eigen::Matrix<Scalar,6,1> delta;
 //                delta.setZero();
 //                delta[ii] = dEps;
-//                const Vector6t pPlus = SE3t::log(Twa*SE3t::exp(delta) * res.Tab * Twb.inverse());
+//                // const Vector6t pPlus = SE3t::log(Twa*SE3t::exp(delta) * res.Tab * Twb.inverse());
+//                const Vector6t pPlus = log_decoupled(exp_decoupled(Twa,delta) * res.Tab, Twb);
 //                delta[ii] = -dEps;
-//                const Vector6t pMinus = SE3t::log(Twa*SE3t::exp(delta) * res.Tab * Twb.inverse());
+//                // const Vector6t pMinus = SE3t::log(Twa*SE3t::exp(delta) * res.Tab * Twb.inverse());
+//                const Vector6t pMinus = log_decoupled(exp_decoupled(Twa,delta) * res.Tab, Twb);
 //                J_fd.col(ii) = (pPlus-pMinus)/(2*dEps);
 //            }
-//            std::cout << "J:" << res.dZ_dX1 << std::endl;
-//            std::cout << "J_fd:" << J_fd << std::endl;
-        m_Rpp.template segment<BinaryResidual::ResSize>(res.ResidualOffset) = (Twa*res.Tab*Twb.inverse()).log();
+//            std::cout << "Jbinary:" << res.dZ_dX1 << std::endl;
+//            std::cout << "Jbinary_fd:" << J_fd << std::endl;
+
+            // m_Rpp.template segment<BinaryResidual::ResSize>(res.ResidualOffset) = (Twa*res.Tab*Twb.inverse()).log();
+            m_Rpp.template segment<BinaryResidual::ResSize>(res.ResidualOffset) = log_decoupled( Twa*res.Tab,Twb.inverse() );
     }
 
     for( UnaryResidual& res : m_vUnaryResiduals ){
         const SE3t& Twp = m_vPoses[res.PoseId].Twp;
-        res.dZ_dX = dLog_dX(Twp, res.Twp.inverse());
+        // res.dZ_dX = dLog_dX(Twp, res.Twp.inverse());
+        res.dZ_dX = dLog_decoupled_dX(Twp, res.Twp);
 
-        m_Ru.template segment<UnaryResidual::ResSize>(res.ResidualOffset) = (Twp*res.Twp.inverse()).log();
+//        Eigen::Matrix<Scalar,6,6> J_fd;
+//        Scalar dEps = 1e-10;
+//        for(int ii = 0; ii < 6 ; ii++) {
+//            Eigen::Matrix<Scalar,6,1> delta;
+//            delta.setZero();
+//            delta[ii] = dEps;
+//            // const Vector6t pPlus = SE3t::log(Twa*SE3t::exp(delta) * res.Tab * Twb.inverse());
+//            const Vector6t pPlus = log_decoupled(exp_decoupled(Twp,delta) , res.Twp);
+//            delta[ii] = -dEps;
+//            // const Vector6t pMinus = SE3t::log(Twa*SE3t::exp(delta) * res.Tab * Twb.inverse());
+//            const Vector6t pMinus = log_decoupled(exp_decoupled(Twp,delta) , res.Twp);
+//            J_fd.col(ii) = (pPlus-pMinus)/(2*dEps);
+//        }
+//        std::cout << "Junary:" << res.dZ_dX << std::endl;
+//        std::cout << "Junary_fd:" << J_fd << std::endl;
+
+        m_Ru.template segment<UnaryResidual::ResSize>(res.ResidualOffset) = log_decoupled( Twp,res.Twp );
+        // m_Ru.template segment<UnaryResidual::ResSize>(res.ResidualOffset) = (Twp*res.Twp.inverse()).log();
     }
 
     for( ImuResidual& res : m_vImuResiduals ){
@@ -771,8 +795,12 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
                  // dPortionJac << "s sparse time " << dPortionSparse << "s" << std::endl;
 }
 
-
 // specializations
 template class BundleAdjuster<double, ba::NOT_USED,9>;
  template class BundleAdjuster<double, 1,6>;
 // template class BundleAdjuster<double, 3,9>;
+
+
+}
+
+

@@ -80,7 +80,7 @@ int main( int argc, char** argv )
 
 
     // test the interpolation buffer
-    InterpolationBuffer<double,double> imuBuffer;
+    InterpolationBufferT<double,double> imuBuffer;
 
 
     unsigned int uRows = 70, uCols = 50;

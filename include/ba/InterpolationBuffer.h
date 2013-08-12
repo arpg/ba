@@ -11,13 +11,13 @@ namespace ba{
 ///     ElementType& operator *(const ScalarType rhs) : result of operation with a scalar
 ///     ElementType& operator +(const ElementType& rhs) : result of addition with an element
 template< typename ElementType, typename ScalarType >
-struct InterpolationBuffer
+struct InterpolationBufferT
 {
     std::vector<ElementType> Elements;
     ScalarType StartTime;
     ScalarType EndTime;
     ScalarType AverageDt;
-    InterpolationBuffer(unsigned int uSize = 1000) :
+    InterpolationBufferT(unsigned int uSize = 1000) :
         StartTime(-1),EndTime(-1)
     {
         Elements.reserve(uSize);

@@ -13,6 +13,10 @@ namespace Eigen
 ///////////////////////////////////////////////////////////////////////////////
 namespace ba
 {
+    static Eigen::IOFormat cleanFmt(4, 0, ", ", ";\n" , "" , "");
+    #define NORM_THRESHOLD 1e-4
+    #define TESTING_EPS 1e-9
+
     template<typename Scalar=double>
     inline Eigen::Matrix<Scalar,4,1> MultHomogeneous( const Sophus::SE3Group<Scalar>& lhs, const Eigen::Matrix<Scalar,4,1>& rhs )
     {

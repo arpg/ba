@@ -12,7 +12,6 @@
 #include "Types.h"
 
 
-
 namespace ba {
 
 template< typename Scalar=double,int LmSize=1, int PoseSize=6 >
@@ -201,6 +200,7 @@ public:
         assert(PoseSize == 9);
 
         ImuResidual residual;
+        residual.W = 1.0;
         residual.PoseAId = uPoseAId;
         residual.PoseBId = uPoseBId;
         residual.Measurements = vImuMeas;

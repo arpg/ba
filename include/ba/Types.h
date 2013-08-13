@@ -63,7 +63,7 @@ struct ImuCalibrationT
     ///
     /// \brief Gravity vector (2D, parametrized by roll and pitch of the vector wrt the ground plane)
     ///
-    Eigen::Matrix<Scalar,2,1> G;    
+    Eigen::Matrix<Scalar,2,1> G;
 };
 
 template <typename T>
@@ -196,16 +196,15 @@ struct ImuResidualT
     Eigen::Matrix<Scalar,9,1> Residual;
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    template<typename T=Scalar>
-    static ImuPose IntegratePose(const ImuPoseT<T>& pose, const Eigen::Matrix<T,9,1>& k, const Scalar dt,
+    static ImuPose IntegratePose(const ImuPose& pose, const Eigen::Matrix<Scalar,9,1>& k, const Scalar dt,
                                  Eigen::Matrix<Scalar,10,9>* pdy_dk = 0,Eigen::Matrix<Scalar,10,10>* pdy_dy = 0)
     {
-        const Sophus::SO3Group<T> Rv2v1(Sophus::SO3Group<T>::exp(k.template segment<3>(3)*dt));
+        const Sophus::SO3Group<Scalar> Rv2v1(Sophus::SO3Group<Scalar>::exp(k.template segment<3>(3)*dt));
 
-        ImuPoseT<T> y = pose;
+        ImuPose y = pose;
         y.Twp.translation() += k.template head<3>()*dt;
 //        y.Twp.so3() = Rv2v1*pose.Twp.so3();
-        memcpy(y.Twp.so3().data(),(Rv2v1.unit_quaternion()*pose.Twp.so3().unit_quaternion()).coeffs().data(),sizeof(T)*4);
+        memcpy(y.Twp.so3().data(),(Rv2v1.unit_quaternion()*pose.Twp.so3().unit_quaternion()).coeffs().data(),sizeof(Scalar)*4);
         // do euler integration for now
         y.V += k.template tail<3>()*dt;
 
@@ -233,10 +232,9 @@ struct ImuResidualT
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    template<typename T=Scalar>
-    static Eigen::Matrix<Scalar,9,1> GetPoseDerivative(const ImuPoseT<T>& pose, const Eigen::Matrix<T,3,1>& tG_w, const ImuMeasurement& zStart,
-                                                       const ImuMeasurement& zEnd, const Eigen::Matrix<T,3,1>& vBg,
-                                                       const Eigen::Matrix<T,3,1>& vBa, const Scalar dt,
+    static Eigen::Matrix<Scalar,9,1> GetPoseDerivative(const ImuPose& pose, const Eigen::Matrix<Scalar,3,1>& tG_w, const ImuMeasurement& zStart,
+                                                       const ImuMeasurement& zEnd, const Eigen::Matrix<Scalar,3,1>& vBg,
+                                                       const Eigen::Matrix<Scalar,3,1>& vBa, const Scalar dt,
                                                        Eigen::Matrix<Scalar,9,6>* dk_db = 0,Eigen::Matrix<Scalar,9,10>* dk_dx = 0)
     {
         double alpha = (zEnd.Time - (zStart.Time+dt))/(zEnd.Time - zStart.Time);
@@ -266,10 +264,9 @@ struct ImuResidualT
 
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    template<typename T=Scalar>
-    static ImuPose IntegrateImu(const ImuPoseT<T>& y0, const ImuMeasurement& zStart,
-                     const ImuMeasurement& zEnd, const Eigen::Matrix<T,3,1>& vBg,
-                     const Eigen::Matrix<T,3,1>& vBa,const Eigen::Matrix<T,3,1>& dG,
+    static ImuPose IntegrateImu(const ImuPose& y0, const ImuMeasurement& zStart,
+                     const ImuMeasurement& zEnd, const Eigen::Matrix<Scalar,3,1>& vBg,
+                     const Eigen::Matrix<Scalar,3,1>& vBa,const Eigen::Matrix<Scalar,3,1>& dG,
                      Eigen::Matrix<Scalar,10,6>* pDy_db = 0,
                      Eigen::Matrix<Scalar,10,10>* pDy_dy0 = 0)
     {
@@ -280,8 +277,8 @@ struct ImuResidualT
         }
 
 
-        ImuPoseT<T> res = y0;
-        Eigen::Matrix<T,9,1> k;
+        ImuPose res = y0;
+        Eigen::Matrix<Scalar,9,1> k;
 
         if(pDy_db != 0) {
             Eigen::Matrix<Scalar,10,6>& dy_db = *pDy_db;
@@ -294,14 +291,14 @@ struct ImuResidualT
             dy_db.setZero();
             dy_dy0.setIdentity();   // dy0_y0 starts at identity
 
-            const Eigen::Matrix<Scalar,9,1> k1 = GetPoseDerivative<T>(y0,dG,zStart,zEnd,vBg,vBa,0,&dk_db,&dk_dy);
+            const Eigen::Matrix<Scalar,9,1> k1 = GetPoseDerivative(y0,dG,zStart,zEnd,vBg,vBa,0,&dk_db,&dk_dy);
             assert( _Test_IntegrateImu_KBiasJacobian( y0, zStart, zEnd, vBg, vBa, dG, dk_db ) );
             assert( _Test_IntegrateImu_KStateJacobian( y0, zStart, zEnd, vBg, vBa, dG, dk_dy ) );
 
             // total derivative of k1 wrt b: dk1/db = dG/db + dG/dy*dy/db
             const Eigen::Matrix<Scalar,9,6> dk1_db = dk_db + dk_dy*dy_db;
             const Eigen::Matrix<Scalar,9,10> dk1_dy= dk_dy*dy_dy0;
-            const ImuPose y1 = IntegratePose<T>(y0,k1,dt*0.5,&dy_dk,&dy_dy);
+            const ImuPose y1 = IntegratePose(y0,k1,dt*0.5,&dy_dk,&dy_dy);
             //dy1/db = dInt/db + dInt/dy*dy0/db + dInt/dk*dk/db
             // however dy0/db = 0 (only for y0), therefore we don't need the second term, just dInt/dk and dInt/db.
             // but dInt/db is also 0, as the integration doesn't directly depend on b
@@ -310,41 +307,41 @@ struct ImuResidualT
 
             assert( _Test_IntegrateImu_StateStateJacobian( y0, k1, dy_dy, dt ) );
 
-            const Eigen::Matrix<T,9,1> k2 = GetPoseDerivative<T>(y1,dG,zStart,zEnd,vBg,vBa,dt/2,&dk_db,&dk_dy);
+            const Eigen::Matrix<Scalar,9,1> k2 = GetPoseDerivative(y1,dG,zStart,zEnd,vBg,vBa,dt/2,&dk_db,&dk_dy);
             const Eigen::Matrix<Scalar,9,6> dk2_db = dk_db + dk_dy*dy_db;
             const Eigen::Matrix<Scalar,9,10> dk2_dy= dk_dy*dy_dy0;
-            const ImuPose y2 = IntegratePose<T>(y0,k2,dt*0.5,&dy_dk,&dy_dy);
+            const ImuPose y2 = IntegratePose(y0,k2,dt*0.5,&dy_dk,&dy_dy);
             dy_db = dy_dk*dk2_db;
             dy_dy0 = dy_dy + dy_dk*dk2_dy; // this is dy2_dy0
 
-            const Eigen::Matrix<T,9,1> k3 = GetPoseDerivative<T>(y2,dG,zStart,zEnd,vBg,vBa,dt/2,&dk_db,&dk_dy);
+            const Eigen::Matrix<Scalar,9,1> k3 = GetPoseDerivative(y2,dG,zStart,zEnd,vBg,vBa,dt/2,&dk_db,&dk_dy);
             const Eigen::Matrix<Scalar,9,6> dk3_db = dk_db + dk_dy*dy_db;
             const Eigen::Matrix<Scalar,9,10> dk3_dy = dk_dy*dy_dy0;
-            const ImuPose y3 = IntegratePose<T>(y0,k3,dt,&dy_dk,&dy_dy);
+            const ImuPose y3 = IntegratePose(y0,k3,dt,&dy_dk,&dy_dy);
             dy_db = dy_dk*dk3_db;
             dy_dy0 = dy_dy + dy_dk*dk3_dy; // this is dy3_dy0
 
-            const Eigen::Matrix<T,9,1> k4 = GetPoseDerivative<T>(y3,dG,zStart,zEnd,vBg,vBa,dt,&dk_db,&dk_dy);
+            const Eigen::Matrix<Scalar,9,1> k4 = GetPoseDerivative(y3,dG,zStart,zEnd,vBg,vBa,dt,&dk_db,&dk_dy);
             const Eigen::Matrix<Scalar,9,6> dk4_db = dk_db + dk_dy*dy_db;
             const Eigen::Matrix<Scalar,9,10> dk4_dy = dk_dy*dy_dy0;
 
             k = (k1+2*k2+2*k3+k4);
             const Eigen::Matrix<Scalar,9,6> dk_total_db = dk1_db + 2*dk2_db + 2*dk3_db + dk4_db;
             const Eigen::Matrix<Scalar,9,10> dk_total_dy = dk1_dy + 2*dk2_dy + 2*dk3_dy + dk4_dy;
-            res = IntegratePose<T>(y0,k, dt/6.0,&dy_dk,&dy_dy);
+            res = IntegratePose(y0,k, dt/6.0,&dy_dk,&dy_dy);
             dy_db = dy_dk*dk_total_db;
             dy_dy0 = dy_dy + dy_dk*dk_total_dy;
 
         }else{
-            const Eigen::Matrix<T,9,1> k1 = GetPoseDerivative<T>(y0,dG,zStart,zEnd,vBg,vBa,0);
-            const ImuPoseT<T> y1 = IntegratePose<T>(y0,k1,dt*0.5);
-            const Eigen::Matrix<T,9,1> k2 = GetPoseDerivative<T>(y1,dG,zStart,zEnd,vBg,vBa,dt/2);
-            const ImuPoseT<T> y2 = IntegratePose<T>(y0,k2,dt*0.5);
-            const Eigen::Matrix<T,9,1> k3 = GetPoseDerivative<T>(y2,dG,zStart,zEnd,vBg,vBa,dt/2);
-            const ImuPoseT<T> y3 = IntegratePose<T>(y0,k3,dt);
-            const Eigen::Matrix<T,9,1> k4 = GetPoseDerivative<T>(y3,dG,zStart,zEnd,vBg,vBa,dt);
+            const Eigen::Matrix<Scalar,9,1> k1 = GetPoseDerivative(y0,dG,zStart,zEnd,vBg,vBa,0);
+            const ImuPose y1 = IntegratePose(y0,k1,dt*0.5);
+            const Eigen::Matrix<Scalar,9,1> k2 = GetPoseDerivative(y1,dG,zStart,zEnd,vBg,vBa,dt/2);
+            const ImuPose y2 = IntegratePose(y0,k2,dt*0.5);
+            const Eigen::Matrix<Scalar,9,1> k3 = GetPoseDerivative(y2,dG,zStart,zEnd,vBg,vBa,dt/2);
+            const ImuPose y3 = IntegratePose(y0,k3,dt);
+            const Eigen::Matrix<Scalar,9,1> k4 = GetPoseDerivative(y3,dG,zStart,zEnd,vBg,vBa,dt);
             k = (k1+2*k2+2*k3+k4);
-            res = IntegratePose<T>(y0,k, dt/6.0);
+            res = IntegratePose(y0,k, dt/6.0);
         }
 
         res.W = k.template segment<3>(3);
@@ -355,19 +352,18 @@ struct ImuResidualT
 
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    template< typename T=Scalar >
-    static ImuPoseT<T> IntegrateResidual(const PoseT<T>& pose,
+    static ImuPose IntegrateResidual(const PoseT<Scalar>& pose,
                                      const std::vector<ImuMeasurement>& vMeasurements,
-                                     const Eigen::Matrix<T,3,1>& bg,
-                                     const Eigen::Matrix<T,3,1>& ba,
-                                     const Eigen::Matrix<T,3,1>& g,
-                                     std::vector<ImuPoseT<T>>& vPoses,
+                                     const Eigen::Matrix<Scalar,3,1>& bg,
+                                     const Eigen::Matrix<Scalar,3,1>& ba,
+                                     const Eigen::Matrix<Scalar,3,1>& g,
+                                     std::vector<ImuPose>& vPoses,
                                      Eigen::Matrix<Scalar,10,6>* pJb = 0,
                                      Eigen::Matrix<Scalar,10,10>* pJy = 0)
     {
         Eigen::IOFormat cleanFmt(4, 0, ", ", ";\n" , "" , "");
-        ImuPoseT<T> imuPose(pose.Twp,pose.V,Eigen::Matrix<T,3,1>::Zero(),pose.Time);
-        const ImuPoseT<T> origPose = imuPose;
+        ImuPose imuPose(pose.Twp,pose.V,Eigen::Matrix<Scalar,3,1>::Zero(),pose.Time);
+        const ImuPose origPose = imuPose;
         const ImuMeasurement* pPrevMeas = 0;
         vPoses.clear();
         vPoses.reserve(vMeasurements.size()+1);
@@ -430,7 +426,6 @@ struct ImuResidualT
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    template< typename T=Scalar >
     static bool _Test_IntegrateImu_BiasJacobian(const ImuPose& y0,
                                                 const ImuMeasurement& pPrevMeas,
                                                 const ImuMeasurement& meas,

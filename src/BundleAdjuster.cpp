@@ -288,7 +288,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
     Scalar dPortionTransfer = 0, dPortionJac = 0, dPortionSparse = 0;
 
     // set all jacobians
-    Scalar dTime = Tic();
+    // Scalar dTime = Tic();
     for( ProjectionResidual& res : m_vProjResiduals ){
         Scalar dPortTime = Tic();
         // calculate measurement jacobians
@@ -430,7 +430,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
 
         Eigen::Matrix<Scalar,10,6> jb_q;
         // Eigen::Matrix<Scalar,10,10> jb_y;
-        ImuPose imuPose = ImuResidual::template IntegrateResidual<Scalar>(poseA,res.Measurements,m_Imu.Bg,m_Imu.Ba,gravity,res.Poses,&jb_q/*,&jb_y*/);
+        ImuPose imuPose = ImuResidual::IntegrateResidual(poseA,res.Measurements,m_Imu.Bg,m_Imu.Ba,gravity,res.Poses,&jb_q/*,&jb_y*/);
         Scalar totalDt = res.Measurements.back().Time - res.Measurements.front().Time;
         const SE3t Tab = poseA.Twp.inverse()*imuPose.Twp;
         const SE3t& Twa = poseA.Twp;
@@ -469,7 +469,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
                 dq1q2_dq2(Twa.unit_quaternion()) *
                 dqExp_dw<Scalar>(Eigen::Matrix<Scalar,3,1>::Zero());
 
-        dLog.template block<3,3>(0,3) = dqx_dq<double>((Twa).unit_quaternion(),Tab_0.translation())*
+        dLog.template block<3,3>(0,3) = dqx_dq<Scalar>((Twa).unit_quaternion(),Tab_0.translation())*
                 dq1q2_dq2(Twa.unit_quaternion()) *
                 dqExp_dw<Scalar>(Eigen::Matrix<Scalar,3,1>::Zero());
 
@@ -575,7 +575,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
             Eigen::Matrix<Scalar,9,1> epsVec = Eigen::Matrix<Scalar,9,1>::Zero();
             epsVec[ii] += dEps;
             ImuPose y0_eps(poseB.Twp,poseB.V, Vector3t::Zero(),0);
-            y0_eps.Twp = exp_decoupled<double>(y0_eps.Twp,epsVec.template head<6>());
+            y0_eps.Twp = exp_decoupled<Scalar>(y0_eps.Twp,epsVec.template head<6>());
             y0_eps.V += epsVec.template tail<3>();
             Eigen::Matrix<Scalar,9,1> r_plus;
             r_plus.template head<6>() = log_decoupled(imuPose.Twp,y0_eps.Twp);
@@ -585,7 +585,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
 
             epsVec[ii] -= 2*dEps;
             y0_eps = ImuPose(poseB.Twp,poseB.V, Vector3t::Zero(),0);;
-            y0_eps.Twp = exp_decoupled<double>(y0_eps.Twp,epsVec.template head<6>());
+            y0_eps.Twp = exp_decoupled<Scalar>(y0_eps.Twp,epsVec.template head<6>());
             y0_eps.V += epsVec.template tail<3>();
             Eigen::Matrix<Scalar,9,1> r_minus;
             r_minus.template head<6>() = log_decoupled(imuPose.Twp,y0_eps.Twp);
@@ -603,18 +603,18 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
             eps[ii] += dEps;
             Pose poseEps = poseA;
             // poseEps.Twp = exp_decoupled(poseEps.Twp,eps);
-            poseEps.Twp = poseEps.Twp * Sophus::SE3d::exp(eps);
+            poseEps.Twp = poseEps.Twp * SE3t::exp(eps);
             std::vector<ImuPose> poses;
-            const ImuPose imuPosePlus = ImuResidual::template IntegrateResidual<Scalar>(poseEps,res.Measurements,m_Imu.Bg,m_Imu.Ba,gravity,poses);
+            const ImuPose imuPosePlus = ImuResidual::IntegrateResidual(poseEps,res.Measurements,m_Imu.Bg,m_Imu.Ba,gravity,poses);
             // const Vector6t dErrorPlus = log_decoupled(imuPosePlus.Twp, Twb);
             const Vector6t dErrorPlus = log_decoupled(imuPosePlus.Twp, Twb);
             const Vector3t vErrorPlus = imuPosePlus.V - poseB.V;
             eps[ii] -= 2*dEps;
             poseEps = poseA;
             // poseEps.Twp = exp_decoupled(poseEps.Twp,eps);
-            poseEps.Twp = poseEps.Twp * Sophus::SE3d::exp(eps);
+            poseEps.Twp = poseEps.Twp * SE3t::exp(eps);
             poses.clear();
-            const ImuPose imuPoseMinus = ImuResidual::template IntegrateResidual<Scalar>(poseEps,res.Measurements,m_Imu.Bg,m_Imu.Ba,gravity,poses);
+            const ImuPose imuPoseMinus = ImuResidual::IntegrateResidual(poseEps,res.Measurements,m_Imu.Bg,m_Imu.Ba,gravity,poses);
             // const Vector6t dErrorMinus = log_decoupled(imuPoseMinus.Twp, Twb);
             const Vector6t dErrorMinus = log_decoupled(imuPoseMinus.Twp, Twb);
             const Vector3t vErrorMinus = imuPoseMinus.V - poseB.V;
@@ -628,7 +628,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
             Pose poseEps = poseA;
             poseEps.V += eps;
             std::vector<ImuPose> poses;
-            const ImuPose imuPosePlus = ImuResidual::template IntegrateResidual<Scalar>(poseEps,res.Measurements,m_Imu.Bg,m_Imu.Ba,gravity,poses);
+            const ImuPose imuPosePlus = ImuResidual::IntegrateResidual(poseEps,res.Measurements,m_Imu.Bg,m_Imu.Ba,gravity,poses);
             const Vector6t dErrorPlus = log_decoupled(imuPosePlus.Twp, Twb);
 //                std::cout << "Pose plus: " << imuPosePlus.Twp.matrix() << std::endl;
             const Vector3t vErrorPlus = imuPosePlus.V - poseB.V;
@@ -636,7 +636,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
             poseEps = poseA;
             poseEps.V += eps;
             poses.clear();
-            const ImuPose imuPoseMinus = ImuResidual::template IntegrateResidual<Scalar>(poseEps,res.Measurements,m_Imu.Bg,m_Imu.Ba,gravity,poses);
+            const ImuPose imuPoseMinus = ImuResidual::IntegrateResidual(poseEps,res.Measurements,m_Imu.Bg,m_Imu.Ba,gravity,poses);
             const Vector6t dErrorMinus = log_decoupled(imuPoseMinus.Twp, Twb);
 //                std::cout << "Pose minus: " << imuPoseMinus.Twp.matrix() << std::endl;
             const Vector3t vErrorMinus = imuPoseMinus.V - poseB.V;
@@ -648,13 +648,13 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
             Vector2t eps = Vector2t::Zero();
             eps[ii] += dEps;
             std::vector<ImuPose> poses;
-            const ImuPose imuPosePlus = ImuResidual::template IntegrateResidual<Scalar>(poseA,res.Measurements,m_Imu.Bg,m_Imu.Ba,GetGravityVector((Vector2t)(m_Imu.G+eps)),poses);
+            const ImuPose imuPosePlus = ImuResidual::IntegrateResidual(poseA,res.Measurements,m_Imu.Bg,m_Imu.Ba,GetGravityVector((Vector2t)(m_Imu.G+eps)),poses);
             const Vector6t dErrorPlus = log_decoupled(imuPosePlus.Twp, Twb);
 //                std::cout << "Pose plus: " << imuPosePlus.Twp.matrix() << std::endl;
             const Vector3t vErrorPlus = imuPosePlus.V - poseB.V;
             eps[ii] -= 2*dEps;
             poses.clear();
-            const ImuPose imuPoseMinus = ImuResidual::template IntegrateResidual<Scalar>(poseA,res.Measurements,m_Imu.Bg,m_Imu.Ba,GetGravityVector((Vector2t)(m_Imu.G+eps)),poses);
+            const ImuPose imuPoseMinus = ImuResidual::IntegrateResidual(poseA,res.Measurements,m_Imu.Bg,m_Imu.Ba,GetGravityVector((Vector2t)(m_Imu.G+eps)),poses);
             const Vector6t dErrorMinus = log_decoupled(imuPoseMinus.Twp, Twb);
 //                std::cout << "Pose minus: " << imuPoseMinus.Twp.matrix() << std::endl;
             const Vector3t vErrorMinus = imuPoseMinus.V - poseB.V;
@@ -670,7 +670,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
             eps[ii] += dEps;
             std::vector<ImuPose> poses;
             const Vector6t plusBiases = biasVec + eps;
-            const ImuPose imuPosePlus = ImuResidual::template IntegrateResidual<Scalar>(poseA,res.Measurements,plusBiases.template head<3>(),plusBiases.template tail<3>(),gravity,poses);
+            const ImuPose imuPosePlus = ImuResidual::IntegrateResidual(poseA,res.Measurements,plusBiases.template head<3>(),plusBiases.template tail<3>(),gravity,poses);
 //                Eigen::Matrix<Scalar,10,1> plusVec;
 //                plusVec.template head<3>() = imuPosePlus.Twp.translation();
 //                plusVec.template segment<4>(3) = imuPosePlus.Twp.so3().unit_quaternion().coeffs();
@@ -682,7 +682,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
             eps[ii] -= 2*dEps;
             const Vector6t minusBiases = biasVec + eps;
             poses.clear();
-            const ImuPose imuPoseMinus = ImuResidual::template IntegrateResidual<Scalar>(poseA,res.Measurements,minusBiases.template head<3>(),minusBiases.template tail<3>(),gravity,poses);
+            const ImuPose imuPoseMinus = ImuResidual::IntegrateResidual(poseA,res.Measurements,minusBiases.template head<3>(),minusBiases.template tail<3>(),gravity,poses);
 //                Eigen::Matrix<Scalar,10,1> minusVec;
 //                minusVec.template head<3>() = imuPoseMinus.Twp.translation();
 //                minusVec.template segment<4>(3) = imuPoseMinus.Twp.so3().unit_quaternion().coeffs();

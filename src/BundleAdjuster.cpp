@@ -796,8 +796,8 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
 }
 
 // specializations
-template class BundleAdjuster<double, ba::NOT_USED,9>;
- template class BundleAdjuster<double, 1,6>;
+template class BundleAdjuster<REAL_TYPE, ba::NOT_USED,9>;
+ template class BundleAdjuster<REAL_TYPE, 1,6>;
 // template class BundleAdjuster<double, 3,9>;
 
 

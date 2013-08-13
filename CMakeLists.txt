@@ -4,6 +4,12 @@ set(BA_VERSION_MAJOR 0)
 set(BA_VERSION_MINOR 1)
 set(BA_VERSION ${BA_VERSION_MAJOR}.${BA_VERSION_MINOR})
 
+if( ANDROID )
+    add_definitions(-DREAL_TYPE=float)
+else()
+    add_definitions(-DREAL_TYPE=double)
+endif()
+
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake_modules/")
 
 option( BUILD_APPLICATIONS "Build Applications" ON )

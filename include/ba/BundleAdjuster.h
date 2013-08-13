@@ -8,6 +8,7 @@
 #include <Eigen/Sparse>
 #include "SparseBlockMatrix.h"
 #include "SparseBlockMatrixOps.h"
+#include "CeresCostFunctions.h"
 #include "Utils.h"
 #include "Types.h"
 

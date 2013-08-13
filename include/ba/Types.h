@@ -108,6 +108,8 @@ static Eigen::Matrix<T,3,2> dGravity_dDirection(const Eigen::Matrix<T,2,1>& dire
 template< typename Scalar=double >
 struct ImuPoseT
 {
+    ImuPoseT(const PoseT<Scalar>& pose) :
+        Twp(pose.Twp), V(pose.V), W(Eigen::Matrix<Scalar,3,1>::Zero()), Time(pose.Time) {}
     ImuPoseT(const Sophus::SE3Group<Scalar>& twp, const Eigen::Matrix<Scalar,3,1>& v, const Eigen::Matrix<Scalar,3,1>& w, const double time) :
         Twp(twp), V(v), W(w), Time(time) {}
     Sophus::SE3Group<Scalar> Twp;
@@ -350,9 +352,22 @@ struct ImuResidualT
         return res;
     }
 
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    static ImuPose IntegrateResidual(const PoseT<Scalar>& imuPose,
+                                     const std::vector<ImuMeasurement>& vMeasurements,
+                                     const Eigen::Matrix<Scalar,3,1>& bg,
+                                     const Eigen::Matrix<Scalar,3,1>& ba,
+                                     const Eigen::Matrix<Scalar,3,1>& g,
+                                     std::vector<ImuPose>& vPoses,
+                                     Eigen::Matrix<Scalar,10,6>* pJb = 0,
+                                     Eigen::Matrix<Scalar,10,10>* pJy = 0)
+    {
+        return IntegrateResidual(ImuPose(imuPose),vMeasurements,bg,ba,g,vPoses,pJb,pJy);
+    }
+
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    static ImuPose IntegrateResidual(const PoseT<Scalar>& pose,
+    static ImuPose IntegrateResidual(ImuPose imuPose,
                                      const std::vector<ImuMeasurement>& vMeasurements,
                                      const Eigen::Matrix<Scalar,3,1>& bg,
                                      const Eigen::Matrix<Scalar,3,1>& ba,
@@ -362,7 +377,7 @@ struct ImuResidualT
                                      Eigen::Matrix<Scalar,10,10>* pJy = 0)
     {
         Eigen::IOFormat cleanFmt(4, 0, ", ", ";\n" , "" , "");
-        ImuPose imuPose(pose.Twp,pose.V,Eigen::Matrix<Scalar,3,1>::Zero(),pose.Time);
+        // ImuPose imuPose(pose.Twp,pose.V,Eigen::Matrix<Scalar,3,1>::Zero(),pose.Time);
         const ImuPose origPose = imuPose;
         const ImuMeasurement* pPrevMeas = 0;
         vPoses.clear();

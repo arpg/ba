@@ -28,7 +28,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
         VectorXt rhs_p(uNumPoses*PoseSize);
         Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,LmSize,PoseSize> > Wt(uNumLm,uNumPoses);
         Eigen::Matrix<Scalar,Eigen::Dynamic,Eigen::Dynamic> S(uNumPoses*PoseSize,uNumPoses*PoseSize);
-        std::cout << "  Rhs vector mult took " << Toc(dMatTime) << " seconds." << std::endl;
+        //std::cout << "  Rhs vector mult took " << Toc(dMatTime) << " seconds." << std::endl;
 
         dMatTime = Tic();
 
@@ -154,8 +154,8 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
         }else{
             Eigen::LoadDenseFromSparse(U,S);
             rhs_p = bp;
-                std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
-                std::cout << "Dense rhs matrix is " << rhs_p.transpose().format(cleanFmt) << std::endl;
+                //std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
+                //std::cout << "Dense rhs matrix is " << rhs_p.transpose().format(cleanFmt) << std::endl;
         }
 
         // std::cout << "Setup took " << Toc(dTime) << " seconds." << std::endl;
@@ -188,7 +188,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
                     m_vLandmarks[ii].Xs.template head<LmSize>() += delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize);
                 }
             }
-            std::cout << "Backsubstitution of " << uNumLm << " landmarks took " << Toc(dTime) << " seconds." << std::endl;
+            //std::cout << "Backsubstitution of " << uNumLm << " landmarks took " << Toc(dTime) << " seconds." << std::endl;
         }
 
         // std::cout << delta_l << std::endl;
@@ -213,7 +213,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
             //  std::cout << " Pose " << ii << " is inactive." << std::endl;
             //  }
         }
-        std::cout << "BA iteration " << kk <<  " error: " << m_Rpr.norm() + m_Ru.norm() + m_Rpp.norm() + m_Ri.norm() << std::endl;
+        //std::cout << "BA iteration " << kk <<  " error: " << m_Rpr.norm() + m_Ru.norm() + m_Rpp.norm() + m_Ri.norm() << std::endl;
     }
 
     // update the global position of the landmarks from the sensor position

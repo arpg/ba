@@ -93,11 +93,13 @@ struct InterpolationBufferT
     /// \return The element
     ///
     ElementType GetElement(const ScalarType dTime, size_t* pIndex) {
-        assert(dTime >= StartTime && dTime <= EndTime);
+        // assert(dTime >= StartTime && dTime <= EndTime);
         // guess what the index would be
         size_t guessIdx = (dTime-StartTime)/AverageDt;
         const size_t nElements = Elements.size();
+        guessIdx = std::min(std::max((unsigned int)guessIdx,0u),(unsigned int)Elements.size()-1u);
         // now using the guess, find a direction to go
+
         if( Elements[guessIdx].Time > dTime ){
             // we need to go backwards
             if(guessIdx == 0){
@@ -111,7 +113,9 @@ struct InterpolationBufferT
             }
             const ScalarType interpolator = (dTime - Elements[guessIdx-1].Time)/(Elements[guessIdx].Time-Elements[guessIdx-1].Time);
             *pIndex = guessIdx-1;
-            return Elements[guessIdx-1]*(1-interpolator) + Elements[guessIdx]*interpolator;
+            ElementType res = Elements[guessIdx-1]*(1-interpolator) + Elements[guessIdx]*interpolator;
+            res.Time = dTime;
+            return res;
         }else{
             // we need to go forwards
             if(guessIdx == nElements-1){
@@ -125,8 +129,10 @@ struct InterpolationBufferT
             }
             const ScalarType interpolator = (dTime - Elements[guessIdx].Time)/(Elements[guessIdx+1].Time-Elements[guessIdx].Time);
             *pIndex = guessIdx;
-            return Elements[guessIdx]*(1-interpolator) + Elements[guessIdx+1]*interpolator;
-        }
+            ElementType res = Elements[guessIdx]*(1-interpolator) + Elements[guessIdx+1]*interpolator;
+            res.Time = dTime;
+            return res;
+        }        
     }
 };
 }

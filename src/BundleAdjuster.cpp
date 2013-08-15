@@ -80,7 +80,6 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
             Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,PoseSize> > Jit_Ji(uNumPoses,uNumPoses);
             Eigen::SparseBlockProduct(m_Jit,m_Ji,Jit_Ji);
             auto Temp = U;
-            Eigen::LoadDenseFromSparse(Jit_Ji,S);
             Eigen::SparseBlockAdd(Temp,Jit_Ji,U);
 
             VectorXt Jit_Ri(uNumPoses*PoseSize);
@@ -183,9 +182,9 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
             // update the landmarks
             for (size_t ii = 0 ; ii < uNumLm ; ii++){
                 if(LmSize == 1){
-                    m_vLandmarks[ii].Xs.template tail<LmSize>() += delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize);
+                    m_vLandmarks[ii].Xs.template tail<LmSize>() -= delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize);
                 }else{
-                    m_vLandmarks[ii].Xs.template head<LmSize>() += delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize);
+                    m_vLandmarks[ii].Xs.template head<LmSize>() -= delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize);
                 }
             }
             std::cout << "Backsubstitution of " << uNumLm << " landmarks took " << Toc(dTime) << " seconds." << std::endl;
@@ -198,13 +197,13 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
         for (size_t ii = 0 ; ii < m_vPoses.size() ; ii++){
             // only update active poses, as inactive ones are not part of the optimization
             if( m_vPoses[ii].IsActive ){
-                 // std::cout << "Pose delta for " << ii << " is " << delta_p.template block<PoseSize,1>(m_vPoses[ii].OptId*PoseSize,0).transpose() << std::endl;
-                 m_vPoses[ii].Twp = exp_decoupled<Scalar>(m_vPoses[ii].Twp,delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));
+                 std::cout << "Pose delta for " << ii << " is " << delta_p.template block<PoseSize,1>(m_vPoses[ii].OptId*PoseSize,0).transpose() << std::endl;
+                 m_vPoses[ii].Twp = exp_decoupled<Scalar>(m_vPoses[ii].Twp,-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));
                  // m_vPoses[ii].Twp = m_vPoses[ii].Twp * Sophus::SE3d::exp(delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));
                 // update the velocities if they are parametrized
                 if(PoseSize == 9){
-                    m_vPoses[ii].V += delta_p.template block<3,1>(m_vPoses[ii].OptId*PoseSize+6,0);
-                    std::cout << "Velocity for pose " << ii << " is " << m_vPoses[ii].V << std::endl;
+                    m_vPoses[ii].V -= delta_p.template block<3,1>(m_vPoses[ii].OptId*PoseSize+6,0);
+                    std::cout << "Velocity for pose " << ii << " is " << m_vPoses[ii].V.transpose() << std::endl;
                 }
                 // clear the vector of Tsw values as they will need to be recalculated
                 m_vPoses[ii].Tsw.clear();
@@ -313,15 +312,15 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
         dPortTime = Tic();
         const Eigen::Matrix<Scalar,2,4> dTdP = m_Rig.cameras[res.CameraId].camera.dTransfer3D_dP(pose.GetTsw(res.CameraId,m_Rig)*parentTws,
                                                                                                  lm.Xs.template head<3>(),lm.Xs(3));
-        res.dZ_dX = dTdP.template block<2,LmSize>( 0, LmSize == 3 ? 0 : 3 );
+        res.dZ_dX = -dTdP.template block<2,LmSize>( 0, LmSize == 3 ? 0 : 3 );
         // std::cout << "Jacobian for landmark " << res.LandmarkId << ", with Xs = " << std::endl << lm.Xs.transpose().format(cleanFmt) << " is " << res.dZ_dX;
 
         if( pose.IsActive ) {
             const Eigen::Matrix<Scalar,2,4> dTdP = m_Rig.cameras[res.CameraId].camera.dTransfer3D_dP(pose.GetTsw(res.CameraId,m_Rig),
                                                                                                      lm.Xw.template head<3>(),lm.Xw(3));
-            res.dZ_dP.template block<2,3>(0,0) = -dTdP.template block<2,3>(0,0);
+            res.dZ_dP.template block<2,3>(0,0) = dTdP.template block<2,3>(0,0);
             for(unsigned int ii=3; ii<6; ++ii){
-                res.dZ_dP.template block<2,1>(0,ii) = dTdP * -Sophus::SE3Group<Scalar>::generator(ii) * lm.Xw;
+                res.dZ_dP.template block<2,1>(0,ii) = dTdP * Sophus::SE3Group<Scalar>::generator(ii) * lm.Xw;
             }
 
 //            Eigen::Matrix<Scalar,2,6> J_fd;
@@ -376,7 +375,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
 //            std::cout << "Jbinary_fd:" << J_fd << std::endl;
 
             // m_Rpp.template segment<BinaryResidual::ResSize>(res.ResidualOffset) = (Twa*res.Tab*Twb.inverse()).log();
-            m_Rpp.template segment<BinaryResidual::ResSize>(res.ResidualOffset) = log_decoupled( Twa*res.Tab,Twb.inverse() );
+            m_Rpp.template segment<BinaryResidual::ResSize>(res.ResidualOffset) = log_decoupled( Twa*res.Tab,Twb );
     }
 
     for( UnaryResidual& res : m_vUnaryResiduals ){
@@ -463,7 +462,9 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
 
         // rotation error  = log(A) = log(Twa * Tab_0 * Twb.inverse();
         // derror/dw = dlog_dq * aA/dTwa * dTwa/dw
-        dLog.template block<3,3>(0,0) = Twa.so3().matrix();
+        //dLog.template block<3,3>(0,0) = Twa.so3().matrix();
+        dLog.setZero();
+        dLog.template block<3,3>(0,0) = Eigen::Matrix3d::Identity();
         dLog.template block<3,3>(3,3) = dLog_dq((Twa.so3()*Tab_0.so3()*Twb.so3().inverse()).unit_quaternion()) *
                 dq1q2_dq1((Tab_0.so3() * Twb.so3().inverse()).unit_quaternion()) *
                 dq1q2_dq2(Twa.unit_quaternion()) *
@@ -477,44 +478,6 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
         res.dZ_dB.template block<3,6>(3,0) = dLog_dq((imuPose.Twp.so3() * Twb.so3().inverse()).unit_quaternion()) *
                                         dq1q2_dq1(Twb.so3().inverse().unit_quaternion()) * jb_q.template block<4,6>(3,0);
 
-//            const SE3t se3 = imuPose.Twp*Twb.inverse();
-//            Vector3t upsilon_omega;
-//            Scalar theta;
-//            upsilon_omega = Sophus::SO3Group<Scalar>::logAndTheta(se3.so3(), &theta);
-
-//              const Matrix3t Omega = Sophus::SO3Group<Scalar>::hat(upsilon_omega.template tail<3>());
-//              const Matrix3t V_inv =
-//                  ( Matrix3t::Identity() - 0.5*Omega + ( 1 - theta/(2*tan(theta/2))) / (theta*theta)*(Omega*Omega) );
-//            std::cout << "Vinv " << std::endl << V_inv << std::endl;
-//            upsilon_omega = V_inv*se3.translation();
-
-//            Eigen::Matrix<Scalar,6,6> temp;
-//            temp.block<3,6>(0,0) = V_inv * jb_q.block<3,6>(0,0);
-//            temp.block<3,6>(3,0) =dLog_dq((imuPose.Twp.so3() * Twb.so3().inverse()).unit_quaternion()) *
-//                                    dq1q2_dq1(Twb.so3().inverse().unit_quaternion()) * jb_q.block<4,6>(3,0);
-        Eigen::Matrix<Scalar,6,7> dLog_dqx;
-        for(int ii = 0 ; ii < 7 ; ii++){
-            Scalar dEps = 1e-9;
-            Eigen::Matrix<Scalar,7,1> epsVec = Eigen::Matrix<Scalar,7,1>::Zero();
-            epsVec[ii] += dEps;
-            SE3t Twp_imu_plus = imuPose.Twp;
-            Twp_imu_plus.translation() += epsVec.template head<3>();
-            const Vector4t coeffsPlus = Twp_imu_plus.unit_quaternion().coeffs() + epsVec.template tail<4>();
-            memcpy(Twp_imu_plus.so3().data(),coeffsPlus.data(),sizeof(Scalar)*4);
-            const Vector6t resPlus = log_decoupled(Twp_imu_plus , Twb.inverse());
-
-            epsVec[ii] -= 2*dEps;
-            SE3t Twp_imu_minus = imuPose.Twp;
-            Twp_imu_minus.translation() += epsVec.template head<3>();
-            const Vector4t coeffsMinus = Twp_imu_minus.unit_quaternion().coeffs() + epsVec.template tail<4>();
-            memcpy(Twp_imu_minus.so3().data(),coeffsMinus.data(),sizeof(Scalar)*4);
-            const Vector6t resMinus = log_decoupled(Twp_imu_minus , Twb.inverse());
-            dLog_dqx.col(ii) = (resPlus-resMinus)/(2*dEps);
-        }
-        std::cout << "dLog_dqx = " << std::endl << dLog_dqx.format(cleanFmt) << std::endl;
-//            res.dZ_dB.template block<3,6>(0,0) = (dLog_dqx*jb_q.template block<7,6>(0,0)).template block<3,6>(0,0);
-//            res.dZ_dB.template block<3,6>(0,0) = dLog_b.template block<3,3>(0,0) * imuPose.Twp.so3().inverse().matrix() * jb_q.template block<3,6>(0,0) +
-//                                        dLog_dq((imuPose.Twp.so3() * Twb.so3().inverse()).unit_quaternion()) * jb_q.template block<4,6>(3,0);
         res.dZ_dB.template block<3,6>(0,0) = jb_q.template block<3,6>(0,0);
         res.dZ_dB.template block<3,6>(6,0) = jb_q.template block<3,6>(7,0);
 
@@ -538,15 +501,15 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
         for(int ii = 0 ; ii < 6 ; ii++){
             Vector6t eps = Vector6t::Zero();
             eps[ii] += dEps;
-            const Vector6t resPlus = log_decoupled(exp_decoupled(Twa,eps),Tab*Twb.inverse());
+            Vector6t resPlus = log_decoupled(exp_decoupled(Twa,eps),Twb*Tab.inverse());
             eps[ii] -= 2*dEps;
-            const Vector6t resMinus = log_decoupled(exp_decoupled(Twa,eps),Tab*Twb.inverse());
+            Vector6t resMinus = log_decoupled(exp_decoupled(Twa,eps),Twb*Tab.inverse());
             Jlog.col(ii) = (resPlus-resMinus)/(2*dEps);
         }
 
-        std::cout << "Jlog = [" << dLog_decoupled_dX(Twa,Tab*Twb.inverse()).format(cleanFmt) << "]" << std::endl;
+        std::cout << "Jlog = [" << dLog_decoupled_dX(Twa,Twb*Tab.inverse()).format(cleanFmt) << "]" << std::endl;
         std::cout << "Jlogf = [" << Jlog.format(cleanFmt) << "]" << std::endl;
-        std::cout << "Jlog - Jlogf = [" << (dLog_decoupled_dX(Twa,Tab*Twb.inverse())- Jlog).format(cleanFmt) << "]" << std::endl;
+        std::cout << "Jlog - Jlogf = [" << (dLog_decoupled_dX(Twa,Twb*Tab.inverse())- Jlog).format(cleanFmt) << "]" << std::endl;
 
         Eigen::Matrix<Scalar,6,6> dlog_dTwbf;
         for(int ii = 0 ; ii < 6 ; ii++){
@@ -561,6 +524,31 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
         std::cout << "dlog_dTwb = [" << (-dLog_decoupled_dX(Twa*Tab,Twb)).format(cleanFmt) << "]" << std::endl;
         std::cout << "dlog_dTwbf = [" << dlog_dTwbf.format(cleanFmt) << "]" << std::endl;
         std::cout << "dlog_dTwb - dlog_dTwbf = [" << (-dLog_decoupled_dX(Twa*Tab,Twb)- dlog_dTwbf).format(cleanFmt) << "]" << std::endl;
+
+        Eigen::Quaternion<Scalar> q = (imuPose.Twp * Twb.inverse()).unit_quaternion();
+        std::cout << "q:" << q.coeffs().transpose() << std::endl;
+        Eigen::Matrix<Scalar,3,4> dLog_dq_fd;
+        for(int ii = 0 ; ii < 4 ; ii++){
+            Vector4t eps = Vector4t::Zero();
+            eps[ii] += dEps;
+            Eigen::Quaternion<Scalar> qPlus = q;
+            qPlus.coeffs() += eps;
+            Sophus::SO3Group<Scalar> so3_plus;
+            memcpy(so3_plus.data(),qPlus.coeffs().data(),sizeof(Scalar)*4);
+            Vector3t resPlus = so3_plus.log();
+
+            eps[ii] -= 2*dEps;
+            Eigen::Quaternion<Scalar> qMinus = q;
+            qMinus.coeffs() += eps;
+            Sophus::SO3Group<Scalar> so3_Minus;
+            memcpy(so3_Minus.data(),qMinus.coeffs().data(),sizeof(Scalar)*4);
+            Vector3t resMinus = so3_Minus.log();
+
+            dLog_dq_fd.col(ii) = (resPlus-resMinus)/(2*dEps);
+        }
+        std::cout << "dlog_dq = [" << dLog_dq(q).format(cleanFmt) << "]" << std::endl;
+        std::cout << "dlog_dqf = [" << dLog_dq_fd.format(cleanFmt) << "]" << std::endl;
+        std::cout << "dlog_dq - dlog_dqf = [" << (dLog_dq(q)- dLog_dq_fd).format(cleanFmt) << "]" << std::endl;
 
         // verify using finite differences
         Eigen::Matrix<Scalar,9,9> J_fd;
@@ -602,8 +590,8 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
             Vector6t eps = Vector6t::Zero();
             eps[ii] += dEps;
             Pose poseEps = poseA;
-            // poseEps.Twp = exp_decoupled(poseEps.Twp,eps);
-            poseEps.Twp = poseEps.Twp * SE3t::exp(eps);
+            poseEps.Twp = exp_decoupled(poseEps.Twp,eps);
+            // poseEps.Twp = poseEps.Twp * SE3t::exp(eps);
             std::vector<ImuPose> poses;
             const ImuPose imuPosePlus = ImuResidual::IntegrateResidual(poseEps,res.Measurements,m_Imu.Bg,m_Imu.Ba,gravity,poses);
             // const Vector6t dErrorPlus = log_decoupled(imuPosePlus.Twp, Twb);
@@ -611,8 +599,8 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
             const Vector3t vErrorPlus = imuPosePlus.V - poseB.V;
             eps[ii] -= 2*dEps;
             poseEps = poseA;
-            // poseEps.Twp = exp_decoupled(poseEps.Twp,eps);
-            poseEps.Twp = poseEps.Twp * SE3t::exp(eps);
+            poseEps.Twp = exp_decoupled(poseEps.Twp,eps);
+            // poseEps.Twp = poseEps.Twp * SE3t::exp(eps);
             poses.clear();
             const ImuPose imuPoseMinus = ImuResidual::IntegrateResidual(poseEps,res.Measurements,m_Imu.Bg,m_Imu.Ba,gravity,poses);
             // const Vector6t dErrorMinus = log_decoupled(imuPoseMinus.Twp, Twb);
@@ -709,7 +697,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
         std::cout << "Jb-Jbf = [" << std::endl << (res.dZ_dB-Jb_fd).format(cleanFmt) << "] norm = " << (res.dZ_dB-Jb_fd).norm() << std::endl;
 
         // now that we have the deltas with subtracted initial velocity, transform and gravity, we can construct the jacobian
-        m_Ri.template segment<6>(res.ResidualOffset) = log_decoupled(Twa*Tab,Twb.inverse());
+        m_Ri.template segment<6>(res.ResidualOffset) = log_decoupled(Twa*Tab,Twb);
         m_Ri.template segment<3>(res.ResidualOffset+6) = imuPose.V - poseB.V;
     }
 

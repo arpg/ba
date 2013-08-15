@@ -109,19 +109,38 @@ int main( int argc, char** argv )
         std::cout << "Error for LoadSparseFromDense && LoadDenseFromSparse: " << (sparseDenseTest - testMat).norm() + (sparseDenseTest2 - testMat2).norm() << std::endl;
 
         Eigen::MatrixXd denseRes = testMat * testMat2;
-        Eigen::SparseBlockProduct(testBlockMat,testBlockMat2,testBlockMatRes);
+        double time = Tic();
+        Eigen::SparseBlockProduct(testBlockMat,testBlockMat2,testBlockMatRes);        
+        double duration = Toc(time);
 
         Eigen::MatrixXd sparseDenseRes(denseRes.rows(),denseRes.cols());
         Eigen::LoadDenseFromSparse(testBlockMatRes,sparseDenseRes);
 
         // now convert back to dense
-        std::cout << "Error for SparseBlockProduct (dense matrx): " << (denseRes - sparseDenseRes).norm() << std::endl;
+        std::cout << "Error for SparseBlockProduct (dense matrx): " << (denseRes - sparseDenseRes).norm() << " took " << duration << "s" << std::endl;
+
+        denseRes = testMat2.transpose() * testMat2;
+        time = Tic();
+        Eigen::SparseBlockTransposeProduct(testBlockMat2,testBlockMat2,testBlockMatRes);
+        duration = Toc(time);
+        Eigen::LoadDenseFromSparse(testBlockMatRes,sparseDenseRes);
+        std::cout << "Error for SparseBlockTransposeProduct (dense matrx): " << (denseRes - sparseDenseRes).norm() << " took " << duration << "s" << std::endl;
 
         denseRes = testMat * testMat2.col(0);
         sparseDenseRes = Eigen::MatrixXd (denseRes.rows(),1);
+        time = Tic();
         Eigen::SparseBlockVectorProductDenseResult(testBlockMat,testMat2.col(0),sparseDenseRes);
+        duration = Toc(time);
 
-        std::cout << "Error for SparseBlockVectorProductDenseResult (dense matrx): " << (denseRes - sparseDenseRes).norm() << std::endl;
+        std::cout << "Error for SparseBlockVectorProductDenseResult (dense matrx): " << (denseRes - sparseDenseRes).norm() << " took " << duration << "s" << std::endl;
+
+        denseRes = testMat2.transpose() * testMat2.col(0);
+        Eigen::MatrixXd sparseDenseTransposeRes = Eigen::MatrixXd (denseRes.rows(),1);
+        time = Tic();
+        Eigen::SparseBlockTransposeVectorProductDenseResultAtb(testBlockMat2,testMat2.col(0),sparseDenseTransposeRes);
+        duration = Toc(time);
+
+        std::cout << "Error for SparseBlockTransposeVectorProductDenseResultAtb (dense matrx): " << (denseRes - sparseDenseTransposeRes).norm() << " took " << duration << "s" << std::endl;
 
         testMat.setZero();
         testMat2.setZero();
@@ -151,19 +170,44 @@ int main( int argc, char** argv )
         Eigen::LoadDenseFromSparse(testBlockMat2,sparseDenseTest2);
 
         denseRes = testMat * testMat2;
+        time = Tic();
         Eigen::SparseBlockProduct(testBlockMat,testBlockMat2,testBlockMatRes);
+        duration = Toc(time);
 
         sparseDenseRes = Eigen::MatrixXd(denseRes.rows(),denseRes.cols());
         Eigen::LoadDenseFromSparse(testBlockMatRes,sparseDenseRes);
 
         // now convert back to dense
-        std::cout << "Error for SparseBlockProduct (sparse matrx): " << (denseRes - sparseDenseRes).norm() << std::endl;
+        std::cout << "Error for SparseBlockProduct (sparse matrx): " << (denseRes - sparseDenseRes).norm() <<  " took " << duration << "s" << std::endl;
+
+        denseRes = testMat2.transpose() * testMat2;
+        time = Tic();
+        Eigen::SparseBlockTransposeProduct(testBlockMat2,testBlockMat2,testBlockMatRes);
+        duration = Toc(time);
+        Eigen::LoadDenseFromSparse(testBlockMatRes,sparseDenseRes);
+        std::cout << "Error for SparseBlockTransposeProduct (sparse matrx): " << (denseRes - sparseDenseRes).norm() << " took " << duration << "s" << std::endl;
+
+        // std::cout << "deneseRes: " << denseRes.transpose() << std::endl;
+        // std::cout << "sparseDenseRes: " << sparseDenseRes.transpose() << std::endl;
 
         denseRes = testMat * testMat2.col(0);
         sparseDenseRes = Eigen::MatrixXd(denseRes.rows(),1);
+        time = Tic();
         Eigen::SparseBlockVectorProductDenseResult(testBlockMat,testMat2.col(0),sparseDenseRes);
+        duration = Toc(time);
 
-        std::cout << "Error for SparseBlockVectorProductDenseResult (sparse matrx): " << (denseRes - sparseDenseRes).norm() << std::endl;
+        std::cout << "Error for SparseBlockVectorProductDenseResult (sparse matrx): " << (denseRes - sparseDenseRes).norm() << " took " << duration << "s" <<  std::endl;
+
+        denseRes = testMat2.transpose() * testMat2.col(0);
+        sparseDenseTransposeRes = Eigen::MatrixXd (denseRes.rows(),1);
+        time = Tic();
+        Eigen::SparseBlockTransposeVectorProductDenseResultAtb(testBlockMat2,testMat2.col(0),sparseDenseTransposeRes);
+        duration = Toc(time);
+
+//        std::cout << "deneseRes: " << denseRes.transpose() << std::endl;
+//        std::cout << "sparseDenseTransposeRes: " << sparseDenseTransposeRes.transpose() << std::endl;
+
+        std::cout << "Error for SparseBlockTransposeVectorProductDenseResultAtb (sparse matrx): " << (denseRes - sparseDenseTransposeRes).norm() << " took " << duration << "s" << std::endl;
     }
 
     {

@@ -72,14 +72,21 @@ public:
         m_vImuResiduals.clear();
         m_vLandmarks.clear();
 
-    }    
+    }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     unsigned int AddPose(const SE3t& Twp, const bool bIsActive = true, const double dTime = -1)
     {
+        return AddPose( Twp, Vector3t::Zero(), bIsActive, dTime);
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    unsigned int AddPose(const SE3t& Twp, const Vector3t& V, const bool bIsActive = true, const double dTime = -1)
+    {
         Pose pose;
         pose.Time = dTime;
         pose.Twp = Twp;
+        pose.V = V;
         pose.IsActive = bIsActive;
         pose.Tsw.reserve(m_Rig.cameras.size());
         // assume equal distribution of measurements amongst poses
@@ -130,7 +137,7 @@ public:
         residual.Twp = Twp;
 
         m_vUnaryResiduals.push_back(residual);
-        m_uUnaryResidualOffset += 6;
+        m_uUnaryResidualOffset += UnaryResidual::ResSize;
 
         // we add this to both poses, as each one has a jacobian cell associated
         m_vPoses[uPoseId].UnaryResiduals.push_back(residual.ResidualId);
@@ -155,7 +162,7 @@ public:
         residual.Tab = Tab;
 
         m_vBinaryResiduals.push_back(residual);
-        m_uBinaryResidualOffset += 6;
+        m_uBinaryResidualOffset += BinaryResidual::ResSize;
 
         // we add this to both poses, as each one has a jacobian cell associated
         m_vPoses[uPoseAId].BinaryResiduals.push_back(residual.ResidualId);
@@ -182,7 +189,7 @@ public:
         residual.ResidualOffset = m_uProjResidualOffset;
 
         m_vProjResiduals.push_back(residual);
-        m_uProjResidualOffset += 2;
+        m_uProjResidualOffset += ProjectionResidual::ResSize;
 
         m_vLandmarks[uLandmarkId].ProjResiduals.push_back(residual.ResidualId);
         m_vPoses[uPoseId].ProjResiduals.push_back(residual.ResidualId);
@@ -209,16 +216,17 @@ public:
         residual.ResidualOffset = m_uImuResidualOffset;
 
         m_vImuResiduals.push_back(residual);
-        m_uImuResidualOffset += 9;
+        m_uImuResidualOffset += ImuResidual::ResSize;
 
         m_vPoses[uPoseAId].ImuResiduals.push_back(residual.ResidualId);
+        m_vPoses[uPoseBId].ImuResiduals.push_back(residual.ResidualId);
         return residual.ResidualId;
     }
     void Solve(const unsigned int uMaxIter);
 
     const ImuResidual& GetImuResidual(const unsigned int id) const { return m_vImuResiduals[id]; }
     const ImuCalibration& GetImuCalibration() const { return m_Imu; }
-    const SE3t& GetPose(const unsigned int id) const  { return m_vPoses[id].Twp; }
+    const Pose& GetPose(const unsigned int id) const  { return m_vPoses[id]; }
     // return the landmark in the world frame
     const Vector4t& GetLandmark(const unsigned int id) const { return m_vLandmarks[id].Xw; }
 

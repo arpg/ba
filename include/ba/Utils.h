@@ -88,13 +88,15 @@ namespace ba
     inline Eigen::Matrix<Scalar,3,4> dLog_dq(const Eigen::Quaternion<Scalar>& q)
     {
         const Scalar s1 = powi(q.x(),2) + powi(q.y(),2) + powi(q.z(),2);
-        const Scalar s2 = 1/pow(s1,(3.0/2.0));
-        const Scalar s3 = 1/sqrt(s1);
-        const Scalar s4 = 1.0/sqrt(1 - powi(q.w(),2));
+        const Scalar s2 = 1.0/pow(s1,(3.0/2.0));
+        const Scalar s3 = 1.0/sqrt(s1);
+        const Scalar s4 = 1.0/sqrt(1.0 - powi(q.w(),2));
         const Scalar s5 = acos(q.w());
-        const Scalar s6 = 2*s3*s5;
+        const Scalar s6 = 2.0*s3*s5;
 //        const Scalar s7 = s3*s4;
 //        const Scalar s8 = s2*s5;
+
+        std::cout << " s1 " << s1 << " s2 " << s2 << " s3 " << s3 << " s4 " << s4 << " s5 " << s5 << " s6 " << s6 << std::endl;
 
         return (Eigen::Matrix<Scalar, 3, 4>() <<
                  - 2*s2*s5*powi(q.x(),2) + s6,      -2*q.x()*q.y()*s2*s5,      -2*q.x()*q.z()*s2*s5, -2*q.x()*s3*s4,
@@ -203,7 +205,10 @@ namespace ba
     template<typename Scalar=double>
     inline Sophus::SE3Group<Scalar> exp_decoupled(const Sophus::SE3Group<Scalar>& A,const Eigen::Matrix<Scalar,6,1> x)
     {
-        return Sophus::SE3Group<Scalar>(A.so3() * Sophus::SO3Group<Scalar>::exp(x.template tail<3>()),A.translation() + x.template head<3>());
+        // Sophus::SO3Group<Scalar> Aso3 = A.so3();
+        // Aso3.fastMultiply(Sophus::SO3Group<Scalar>::exp(x.template tail<3>()));
+        // return Sophus::SE3Group<Scalar>(Aso3,A.translation() + x.template head<3>());
+        return Sophus::SE3Group<Scalar>(A.so3()*Sophus::SO3Group<Scalar>::exp(x.template tail<3>()),A.translation() + x.template head<3>());
     }
 
     ///////////////////////////////////////////////////////////////////////////////
@@ -211,6 +216,8 @@ namespace ba
     template<typename Scalar=double>
     inline Eigen::Matrix<Scalar,6,6> dLog_decoupled_dX(const Sophus::SE3Group<Scalar>& A,const Sophus::SE3Group<Scalar>& B)
     {
+        Sophus::SO3Group<Scalar> Bso3inv = B.so3().inverse();
+
         const Eigen::Matrix<Scalar,6,1> d_2 = Sophus::SE3Group<Scalar>::log(A*B.inverse())/2;
         const Scalar d1 = d_2[3], d2 = d_2[4], d3 = d_2[5], dx = d_2[0], dy = d_2[1], dz = d_2[2];
         // this is using the 2nd order cbh expansion, to evaluate (I + 0.5 [Adj*x, log(AB)])*Adj
@@ -225,6 +232,7 @@ namespace ba
                ).finished() * A.Adj());
         Eigen::Matrix<Scalar,6,6> dLog_decoupled = Eigen::Matrix<Scalar,6,6>::Identity();
         dLog_decoupled.template block<3,3>(3,3) = dLog.template block<3,3>(3,3);
+        // dLog_decoupled.template block<3,3>(3,3) = dLog_dq(A.unit_quaternion()*Bso3inv.unit_quaternion()) * dq1q2_dq1(Bso3inv.unit_quaternion()) * dqExp_dw<Scalar>(Eigen::Matrix<Scalar,3,1>::Zero());
         return dLog_decoupled;
     }
 

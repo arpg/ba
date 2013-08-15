@@ -14,23 +14,101 @@ static void SparseBlockVectorProductDenseResult(const Lhs& lhs, const Rhs& rhs, 
     typedef typename Rhs::Index Index;
 
     // make sure to call innerSize/outerSize since we fake the storage order.
-    const int blockCols = LhsScalar::ColsAtCompileTime;
-    const int blockRows = LhsScalar::RowsAtCompileTime;
-    Index rows = lhs.innerSize();
-    //int size = lhs.outerSize();
-    eigen_assert(lhs.outerSize()*blockCols == rhs.rows());
+    const Index lhsCols = lhs.outerSize();
+    eigen_assert(lhsCols*LhsScalar::ColsAtCompileTime == rhs.rows());
 
     res.setZero();
 //    for (typename Rhs::InnerIterator rhsIt(rhs, j); rhsIt; ++rhsIt)
-    const int rhsBlockRows = rhs.rows()/blockCols;
-    for (Index ii=0; ii<rhsBlockRows; ++ii)
+    for (Index ii=0; ii< lhsCols; ++ii)
     {
         for (typename Lhs::InnerIterator lhsIt(lhs, ii); lhsIt; ++lhsIt)
         {
-            res.template block<LhsScalar::RowsAtCompileTime,1>(blockRows*lhsIt.index(),0).noalias() +=
-                    lhsIt.value() * rhs.template block<LhsScalar::ColsAtCompileTime,1>(blockCols*ii,0);
+            res.template block<LhsScalar::RowsAtCompileTime,1>(LhsScalar::RowsAtCompileTime*lhsIt.index(),0).noalias() +=
+                    lhsIt.value() * rhs.template block<LhsScalar::ColsAtCompileTime,1>(LhsScalar::ColsAtCompileTime*ii,0);
         }
     }
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////
+template<typename Lhs, typename Rhs, typename ResultType>
+static void SparseBlockTransposeVectorProductDenseResultAtb(const Lhs& lhs, const Rhs& rhs, ResultType& res)
+{
+    // return sparse_sparse_product_with_pruning_impl2(lhs,rhs,res);
+    typedef typename ResultType::Scalar ResultScalar;
+    typedef typename Lhs::Scalar LhsScalar;
+    typedef typename Rhs::Scalar RhsScalar;
+    typedef typename Rhs::Index Index;
+
+    // make sure to call innerSize/outerSize since we fake the storage order.
+    const Index lhsCols = lhs.outerSize();
+    eigen_assert(lhs.outerSize()*LhsScalar::ColsAtCompileTime == rhs.rows());
+
+    res.setZero();
+
+    for (Index ii=0; ii<lhsCols; ++ii)
+    {
+        for (typename Lhs::InnerIterator lhsIt(lhs, ii); lhsIt; ++lhsIt){
+            res.template block<LhsScalar::ColsAtCompileTime,1>(LhsScalar::ColsAtCompileTime*ii,0).noalias() +=
+                    lhsIt.value().transpose() * rhs.template block<LhsScalar::RowsAtCompileTime,1>(LhsScalar::RowsAtCompileTime*lhsIt.index(),0);
+        }
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////
+template<typename Lhs, typename Rhs, typename ResultType>
+static void SparseBlockTransposeProduct(const Lhs& lhs,const Rhs& rhs, ResultType& res)
+{
+    const typename ResultType::Scalar zero = ResultType::Scalar::Zero();
+    typedef typename ResultType::Scalar ResultScalar;
+    typedef typename Lhs::Scalar LhsScalar;
+    typedef typename Rhs::Scalar RhsScalar;
+    typedef typename Lhs::Index Index;
+
+    // make sure to call innerSize/outerSize since we fake the storage order.
+    Index rows = lhs.outerSize(); // this is because lhs is actually transposed in the multiplication
+    Index cols = rhs.outerSize();
+
+    // allocate a temporary buffer
+//     Eigen::internal::BlockAmbiVector<ResultScalar,Index> tempVector(rows,zero);
+
+    Index estimated_nnz_prod =  lhs.nonZeros() + rhs.nonZeros();
+
+    res.resize(rows, cols);
+
+    res.reserve(estimated_nnz_prod);
+    for (Index j=0; j<cols; ++j)
+    {
+        res.startVec(j);
+        for (Index i=0; i<rows; ++i)
+        {
+            typename Rhs::InnerIterator jIt(rhs, j);
+            typename Lhs::InnerIterator iIt(lhs, i);
+
+            // do the dot product of the ith and jth columns
+            bool bEmpty = true;
+            ResultScalar value;
+            value.setZero();
+            while(jIt && iIt){
+                if(jIt.index() == iIt.index()){
+                    bEmpty = false;
+                    value += iIt.value().transpose() * jIt.value();
+                    ++jIt;
+                    ++iIt;
+                }else if(jIt.index() < iIt.index()) {
+                    ++jIt;
+                }else{
+                    ++iIt;
+                }
+            }
+
+            // insert the result of the dot product
+            if(bEmpty == false){
+                res.insertBackByOuterInner(j,i) = value;
+            }
+
+        }
+    }
+    res.finalize();
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -69,6 +147,7 @@ static void SparseBlockProduct(const Lhs& lhs, const Rhs& rhs, ResultType& res)
         // let's do a more accurate determination of the nnz ratio for the current column j of res
         tempVector.init(ratioColRes);
         tempVector.setZero();
+        // this is going down the jth column of the rhs
         for (typename Rhs::InnerIterator rhsIt(rhs, j); rhsIt; ++rhsIt)
         {
             // FIXME should be written like this: tmp += rhsIt.value() * lhs.col(rhsIt.index())

@@ -118,6 +118,7 @@ struct GlobalPoseCostFunction
        Eigen::Map<Eigen::Matrix<T,6,1> > pose_residuals(residuals); //the pose residuals
 
        pose_residuals = (T_w_i* T_i_c * m_Tw_c.inverse().template cast<T>()).log()  * (T)m_dWeight;
+       //pose_residuals = log_decoupled(T_w_i* T_i_c,m_Tw_c.template cast<T>())* (T)m_dWeight;
        pose_residuals.tail(3) * (T)m_dWeight;
        pose_residuals.head(3) * (T)m_dWeight;
         //pose_residuals.head(3) *= (T)0.9;
@@ -173,6 +174,7 @@ struct FullImuCostFunction
 
         //and now calculate the error with this pose
         pose_residuals = (endPose.Twp * T_w_x2.inverse()).log();
+        //pose_residuals = log_decoupled(endPose.Twp,T_w_x2);
 
         //to calculate the velocity error, first augment the IMU integration velocity with gravity and initial velocity
         vel_residuals = (endPose.V - v_v2);

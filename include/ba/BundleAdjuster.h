@@ -15,7 +15,7 @@
 
 namespace ba {
 
-template< typename Scalar=double,int LmSize=1, int PoseSize=6 >
+template< typename Scalar=double,int LmSize=1, int PoseSize=6, int CalibSize=8 >
 class BundleAdjuster
 {
     typedef PoseT<Scalar> Pose;
@@ -226,6 +226,7 @@ public:
 
     const ImuResidual& GetImuResidual(const unsigned int id) const { return m_vImuResiduals[id]; }
     const ImuCalibration& GetImuCalibration() const { return m_Imu; }
+    void SetImuCalibration(const ImuCalibration& calib) { m_Imu = calib; }
     const Pose& GetPose(const unsigned int id) const  { return m_vPoses[id]; }
     // return the landmark in the world frame
     const Vector4t& GetLandmark(const unsigned int id) const { return m_vLandmarks[id].Xw; }
@@ -257,9 +258,10 @@ private:
     Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,ImuResidual::ResSize,PoseSize> > m_Ji;
     Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,ImuResidual::ResSize> > m_Jit;
 
-    // jacobian reserved for biases, gravity, etc
-    // 2 for gravity, 6 for biases
-    Eigen::Matrix<Scalar,Eigen::Dynamic,Eigen::Dynamic> m_Jki;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,ImuResidual::ResSize,CalibSize> > m_Jki;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,CalibSize,ImuResidual::ResSize> > m_Jkit;
+
+
     VectorXt m_Ri;
 
 

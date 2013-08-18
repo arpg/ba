@@ -3,8 +3,8 @@
 namespace ba {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-template< typename Scalar,int LmSize, int PoseSize >
-void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
+template< typename Scalar,int LmSize, int PoseSize, int CalibSize >
+void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int uMaxIter)
 {
     Eigen::IOFormat cleanFmt(2, 0, ", ", ";\n" , "" , "");
     // Scalar dTime = Tic();
@@ -18,57 +18,61 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
         dTime = Tic();
 
         const unsigned int uNumPoses = m_uNumActivePoses;
+        const unsigned int uNumPoseParams = uNumPoses*PoseSize;
         const unsigned int uNumLm = m_vLandmarks.size();
 //        const unsigned int uNumMeas = m_vMeasurements.size();
         // calculate bp and bl
         Scalar dMatTime = Tic();
-        VectorXt bp(uNumPoses*PoseSize);
+        VectorXt bp(uNumPoseParams);
+        VectorXt bk;
         VectorXt bl;
-        Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,LmSize,LmSize> > V_inv(uNumLm,uNumLm);
-        VectorXt rhs_p(uNumPoses*PoseSize);
-        Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,LmSize,PoseSize> > Wt(uNumLm,uNumPoses);
-        Eigen::Matrix<Scalar,Eigen::Dynamic,Eigen::Dynamic> S(uNumPoses*PoseSize,uNumPoses*PoseSize);
+        Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, LmSize, LmSize> > V_inv(uNumLm, uNumLm);
+        VectorXt rhs_p(uNumPoseParams + CalibSize);
+        Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, LmSize, PoseSize> > Wpt(uNumLm, uNumPoses);
+        Eigen::Matrix<Scalar,Eigen::Dynamic,Eigen::Dynamic> S(uNumPoseParams + CalibSize,uNumPoseParams + CalibSize);
         std::cout << "  Rhs vector mult took " << Toc(dMatTime) << " seconds." << std::endl;
 
         dMatTime = Tic();
 
         // TODO: suboptimal, the matrices are symmetric. We should only multipl one half
-        Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,PoseSize> > U(uNumPoses,uNumPoses);
+        Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, PoseSize, PoseSize> > U(uNumPoses, uNumPoses);
         U.setZero();
         bp.setZero();
+        S.setZero();
+        rhs_p.setZero();
 
         if( m_vProjResiduals.size() > 0 ){
-            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,PoseSize> > Jprt_Jpr(uNumPoses,uNumPoses);
-            Eigen::SparseBlockProduct(m_Jprt,m_Jpr,Jprt_Jpr);
+            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, PoseSize, PoseSize> > Jprt_Jpr(uNumPoses, uNumPoses);
+            Eigen::SparseBlockProduct(m_Jprt, m_Jpr, Jprt_Jpr);
             auto Temp = U;
-            Eigen::SparseBlockAdd(Temp,Jprt_Jpr,U);
+            Eigen::SparseBlockAdd(Temp, Jprt_Jpr, U);
 
-            VectorXt Jprt_Rpr(uNumPoses*PoseSize);
-            Eigen::SparseBlockVectorProductDenseResult(m_Jprt,m_Rpr,Jprt_Rpr);
+            VectorXt Jprt_Rpr(uNumPoseParams);
+            Eigen::SparseBlockVectorProductDenseResult(m_Jprt, m_Rpr, Jprt_Rpr);
             bp += Jprt_Rpr;
         }
 
         // add the contribution from the binary terms if any
         if( m_vBinaryResiduals.size() > 0 ) {
-            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,PoseSize> > Jppt_Jpp(uNumPoses,uNumPoses);
-            Eigen::SparseBlockProduct(m_Jppt,m_Jpp,Jppt_Jpp);
+            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, PoseSize, PoseSize> > Jppt_Jpp(uNumPoses, uNumPoses);
+            Eigen::SparseBlockProduct(m_Jppt ,m_Jpp, Jppt_Jpp);
             auto Temp = U;
             Eigen::SparseBlockAdd(Temp,Jppt_Jpp,U);
 
-            VectorXt Jppt_Rpp(uNumPoses*PoseSize);
-            Eigen::SparseBlockVectorProductDenseResult(m_Jppt,m_Rpp,Jppt_Rpp);
+            VectorXt Jppt_Rpp(uNumPoseParams);
+            Eigen::SparseBlockVectorProductDenseResult(m_Jppt, m_Rpp, Jppt_Rpp);
             bp += Jppt_Rpp;
         }
 
         // add the contribution from the unary terms if any
         if( m_vUnaryResiduals.size() > 0 ) {
-            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,PoseSize> > Jut_Ju(uNumPoses,uNumPoses);
-            Eigen::SparseBlockProduct(m_Jut,m_Ju,Jut_Ju);
+            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, PoseSize, PoseSize> > Jut_Ju(uNumPoses, uNumPoses);
+            Eigen::SparseBlockProduct(m_Jut, m_Ju, Jut_Ju);
             auto Temp = U;
-            Eigen::SparseBlockAdd(Temp,Jut_Ju,U);
+            Eigen::SparseBlockAdd(Temp, Jut_Ju, U);
 
-            VectorXt Jut_Ru(uNumPoses*PoseSize);
-            Eigen::SparseBlockVectorProductDenseResult(m_Jut,m_Ru,Jut_Ru);
+            VectorXt Jut_Ru(uNumPoseParams);
+            Eigen::SparseBlockVectorProductDenseResult(m_Jut, m_Ru, Jut_Ru);
             bp += Jut_Ru;
 
 //                Eigen::LoadDenseFromSparse(U,S);
@@ -77,13 +81,13 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
 
         // add the contribution from the imu terms if any
         if( m_vImuResiduals.size() > 0 ) {
-            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,PoseSize> > Jit_Ji(uNumPoses,uNumPoses);
-            Eigen::SparseBlockProduct(m_Jit,m_Ji,Jit_Ji);
+            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, PoseSize, PoseSize> > Jit_Ji(uNumPoses, uNumPoses);
+            Eigen::SparseBlockProduct(m_Jit, m_Ji, Jit_Ji);
             auto Temp = U;
-            Eigen::SparseBlockAdd(Temp,Jit_Ji,U);
+            Eigen::SparseBlockAdd(Temp, Jit_Ji, U);
 
-            VectorXt Jit_Ri(uNumPoses*PoseSize);
-            Eigen::SparseBlockVectorProductDenseResult(m_Jit,m_Ri,Jit_Ri);
+            VectorXt Jit_Ri(uNumPoseParams);
+            Eigen::SparseBlockVectorProductDenseResult(m_Jit, m_Ri, Jit_Ri);
             bp += Jit_Ri;
                 // Eigen::LoadDenseFromSparse(U,S);
                 // std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
@@ -91,21 +95,20 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
 
         if( LmSize > 0 && uNumLm > 0) {
             bl.resize(uNumLm*LmSize);
-            Eigen::SparseBlockVectorProductDenseResult(m_Jlt,m_Rpr,bl);
+            Eigen::SparseBlockVectorProductDenseResult(m_Jlt, m_Rpr, bl);
 
 //                 std::cout << "bl = " << bl.transpose().format(cleanFmt) << std::endl;
 
-            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,LmSize,LmSize> > V(uNumLm,uNumLm);
+            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, LmSize, LmSize> > V(uNumLm, uNumLm);
             Eigen::SparseBlockProduct(m_Jlt,m_Jl,V);
 
 //                 Eigen::LoadDenseFromSparse(V,S);
 //                 std::cout << "V is " << S.format(cleanFmt) << std::endl;
 
             // TODO this is really suboptimal, we should write a function to transpose the matrix
-            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,LmSize> > W(uNumPoses,uNumLm);
-            Eigen::SparseBlockProduct(m_Jprt,m_Jl,W);
-
-            Eigen::SparseBlockProduct(m_Jlt,m_Jpr,Wt);
+            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, PoseSize, LmSize> > Wp(uNumPoses, uNumLm);
+            Eigen::SparseBlockProduct(m_Jprt,m_Jl,Wp);
+            Eigen::SparseBlockProduct(m_Jlt,m_Jpr,Wpt);
 
 //                 Eigen::LoadDenseFromSparse(W,S);
 //                 std::cout << "W is " << S.format(cleanFmt) << std::endl;
@@ -129,21 +132,22 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
 
             dMatTime = Tic();
             // attempt to solve for the poses. W_V_inv is used later on, so we cache it
-            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,LmSize> > W_V_inv(uNumPoses,uNumLm);
-            Eigen::SparseBlockProduct(W,V_inv,W_V_inv);
+            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, PoseSize, LmSize> > Wp_V_inv(uNumPoses, uNumLm);
+            Eigen::SparseBlockProduct(Wp, V_inv, Wp_V_inv);
 
-            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,PoseSize> > WV_invWt(uNumPoses,uNumPoses);
-            Eigen::SparseBlockProduct(W_V_inv,Wt,WV_invWt);
+            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, PoseSize, PoseSize> > WV_invWt(uNumPoses, uNumPoses);
+            Eigen::SparseBlockProduct(Wp_V_inv, Wpt, WV_invWt);
 
             // Eigen::LoadDenseFromSparse(WV_invWt,S);
             // std::cout << "WV_invWt is " << S.format(cleanFmt) << std::endl;
 
             // this in-place operation should be fine for subtraction
-            Eigen::SparseBlockSubtractDenseResult(U,WV_invWt,S);
+            Eigen::SparseBlockSubtractDenseResult(U, WV_invWt, S.template block(0, 0, uNumPoseParams, uNumPoseParams ));
+            // Eigen::SparseBlockSubtractDenseResult( U,WV_invWt,S );
 
             // now form the rhs for the pose equations
-            VectorXt WV_inv_bl(uNumPoses*PoseSize);
-            Eigen::SparseBlockVectorProductDenseResult(W_V_inv,bl,WV_inv_bl);
+            VectorXt WV_inv_bl(uNumPoseParams);
+            Eigen::SparseBlockVectorProductDenseResult(Wp_V_inv, bl, WV_inv_bl);
 
             rhs_p = bp - WV_inv_bl;
 
@@ -151,11 +155,35 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
 //                 std::cout << "Dense rhs matrix is " << rhs_p.transpose().format(cleanFmt) << std::endl;
             // std::cout << "  Rhs calculation took " << Toc(dMatTime) << " seconds." << std::endl;
         }else{
-            Eigen::LoadDenseFromSparse(U,S);
-            rhs_p = bp;
-                std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
-                std::cout << "Dense rhs matrix is " << rhs_p.transpose().format(cleanFmt) << std::endl;
+            Eigen::LoadDenseFromSparse(U, S.template block(0, 0, uNumPoseParams, uNumPoseParams));
+            rhs_p.template head(uNumPoseParams) = bp;                        
         }
+
+        Eigen::MatrixXd dJki;
+        dJki.resize(m_vImuResiduals.size() * ImuResidual::ResSize,CalibSize);
+        Eigen::LoadDenseFromSparse(m_Jki,dJki);
+        // std::cout << "Dense dJki matrix is " << dJki.format(cleanFmt) << std::endl;
+
+        // fill in the calibration components if any
+        if( CalibSize ){
+            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,CalibSize,CalibSize> > Jkit_Jki(1, 1);
+            Eigen::SparseBlockProduct(m_Jkit, m_Jki, Jkit_Jki);
+            Eigen::LoadDenseFromSparse(Jkit_Jki, S.template block<CalibSize, CalibSize>(uNumPoseParams, uNumPoseParams));
+
+            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,CalibSize> > Jit_Jki(uNumPoses, 1);
+            Eigen::SparseBlockProduct(m_Jit, m_Jki, Jit_Jki);
+            Eigen::LoadDenseFromSparse(Jit_Jki, S.template block(0, uNumPoseParams, uNumPoseParams, CalibSize));
+
+            S.template block(uNumPoseParams, 0, CalibSize, uNumPoseParams) = S.template block(0, uNumPoseParams, uNumPoseParams, CalibSize).transpose();
+
+            // and the rhs for the calibration params
+            bk.resize(CalibSize,1);
+            Eigen::SparseBlockVectorProductDenseResult(m_Jkit, m_Ri, bk);
+            rhs_p.template tail<CalibSize>() = bk;
+        }
+
+        // std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
+        // std::cout << "Dense rhs matrix is " << rhs_p.transpose().format(cleanFmt) << std::endl;
 
         // std::cout << "Setup took " << Toc(dTime) << " seconds." << std::endl;
 
@@ -164,13 +192,13 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
         VectorXt delta_p = uNumPoses == 0 ? VectorXt() : S.ldlt().solve(rhs_p);
         // std::cout << "Cholesky solve of " << uNumPoses << " by " << uNumPoses << "matrix took " << Toc(dTime) << " seconds." << std::endl;
 
-        if( uNumLm > 0) {
+        if(uNumLm > 0){
             dTime = Tic();
             VectorXt delta_l;
             delta_l.resize(uNumLm*LmSize);
             VectorXt Wt_delta_p;
             Wt_delta_p.resize(uNumLm*LmSize );
-            Eigen::SparseBlockVectorProductDenseResult(Wt,delta_p,Wt_delta_p);
+            Eigen::SparseBlockVectorProductDenseResult(Wpt,delta_p.head(uNumPoseParams),Wt_delta_p);
             VectorXt rhs_l;
             rhs_l.resize(uNumLm*LmSize );
             rhs_l =  bl - Wt_delta_p;
@@ -190,6 +218,21 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
             std::cout << "Backsubstitution of " << uNumLm << " landmarks took " << Toc(dTime) << " seconds." << std::endl;
         }
 
+        // update gravity terms if necessary
+        const VectorXt deltaCalib = delta_p.template tail(CalibSize);
+        if(CalibSize > 0){
+            m_Imu.G -= deltaCalib.template block<2,1>(0,0);
+            // std::cout << "Gravity delta is " << deltaCalib.template block<2,1>(0,0).transpose() << " gravity is: " << m_Imu.G.transpose() << std::endl;
+        }
+
+        // update bias terms if necessary
+        if(CalibSize > 2){
+            m_Imu.Bg -= deltaCalib.template block<3,1>(2,0);//.template tail(CalibSize);
+            // std::cout << "Bg delta is " << deltaCalib.template block<3,1>(2,0).transpose() << " bg is: " << m_Imu.Bg.transpose() << std::endl;
+            m_Imu.Ba -= deltaCalib.template block<3,1>(5,0);//.template tail(CalibSize);
+            // std::cout << "Ba delta is " << deltaCalib.template block<3,1>(5,0).transpose() << " ba is: " << m_Imu.Ba.transpose() << std::endl;
+        }
+
         // std::cout << delta_l << std::endl;
 
         // update poses
@@ -197,13 +240,13 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
         for (size_t ii = 0 ; ii < m_vPoses.size() ; ii++){
             // only update active poses, as inactive ones are not part of the optimization
             if( m_vPoses[ii].IsActive ){
-                 std::cout << "Pose delta for " << ii << " is " << delta_p.template block<PoseSize,1>(m_vPoses[ii].OptId*PoseSize,0).transpose() << std::endl;
+                 // std::cout << "Pose delta for " << ii << " is " << delta_p.template block<PoseSize,1>(m_vPoses[ii].OptId*PoseSize,0).transpose() << std::endl;
                  m_vPoses[ii].Twp = exp_decoupled<Scalar>(m_vPoses[ii].Twp,-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));
                  // m_vPoses[ii].Twp = m_vPoses[ii].Twp * Sophus::SE3d::exp(delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));
                 // update the velocities if they are parametrized
                 if(PoseSize == 9){
                     m_vPoses[ii].V -= delta_p.template block<3,1>(m_vPoses[ii].OptId*PoseSize+6,0);
-                    std::cout << "Velocity for pose " << ii << " is " << m_vPoses[ii].V.transpose() << std::endl;
+                    // std::cout << "Velocity for pose " << ii << " is " << m_vPoses[ii].V.transpose() << std::endl;
                 }
                 // clear the vector of Tsw values as they will need to be recalculated
                 m_vPoses[ii].Tsw.clear();
@@ -212,7 +255,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
             //  std::cout << " Pose " << ii << " is inactive." << std::endl;
             //  }
         }
-        std::cout << "BA iteration " << kk <<  " error: " << m_Rpr.norm() + m_Ru.norm() + m_Rpp.norm() + m_Ri.norm() << std::endl;
+        // std::cout << "BA iteration " << kk <<  " error: " << m_Rpr.norm() + m_Ru.norm() + m_Rpp.norm() + m_Ri.norm() << std::endl;
     }
 
     // update the global position of the landmarks from the sensor position
@@ -223,8 +266,8 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::Solve(const unsigned int uMaxIter)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-template< typename Scalar,int LmSize, int PoseSize >
-void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
+template< typename Scalar,int LmSize, int PoseSize, int CalibSize >
+void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
 {
     Eigen::IOFormat cleanFmt(4, 0, ", ", ";\n" , "" , "");
 
@@ -236,23 +279,24 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
     const unsigned int uNumUnRes = m_vUnaryResiduals.size();
     const unsigned int uNumImuRes = m_vImuResiduals.size();
 
-    m_Jpr.resize(uNumProjRes,uNumPoses);
-    m_Jprt.resize(uNumPoses,uNumProjRes);
-    m_Jl.resize(uNumProjRes,uNumLm);
-    m_Jlt.resize(uNumLm,uNumProjRes);
+    m_Jpr.resize(uNumProjRes, uNumPoses);
+    m_Jprt.resize(uNumPoses, uNumProjRes);
+    m_Jl.resize(uNumProjRes, uNumLm);
+    m_Jlt.resize(uNumLm, uNumProjRes);
     m_Rpr.resize(uNumProjRes*ProjectionResidual::ResSize);
 
-    m_Jpp.resize(uNumBinRes,uNumPoses);
-    m_Jppt.resize(uNumPoses,uNumBinRes);
+    m_Jpp.resize(uNumBinRes, uNumPoses);
+    m_Jppt.resize(uNumPoses, uNumBinRes);
     m_Rpp.resize(uNumBinRes*BinaryResidual::ResSize);
 
-    m_Ju.resize(uNumUnRes,uNumPoses);
-    m_Jut.resize(uNumPoses,uNumUnRes);
+    m_Ju.resize(uNumUnRes, uNumPoses);
+    m_Jut.resize(uNumPoses, uNumUnRes);
     m_Ru.resize(uNumUnRes*UnaryResidual::ResSize);
 
-    m_Ji.resize(uNumImuRes,uNumPoses);
-    m_Jit.resize(uNumPoses,uNumImuRes);
-    m_Jki.resize(uNumImuRes*ImuResidual::ResSize,8);
+    m_Ji.resize(uNumImuRes, uNumPoses);
+    m_Jit.resize(uNumPoses, uNumImuRes);
+    m_Jki.resize(uNumImuRes, 1);
+    m_Jkit.resize(1, uNumImuRes);
     m_Ri.resize(uNumImuRes*ImuResidual::ResSize);
 
 
@@ -271,8 +315,8 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
 
     m_Ji.setZero();
     m_Jit.setZero();
-    // m_Jki.setZero();
-    // m_Jkit.setZero();
+    m_Jki.setZero();
+    m_Jkit.setZero();
     m_Ri.setZero();
 
     m_Jl.setZero();
@@ -355,7 +399,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
         const SE3t& Twb = m_vPoses[res.PoseBId].Twp;
         res.dZ_dX1 = dLog_dX(Twa, res.Tab * Twb.inverse());
         // the negative sign here is because exp(x) is inside the inverse when we invert (Twb*exp(x)).inverse
-        res.dZ_dX2 = -dLog_dX(Twa * res.Tab , Twb.inverse());
+        res.dZ_dX2 = -dLog_dX(Twa * res.Tab, Twb.inverse());
 
         // finite difference checking
 //            Eigen::Matrix<Scalar,6,6> J_fd;
@@ -375,7 +419,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
 //            std::cout << "Jbinary_fd:" << J_fd << std::endl;
 
             // m_Rpp.template segment<BinaryResidual::ResSize>(res.ResidualOffset) = (Twa*res.Tab*Twb.inverse()).log();
-            m_Rpp.template segment<BinaryResidual::ResSize>(res.ResidualOffset) = log_decoupled( Twa*res.Tab,Twb );
+            m_Rpp.template segment<BinaryResidual::ResSize>(res.ResidualOffset) = log_decoupled(Twa*res.Tab, Twb);
     }
 
     for( UnaryResidual& res : m_vUnaryResiduals ){
@@ -399,33 +443,16 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
 //        std::cout << "Junary:" << res.dZ_dX << std::endl;
 //        std::cout << "Junary_fd:" << J_fd << std::endl;
 
-        m_Ru.template segment<UnaryResidual::ResSize>(res.ResidualOffset) = log_decoupled( Twp,res.Twp );
+        m_Ru.template segment<UnaryResidual::ResSize>(res.ResidualOffset) = log_decoupled(Twp, res.Twp);
         // m_Ru.template segment<UnaryResidual::ResSize>(res.ResidualOffset) = (Twp*res.Twp.inverse()).log();
     }
 
     for( ImuResidual& res : m_vImuResiduals ){
         // set up the initial pose for the integration
         const Vector3t gravity = GetGravityVector(m_Imu.G);
-        const Eigen::Matrix<Scalar,3,2> dGravity = dGravity_dDirection(m_Imu.G);
+
         const Pose& poseA = m_vPoses[res.PoseAId];
         const Pose& poseB = m_vPoses[res.PoseBId];
-
-
-//            ImuPose imuPose(poseA.Twp,poseA.V,Vector3t::Zero(),poseA.Time);
-//            ImuMeasurement* pPrevMeas = 0;
-//            res.Poses.clear();
-//            res.Poses.reserve(res.Measurements.size()+1);
-//            res.Poses.push_back(imuPose);
-
-//            // integrate forward in time, and retain all the poses
-//            for(ImuMeasurement& meas : res.Measurements){
-//                if(pPrevMeas != 0){
-//                    totalDt += meas.Time - pPrevMeas->Time;
-//                    imuPose = ImuResidual::IntegrateImu(imuPose,*pPrevMeas,meas,m_Imu.Bg,m_Imu.Ba,gravity);
-//                    res.Poses.push_back(imuPose);
-//                }
-//                pPrevMeas = &meas;
-//            }
 
         Eigen::Matrix<Scalar,10,6> jb_q;
         // Eigen::Matrix<Scalar,10,10> jb_y;
@@ -454,15 +481,8 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
 
         SE3t Tstar(Sophus::SO3Group<Scalar>(),(poseA.V*totalDt - 0.5*gravity*powi(totalDt,2)));
 
-        // calculate the derivative of the lie log with respect to the tangent plane at Twa
-        // Eigen::Matrix<Scalar,6,6> dLog  = dLog_dX(Tstar*Twa,Tab_0*Twb.inverse());
-        Eigen::Matrix<Scalar,6,6> dLog;//  = dLog_decoupled_dX(Tstar*Twa,Twb*Tab_0.inverse());
-        // dLog.template block<3,3>(0,3) = dqx_dq(imuPose.Twp.unit_quaternion(),imuPose.Twp.translation()) * dq1q2_dq2((Tstar*Twa).unit_quaternion())*dqExp_dw<double>(Eigen::Vector3d::Zero());
-        // const Eigen::Matrix<Scalar,6,6> dLog_b  = dLog_decoupled_dX(imuPose.Twp,Twb.inverse());
-
-        // rotation error  = log(A) = log(Twa * Tab_0 * Twb.inverse();
-        // derror/dw = dlog_dq * aA/dTwa * dTwa/dw
-        //dLog.template block<3,3>(0,0) = Twa.so3().matrix();
+        // calculate the derivative of the lie log with respect to the tangent plane at Twa        
+        Eigen::Matrix<Scalar,6,6> dLog;
         dLog.setZero();
         dLog.template block<3,3>(0,0) = Eigen::Matrix3d::Identity();
         dLog.template block<3,3>(3,3) = dLog_dq((Twa.so3()*Tab_0.so3()*Twb.so3().inverse()).unit_quaternion()) *
@@ -483,7 +503,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
 
         res.dZ_dX1.template block<6,6>(0,0) = dLog;
         // Twa^-1 is multiplied here as we need the velocity derivative in the frame of pose A, as the log is taken from this frame
-        res.dZ_dX1.template block<3,3>(0,6) = /*dLog.template block<3,3>(0,0) * Twa.so3().inverse().matrix() * */Matrix3t::Identity()*totalDt;
+        res.dZ_dX1.template block<3,3>(0,6) = Matrix3t::Identity()*totalDt;
         for( int ii = 0; ii < 3 ; ++ii ){
             res.dZ_dX1.template block<3,1>(6,3+ii) = Twa.so3().matrix() * Sophus::SO3Group<Scalar>::generator(ii) * Vab_0;
         }
@@ -492,9 +512,12 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
         res.dZ_dX2.template block<6,6>(0,0) = -dLog_decoupled_dX(imuPose.Twp,Twb);//-dLog_dX(Twa*Tab,Twb.inverse());
         res.dZ_dX2.template block<3,3>(6,6) = -Matrix3t::Identity();
 
+        const Eigen::Matrix<Scalar,3,2> dGravity = dGravity_dDirection(m_Imu.G);
         res.dZ_dG.template block<3,2>(0,0) = /*dLog.template block<3,3>(0,0) * Twa.so3().inverse().matrix() **/
                                     -0.5*powi(totalDt,2)*Matrix3t::Identity()*dGravity;
         res.dZ_dG.template block<3,2>(6,0) = -totalDt*Matrix3t::Identity()*dGravity;
+
+        /*
 
         Scalar dEps = 1e-12;
         Eigen::Matrix<Scalar,6,6> Jlog;
@@ -636,13 +659,15 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
             Vector2t eps = Vector2t::Zero();
             eps[ii] += dEps;
             std::vector<ImuPose> poses;
-            const ImuPose imuPosePlus = ImuResidual::IntegrateResidual(poseA,res.Measurements,m_Imu.Bg,m_Imu.Ba,GetGravityVector((Vector2t)(m_Imu.G+eps)),poses);
+            const Vector2t gPlus = m_Imu.G+eps;
+            const ImuPose imuPosePlus = ImuResidual::IntegrateResidual(poseA,res.Measurements,m_Imu.Bg,m_Imu.Ba,GetGravityVector(gPlus),poses);
             const Vector6t dErrorPlus = log_decoupled(imuPosePlus.Twp, Twb);
 //                std::cout << "Pose plus: " << imuPosePlus.Twp.matrix() << std::endl;
             const Vector3t vErrorPlus = imuPosePlus.V - poseB.V;
             eps[ii] -= 2*dEps;
             poses.clear();
-            const ImuPose imuPoseMinus = ImuResidual::IntegrateResidual(poseA,res.Measurements,m_Imu.Bg,m_Imu.Ba,GetGravityVector((Vector2t)(m_Imu.G+eps)),poses);
+            const Vector2t gMinus = m_Imu.G+eps;
+            const ImuPose imuPoseMinus = ImuResidual::IntegrateResidual(poseA,res.Measurements,m_Imu.Bg,m_Imu.Ba,GetGravityVector(gMinus),poses);
             const Vector6t dErrorMinus = log_decoupled(imuPoseMinus.Twp, Twb);
 //                std::cout << "Pose minus: " << imuPoseMinus.Twp.matrix() << std::endl;
             const Vector3t vErrorMinus = imuPoseMinus.V - poseB.V;
@@ -659,28 +684,17 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
             std::vector<ImuPose> poses;
             const Vector6t plusBiases = biasVec + eps;
             const ImuPose imuPosePlus = ImuResidual::IntegrateResidual(poseA,res.Measurements,plusBiases.template head<3>(),plusBiases.template tail<3>(),gravity,poses);
-//                Eigen::Matrix<Scalar,10,1> plusVec;
-//                plusVec.template head<3>() = imuPosePlus.Twp.translation();
-//                plusVec.template segment<4>(3) = imuPosePlus.Twp.so3().unit_quaternion().coeffs();
-//                plusVec.template tail<3>() = imuPosePlus.V;
             const Vector6t dErrorPlus = log_decoupled(imuPosePlus.Twp, Twb);
-//                std::cout << "Pose plus: " << imuPosePlus.Twp.matrix() << std::endl;
             const Vector3t vErrorPlus = imuPosePlus.V - poseB.V;
 
             eps[ii] -= 2*dEps;
             const Vector6t minusBiases = biasVec + eps;
             poses.clear();
             const ImuPose imuPoseMinus = ImuResidual::IntegrateResidual(poseA,res.Measurements,minusBiases.template head<3>(),minusBiases.template tail<3>(),gravity,poses);
-//                Eigen::Matrix<Scalar,10,1> minusVec;
-//                minusVec.template head<3>() = imuPoseMinus.Twp.translation();
-//                minusVec.template segment<4>(3) = imuPoseMinus.Twp.so3().unit_quaternion().coeffs();
-//                minusVec.template tail<3>() = imuPoseMinus.V;
             const Vector6t dErrorMinus = log_decoupled(imuPoseMinus.Twp, Twb);
-//                std::cout << "Pose minus: " << imuPoseMinus.Twp.matrix() << std::endl;
             const Vector3t vErrorMinus = imuPoseMinus.V - poseB.V;
             Jb_fd.col(ii).template head<6>() = (dErrorPlus - dErrorMinus)/(2*dEps);
             Jb_fd.col(ii).template tail<3>() = (vErrorPlus - vErrorMinus)/(2*dEps);
-//                Jb_fd.col(ii) = (plusVec-minusVec)/(2*dEps);
         }
 
 
@@ -692,9 +706,10 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
         std::cout << "Jgf = [" << std::endl << Jg_fd.format(cleanFmt) << "]" << std::endl;
         std::cout << "Jg-Jgf = [" << std::endl << (res.dZ_dG-Jg_fd).format(cleanFmt) << "] norm = " << (res.dZ_dG-Jg_fd).norm() << std::endl;
 
-        std::cout << "Jb = [" << std::endl << res.dZ_dB.format(cleanFmt)/*jb_q*/ << "]" << std::endl;
+        std::cout << "Jb = [" << std::endl << res.dZ_dB.format(cleanFmt) << "]" << std::endl;
         std::cout << "Jbf = [" << std::endl << Jb_fd.format(cleanFmt) << "]" << std::endl;
         std::cout << "Jb-Jbf = [" << std::endl << (res.dZ_dB-Jb_fd).format(cleanFmt) << "] norm = " << (res.dZ_dB-Jb_fd).norm() << std::endl;
+        */
 
         // now that we have the deltas with subtracted initial velocity, transform and gravity, we can construct the jacobian
         m_Ri.template segment<6>(res.ResidualOffset) = log_decoupled(Twa*Tab,Twb);
@@ -762,8 +777,24 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
                 const Eigen::Matrix<Scalar,9,9>& dZ_dZ = res.PoseAId == pose.Id ? res.dZ_dX1 : res.dZ_dX2;
                 m_Ji.insert(res.ResidualId,pose.OptId).setZero().template block<9,9>(0,0) = dZ_dZ * res.W;
                 m_Jit.insert(pose.OptId,res.ResidualId).setZero().template block<9,9>(0,0) = dZ_dZ.transpose() * res.W;
-                m_Jki.template block<ImuResidual::ResSize,2>(res.ResidualId*ImuResidual::ResSize,0) = res.dZ_dG;
-                m_Jki.template block<ImuResidual::ResSize,6>(res.ResidualId*ImuResidual::ResSize,2) = res.dZ_dB;
+
+            }
+        }
+    }
+
+    // fill in calibration jacobians
+    if( CalibSize > 0){
+        for( const auto& res : m_vImuResiduals ){
+            // include gravity terms (t total)
+            if( CalibSize > 0 ){
+                // std::cout << "Residual " << res.ResidualId << " : dZ_dG: " << res.dZ_dG.template block<9,2>(0,0).transpose() << std::endl;
+                m_Jki.insert(res.ResidualId,0).setZero().template block(0,0,9,2) = res.dZ_dG.template block(0,0,9,2);
+                m_Jkit.insert(0,res.ResidualId).setZero().template block(0,0,2,9) = res.dZ_dG.transpose().template block(0,0,2,9);
+            }
+            // include bias terms (6 total)
+            if( CalibSize > 2 ){
+                m_Jki.coeffRef(res.ResidualId,0).template block(0,2,9,6) = res.dZ_dB.template block(0,0,9,6);
+                m_Jkit.coeffRef(0,res.ResidualId).template block(2,0,6,9) = res.dZ_dB.transpose().template block(0,0,6,9);
             }
         }
     }
@@ -784,8 +815,8 @@ void BundleAdjuster<Scalar,LmSize,PoseSize>::_BuildProblem()
 }
 
 // specializations
-template class BundleAdjuster<REAL_TYPE, ba::NOT_USED,9>;
- template class BundleAdjuster<REAL_TYPE, 1,6>;
+template class BundleAdjuster<REAL_TYPE, ba::NOT_USED,9,8>;
+template class BundleAdjuster<REAL_TYPE, 1,6,0>;
 // template class BundleAdjuster<double, 3,9>;
 
 

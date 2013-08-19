@@ -220,8 +220,13 @@ static void SparseBlockAdd(const Matrix& lhs, const Matrix& rhs, Matrix& res, co
 
 //////////////////////////////////////////////////////////////////////////////////////////
 template<typename Matrix, typename ResultType>
-static void SparseBlockAddDenseResult(const Matrix& lhs, const Matrix& rhs, ResultType& res, const int nRhsCoef = 1 )
+static void SparseBlockAddDenseResult(const Matrix& lhs, const Matrix& rhs, ResultType const & resMat, const int nRhsCoef = 1 )
 {
+    // this is a little hack as per (http://eigen.tuxfamily.org/dox/TopicFunctionTakingEigenTypes.html) to
+    // enable passing in a block expression as res. We pass in a const reference, then cast the const-ness
+    // away to enable writing to it
+    ResultType& res = const_cast< ResultType& >(resMat);
+
     const typename Matrix::Scalar zero = Matrix::Scalar::Zero();
     // return sparse_sparse_product_with_pruning_impl2(lhs,rhs,res);
     typedef typename Matrix::Scalar BlockType;
@@ -260,8 +265,8 @@ static inline void SparseBlockSubtract(const Lhs& lhs, const Lhs& rhs, Lhs& res)
 
 //////////////////////////////////////////////////////////////////////////////////////////
 template<typename Matrix, typename ResultType>
-static void SparseBlockSubtractDenseResult(const Matrix& lhs, const Matrix& rhs, ResultType& res)
-{
+static void SparseBlockSubtractDenseResult(const Matrix& lhs, const Matrix& rhs, ResultType const & res)
+{    
     SparseBlockAddDenseResult(lhs,rhs,res,-1);
 }
 
@@ -283,14 +288,17 @@ static void LoadSparseFromDense(const DenseMatrix& dense, SparseMatrix& sparse)
 
 //////////////////////////////////////////////////////////////////////////////////////////
 template<typename DenseMatrix, typename SparseMatrix >
-static void LoadDenseFromSparse(const SparseMatrix& sparse,DenseMatrix& dense)
+static void LoadDenseFromSparse(const SparseMatrix& sparse,DenseMatrix const & denseMat)
 {
+    DenseMatrix& dense = const_cast< DenseMatrix& >(denseMat);
 
     typedef typename SparseMatrix::Scalar BlockType;
     const int _BlockRows = BlockType::RowsAtCompileTime;
     const int _BlockCols = BlockType::ColsAtCompileTime;
 
-    dense.resize(_BlockRows*sparse.rows(), _BlockCols*sparse.cols());
+    assert(dense.rows() == _BlockRows*sparse.rows() && dense.cols() == _BlockCols*sparse.cols());
+
+    // dense.resize(_BlockRows*sparse.rows(), _BlockCols*sparse.cols());
     dense.setZero();
     for (int jj=0; jj<sparse.cols(); ++jj)
     {

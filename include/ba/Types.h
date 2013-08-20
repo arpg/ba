@@ -121,6 +121,7 @@ struct ImuPoseT
 template< typename Scalar=double >
 struct ImuMeasurementT
 {
+    ImuMeasurementT() {}
     ImuMeasurementT(const Eigen::Matrix<Scalar,3,1>& w,const Eigen::Matrix<Scalar,3,1>& a, const double time): W(w), A(a), Time(time) {}
     Eigen::Matrix<Scalar,3,1> W;
     Eigen::Matrix<Scalar,3,1> A;

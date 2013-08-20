@@ -146,6 +146,8 @@ struct InterpolationBufferT
             while(GetNext(dEndTime,index,meas)){
                 vMeas.push_back(meas);
             }
+            // push back the last item
+            vMeas.push_back(meas);
         }
         return vMeas;
     }

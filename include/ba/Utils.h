@@ -89,14 +89,14 @@ namespace ba
     {
         const Scalar vec_squarednorm = powi(q.x(),2) + powi(q.y(),2) + powi(q.z(),2);
         const Scalar vec_norm = sqrt(vec_squarednorm);
-        std::cout << "vec norm = " << vec_norm << std::endl;
+        // std::cout << "vec norm = " << vec_norm << std::endl;
         if( vec_norm < 1e-9 ){
             const Scalar s1 = 2*vec_squarednorm;
             const Scalar s2 = 1.0/powi(q.w(),3);
             const Scalar s3 = (3*s1)/powi(q.w(),4) - 2/powi(q.w(),2);
             const Scalar s4 = 2/q.w();
 
-            std::cout << " s1 " << s1 << " s2 " << s2 << " s3 " << s3 << " s4 " << s4 << std::endl;
+            // std::cout << " s1 " << s1 << " s2 " << s2 << " s3 " << s3 << " s4 " << s4 << std::endl;
 
             return (Eigen::Matrix<Scalar, 3, 4>() <<
                     -4*s2*powi(q.x(),2)+s4-s1*s2,                 -4*q.x()*q.y()*s2,              -4*q.x()*q.z()*s2, q.x()*s3,
@@ -114,7 +114,7 @@ namespace ba
     //        const Scalar s7 = s3*s4;
     //        const Scalar s8 = s2*s5;
 
-            std::cout << " s1 " << s1 << " s2 " << s2 << " s3 " << s3 << " s4 " << s4 << " s5 " << s5 << " s6 " << s6 << std::endl;
+            // std::cout << " s1 " << s1 << " s2 " << s2 << " s3 " << s3 << " s4 " << s4 << " s5 " << s5 << " s6 " << s6 << std::endl;
 
             return (Eigen::Matrix<Scalar, 3, 4>() <<
                      - 2*s2*s5*powi(q.x(),2) + s6,      -2*q.x()*q.y()*s2*s5,      -2*q.x()*q.z()*s2*s5, -2*q.x()*s3*s4,

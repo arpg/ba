@@ -104,7 +104,7 @@ static ImuPoseT<T> IntegrateResidualJet(const PoseT<T>& pose,
 template< typename Scalar=double >
 struct GlobalPoseCostFunction
 {
-    GlobalPoseCostFunction(const Sophus::SE3Group<Scalar>& dMeasurement, const double dWeight  )
+    GlobalPoseCostFunction(const Sophus::SE3Group<Scalar>& dMeasurement, const double dWeight = 1.0 )
     : m_Tw_c(dMeasurement),
       m_dWeight(dWeight)
     {}
@@ -134,8 +134,9 @@ struct GlobalPoseCostFunction
 template< typename Scalar=double >
 struct FullImuCostFunction
 {
-    FullImuCostFunction(const std::vector<ImuMeasurementT<Scalar>>& vMeas)    :
-        m_vMeas(vMeas)
+    FullImuCostFunction(const std::vector<ImuMeasurementT<Scalar>>& vMeas, const double dWeight)    :
+        m_vMeas(vMeas),
+        m_dWeight(dWeight)
   {
   }
 
@@ -173,14 +174,15 @@ struct FullImuCostFunction
         ImuPoseT<T> endPose = IntegrateResidualJet<T,Scalar>(startPose,m_vMeas,v_Bg,v_Ba,g_vector,vPoses);
 
         //and now calculate the error with this pose
-        pose_residuals = (endPose.Twp * T_w_x2.inverse()).log();
+        pose_residuals = (endPose.Twp * T_w_x2.inverse()).log()*(T)m_dWeight;
         //pose_residuals = log_decoupled(endPose.Twp,T_w_x2);
 
         //to calculate the velocity error, first augment the IMU integration velocity with gravity and initial velocity
-        vel_residuals = (endPose.V - v_v2);
+        vel_residuals = (endPose.V - v_v2)*(T)m_dWeight*(T)0.5;
         return true;
     }
 
     const std::vector<ImuMeasurementT<Scalar>> m_vMeas;
+    const double m_dWeight;
 };
 }

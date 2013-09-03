@@ -174,13 +174,14 @@ public:
     unsigned int AddProjectionResidual(const Vector2t z,
                                     const unsigned int uPoseId,
                                     const unsigned int uLandmarkId,
-                                    const unsigned int uCameraId)
+                                    const unsigned int uCameraId,
+                                    const Scalar dWeight = 1.0)
     {
         assert(uLandmarkId < m_vLandmarks.size());
         assert(uPoseId < m_vPoses.size());
 
         ProjectionResidual residual;
-        residual.W = 1.0;
+        residual.W = dWeight;
         residual.LandmarkId = uLandmarkId;
         residual.PoseId = uPoseId;
         residual.Z = z;
@@ -200,7 +201,8 @@ public:
     ///////////////////////////////////////////////////////////////////////////////////////////////
     unsigned int AddImuResidual(const unsigned int uPoseAId,
                                 const unsigned int uPoseBId,
-                                const std::vector<ImuMeasurement>& vImuMeas)
+                                const std::vector<ImuMeasurement>& vImuMeas,
+                                const Scalar dWeight = 1.0)
     {
         assert(uPoseAId < m_vPoses.size());
         assert(uPoseBId < m_vPoses.size());
@@ -208,7 +210,7 @@ public:
         assert(PoseSize == 9);
 
         ImuResidual residual;
-        residual.W = 1.0;
+        residual.W = dWeight;
         residual.PoseAId = uPoseAId;
         residual.PoseBId = uPoseBId;
         residual.Measurements = vImuMeas;

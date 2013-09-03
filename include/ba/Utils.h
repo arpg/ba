@@ -14,7 +14,7 @@ namespace Eigen
 namespace ba
 {
     static Eigen::IOFormat cleanFmt(4, 0, ", ", ";\n" , "" , "");
-    #define NORM_THRESHOLD 1e-4
+    #define NORM_THRESHOLD 1e-3
     #define TESTING_EPS 1e-9
 
     template<typename Scalar=double>

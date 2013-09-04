@@ -183,8 +183,8 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
             rhs_p.template tail<CalibSize>() = bk;
         }
 
-         // std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
-         // std::cout << "Dense rhs matrix is " << rhs_p.transpose().format(cleanFmt) << std::endl;
+//          std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
+//          std::cout << "Dense rhs matrix is " << rhs_p.transpose().format(cleanFmt) << std::endl;
 
         // std::cout << "Setup took " << Toc(dTime) << " seconds." << std::endl;
 
@@ -243,14 +243,16 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
         for (size_t ii = 0 ; ii < m_vPoses.size() ; ii++){
             // only update active poses, as inactive ones are not part of the optimization
             if( m_vPoses[ii].IsActive ){
-                 std::cout << "Pose delta for " << ii << " is " << delta_p.template block<PoseSize,1>(m_vPoses[ii].OptId*PoseSize,0).transpose() << std::endl;
-                 m_vPoses[ii].Twp = exp_decoupled<Scalar>(m_vPoses[ii].Twp,-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));
+
+                 m_vPoses[ii].Twp = exp_decoupled<Scalar>(m_vPoses[ii].Twp,-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));                 
                  // m_vPoses[ii].Twp = m_vPoses[ii].Twp * Sophus::SE3d::exp(delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));
                 // update the velocities if they are parametrized
                 if(PoseSize == 9){
-                    m_vPoses[ii].V += delta_p.template block<3,1>(m_vPoses[ii].OptId*PoseSize+6,0);
+                    m_vPoses[ii].V -= delta_p.template block<3,1>(m_vPoses[ii].OptId*PoseSize+6,0);
                     // std::cout << "Velocity for pose " << ii << " is " << m_vPoses[ii].V.transpose() << std::endl;
                 }
+
+                std::cout << "Pose delta for " << ii << " is " << delta_p.template block<PoseSize,1>(m_vPoses[ii].OptId*PoseSize,0).transpose() << " V: " << m_vPoses[ii].V.transpose() <<  std::endl;
                 // clear the vector of Tsw values as they will need to be recalculated
                 m_vPoses[ii].Tsw.clear();
             }
@@ -410,9 +412,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         for( ProjectionResidual& res : m_vProjResiduals ){
             // calculate the huber norm weight for this measurement
             const Scalar e = res.Residual.norm();
-            // this is square rooted as normally we use JtWJ and JtWr, therefore in order to multiply
-            // the weight directly into the jacobian/residual we must use the square root
-            res.W = sqrt(e > c_huber ? c_huber/e : 1.0);
+            res.W = e > c_huber ? c_huber/e : 1.0;
         }
     }
     m_vErrors.clear();
@@ -544,6 +544,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         res.Residual.template head<6>() = log_decoupled(Twa*Tab,Twb);
         res.Residual.template tail<3>() = imuPose.V - poseB.V;
         m_vErrors.push_back(res.Residual.squaredNorm());
+
+        res.dZ_dB.setZero();
 
         /*
 
@@ -755,10 +757,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         // now go through the measurements and assign weights
         for( ImuResidual& res : m_vImuResiduals ){
             // calculate the huber norm weight for this measurement
-            const Scalar e = res.Residual.norm();
-            // this is square rooted as normally we use JtWJ and JtWr, therefore in order to multiply
-            // the weight directly into the jacobian/residual we must use the square root
-            // res.W *= sqrt(e > c_huber ? c_huber/e : 1.0);
+            const Scalar e = res.Residual.norm() * res.W;
+            // res.W = e > c_huber ? c_huber/e : 1.0;
         }
     }
     m_vErrors.clear();
@@ -843,7 +843,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
 
 // specializations
 template class BundleAdjuster<REAL_TYPE, ba::NOT_USED,9,8>;
-template class BundleAdjuster<REAL_TYPE, 1,6,0>;
+template class BundleAdjuster<REAL_TYPE, 1,9,8>;
 // template class BundleAdjuster<double, 3,9>;
 
 

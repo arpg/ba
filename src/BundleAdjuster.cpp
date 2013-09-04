@@ -150,7 +150,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
             VectorXt WV_inv_bl(uNumPoseParams);
             Eigen::SparseBlockVectorProductDenseResult(Wp_V_inv, bl, WV_inv_bl);
 
-            rhs_p = bp - WV_inv_bl;
+            rhs_p.template head(uNumPoseParams) = bp - WV_inv_bl;
 
 //                 std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
 //                 std::cout << "Dense rhs matrix is " << rhs_p.transpose().format(cleanFmt) << std::endl;
@@ -166,7 +166,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
         // std::cout << "Dense dJki matrix is " << dJki.format(cleanFmt) << std::endl;
 
         // fill in the calibration components if any
-        if( CalibSize ){
+        if( CalibSize && m_vImuResiduals.size() > 0 ){
             Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,CalibSize,CalibSize> > Jkit_Jki(1, 1);
             Eigen::SparseBlockProduct(m_Jkit, m_Jki, Jkit_Jki);
             Eigen::LoadDenseFromSparse(Jkit_Jki, S.template block<CalibSize, CalibSize>(uNumPoseParams, uNumPoseParams));
@@ -183,8 +183,8 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
             rhs_p.template tail<CalibSize>() = bk;
         }
 
-        // std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
-        // std::cout << "Dense rhs matrix is " << rhs_p.transpose().format(cleanFmt) << std::endl;
+         // std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
+         // std::cout << "Dense rhs matrix is " << rhs_p.transpose().format(cleanFmt) << std::endl;
 
         // std::cout << "Setup took " << Toc(dTime) << " seconds." << std::endl;
 
@@ -220,18 +220,20 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
         }
 
         // update gravity terms if necessary
-        const VectorXt deltaCalib = delta_p.template tail(CalibSize);
-        if(CalibSize > 0){
-            m_Imu.G -= deltaCalib.template block<2,1>(0,0);
-            // std::cout << "Gravity delta is " << deltaCalib.template block<2,1>(0,0).transpose() << " gravity is: " << m_Imu.G.transpose() << std::endl;
-        }
+        if( m_vImuResiduals.size() > 0 ) {
+            const VectorXt deltaCalib = delta_p.template tail(CalibSize);
+            if(CalibSize > 0){
+                m_Imu.G -= deltaCalib.template block<2,1>(0,0);
+                // std::cout << "Gravity delta is " << deltaCalib.template block<2,1>(0,0).transpose() << " gravity is: " << m_Imu.G.transpose() << std::endl;
+            }
 
-        // update bias terms if necessary
-        if(CalibSize > 2){
-            m_Imu.Bg -= deltaCalib.template block<3,1>(2,0);//.template tail(CalibSize);
-            // std::cout << "Bg delta is " << deltaCalib.template block<3,1>(2,0).transpose() << " bg is: " << m_Imu.Bg.transpose() << std::endl;
-            m_Imu.Ba -= deltaCalib.template block<3,1>(5,0);//.template tail(CalibSize);
-            // std::cout << "Ba delta is " << deltaCalib.template block<3,1>(5,0).transpose() << " ba is: " << m_Imu.Ba.transpose() << std::endl;
+            // update bias terms if necessary
+            if(CalibSize > 2){
+                m_Imu.Bg -= deltaCalib.template block<3,1>(2,0);//.template tail(CalibSize);
+                // std::cout << "Bg delta is " << deltaCalib.template block<3,1>(2,0).transpose() << " bg is: " << m_Imu.Bg.transpose() << std::endl;
+                m_Imu.Ba -= deltaCalib.template block<3,1>(5,0);//.template tail(CalibSize);
+                // std::cout << "Ba delta is " << deltaCalib.template block<3,1>(5,0).transpose() << " ba is: " << m_Imu.Ba.transpose() << std::endl;
+            }
         }
 
         // std::cout << delta_l << std::endl;
@@ -241,12 +243,12 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
         for (size_t ii = 0 ; ii < m_vPoses.size() ; ii++){
             // only update active poses, as inactive ones are not part of the optimization
             if( m_vPoses[ii].IsActive ){
-                 // std::cout << "Pose delta for " << ii << " is " << delta_p.template block<PoseSize,1>(m_vPoses[ii].OptId*PoseSize,0).transpose() << std::endl;
+                 std::cout << "Pose delta for " << ii << " is " << delta_p.template block<PoseSize,1>(m_vPoses[ii].OptId*PoseSize,0).transpose() << std::endl;
                  m_vPoses[ii].Twp = exp_decoupled<Scalar>(m_vPoses[ii].Twp,-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));
                  // m_vPoses[ii].Twp = m_vPoses[ii].Twp * Sophus::SE3d::exp(delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));
                 // update the velocities if they are parametrized
                 if(PoseSize == 9){
-                    m_vPoses[ii].V -= delta_p.template block<3,1>(m_vPoses[ii].OptId*PoseSize+6,0);
+                    m_vPoses[ii].V += delta_p.template block<3,1>(m_vPoses[ii].OptId*PoseSize+6,0);
                     // std::cout << "Velocity for pose " << ii << " is " << m_vPoses[ii].V.transpose() << std::endl;
                 }
                 // clear the vector of Tsw values as they will need to be recalculated
@@ -394,6 +396,27 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         m_Rpr.template segment<ProjectionResidual::ResSize>(res.ResidualOffset) = res.Residual;
     }
 
+    // get the sigma for robust norm calculation. This call is O(n) on average,
+    // which is desirable over O(nlogn) sort
+    if( m_vErrors.size() > 0 ){
+        auto it = m_vErrors.begin()+std::floor(m_vErrors.size()/2);
+        std::nth_element(m_vErrors.begin(),it,m_vErrors.end());
+        const Scalar dSigma = sqrt(*it);
+        // See "Parameter Estimation Techniques: A Tutorial with Application to Conic
+        // Fitting" by Zhengyou Zhang. PP 26 defines this magic number:
+        const Scalar c_huber = 1.2107*dSigma;
+
+        // now go through the measurements and assign weights
+        for( ProjectionResidual& res : m_vProjResiduals ){
+            // calculate the huber norm weight for this measurement
+            const Scalar e = res.Residual.norm();
+            // this is square rooted as normally we use JtWJ and JtWr, therefore in order to multiply
+            // the weight directly into the jacobian/residual we must use the square root
+            res.W = sqrt(e > c_huber ? c_huber/e : 1.0);
+        }
+    }
+    m_vErrors.clear();
+
     // build binary residual jacobians
     for( BinaryResidual& res : m_vBinaryResiduals ){
         const SE3t& Twa = m_vPoses[res.PoseAId].Twp;
@@ -517,6 +540,10 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         res.dZ_dG.template block<3,2>(0,0) = /*dLog.template block<3,3>(0,0) * Twa.so3().inverse().matrix() **/
                                     -0.5*powi(totalDt,2)*Matrix3t::Identity()*dGravity;
         res.dZ_dG.template block<3,2>(6,0) = -totalDt*Matrix3t::Identity()*dGravity;
+
+        res.Residual.template head<6>() = log_decoupled(Twa*Tab,Twb);
+        res.Residual.template tail<3>() = imuPose.V - poseB.V;
+        m_vErrors.push_back(res.Residual.squaredNorm());
 
         /*
 
@@ -713,12 +740,10 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         */
 
         // now that we have the deltas with subtracted initial velocity, transform and gravity, we can construct the jacobian
-        m_Ri.template segment<6>(res.ResidualOffset) = log_decoupled(Twa*Tab,Twb);
-        m_Ri.template segment<3>(res.ResidualOffset+6) = imuPose.V - poseB.V;
+        m_Ri.template segment<9>(res.ResidualOffset) = res.Residual;
     }
 
-    // get the sigma for robust norm calculation. This call is O(n) on average,
-    // which is desirable over O(nlogn) sort
+    // get the sigma for robust norm calculation.
     if( m_vErrors.size() > 0 ){
         auto it = m_vErrors.begin()+std::floor(m_vErrors.size()/2);
         std::nth_element(m_vErrors.begin(),it,m_vErrors.end());
@@ -728,15 +753,15 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         const Scalar c_huber = 1.2107*dSigma;
 
         // now go through the measurements and assign weights
-        for( ProjectionResidual& res : m_vProjResiduals ){
+        for( ImuResidual& res : m_vImuResiduals ){
             // calculate the huber norm weight for this measurement
             const Scalar e = res.Residual.norm();
             // this is square rooted as normally we use JtWJ and JtWr, therefore in order to multiply
             // the weight directly into the jacobian/residual we must use the square root
-            res.W = sqrt(e > c_huber ? c_huber/e : 1.0);
-            m_Rpr.template segment<ProjectionResidual::ResSize>(res.ResidualOffset) *= res.W;
+            // res.W *= sqrt(e > c_huber ? c_huber/e : 1.0);
         }
     }
+    m_vErrors.clear();
 
     //TODO : The transpose insertions here are hideously expensive as they are not in order.
     // find a way around this.
@@ -751,7 +776,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
             for( const int id: pose.ProjResiduals ) {
                 const ProjectionResidual& res = m_vProjResiduals[id];
                 // insert the jacobians into the sparse matrices
-                m_Jpr.insert(res.ResidualId,pose.OptId).setZero().template block<2,6>(0,0) = res.dZ_dP * res.W;
+                // The weight is only multiplied by the transpose matrix, this is so we can perform Jt*W*J*dx = Jt*W*r
+                m_Jpr.insert(res.ResidualId,pose.OptId).setZero().template block<2,6>(0,0) = res.dZ_dP;
                 m_Jprt.insert(pose.OptId,res.ResidualId).setZero().template block<6,2>(0,0) = res.dZ_dP.transpose() * res.W;
             }
 
@@ -760,7 +786,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
             for( const int id: pose.BinaryResiduals ) {
                 const BinaryResidual& res = m_vBinaryResiduals[id];
                 const Eigen::Matrix<Scalar,6,6>& dZ_dZ = res.PoseAId == pose.Id ? res.dZ_dX1 : res.dZ_dX2;
-                m_Jpp.insert(res.ResidualId,pose.OptId).setZero().template block<6,6>(0,0) = dZ_dZ * res.W;
+                m_Jpp.insert(res.ResidualId,pose.OptId).setZero().template block<6,6>(0,0) = dZ_dZ;
                 m_Jppt.insert(pose.OptId,res.ResidualId).setZero().template block<6,6>(0,0) = dZ_dZ.transpose() * res.W;
             }
 
@@ -768,7 +794,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
             std::sort(pose.UnaryResiduals.begin(), pose.UnaryResiduals.end());
             for( const int id: pose.UnaryResiduals ) {
                 const UnaryResidual& res = m_vUnaryResiduals[id];
-                m_Ju.insert(res.ResidualId,pose.OptId).setZero().template block<6,6>(0,0) = res.dZ_dX * res.W;
+                m_Ju.insert(res.ResidualId,pose.OptId).setZero().template block<6,6>(0,0) = res.dZ_dX;
                 m_Jut.insert(pose.OptId,res.ResidualId).setZero().template block<6,6>(0,0) = res.dZ_dX.transpose() * res.W;
             }
 
@@ -776,7 +802,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
             for( const int id: pose.ImuResiduals ) {
                 const ImuResidual& res = m_vImuResiduals[id];
                 const Eigen::Matrix<Scalar,9,9>& dZ_dZ = res.PoseAId == pose.Id ? res.dZ_dX1 : res.dZ_dX2;
-                m_Ji.insert(res.ResidualId,pose.OptId).setZero().template block<9,9>(0,0) = dZ_dZ * res.W;
+                m_Ji.insert(res.ResidualId,pose.OptId).setZero().template block<9,9>(0,0) = dZ_dZ;
                 m_Jit.insert(pose.OptId,res.ResidualId).setZero().template block<9,9>(0,0) = dZ_dZ.transpose() * res.W;
 
             }
@@ -790,12 +816,12 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
             if( CalibSize > 0 ){
                 // std::cout << "Residual " << res.ResidualId << " : dZ_dG: " << res.dZ_dG.template block<9,2>(0,0).transpose() << std::endl;
                 m_Jki.insert(res.ResidualId,0).setZero().template block(0,0,9,2) = res.dZ_dG.template block(0,0,9,2);
-                m_Jkit.insert(0,res.ResidualId).setZero().template block(0,0,2,9) = res.dZ_dG.transpose().template block(0,0,2,9);
+                m_Jkit.insert(0,res.ResidualId).setZero().template block(0,0,2,9) = res.dZ_dG.transpose().template block(0,0,2,9) * res.W;
             }
             // include bias terms (6 total)
             if( CalibSize > 2 ){
                 m_Jki.coeffRef(res.ResidualId,0).template block(0,2,9,6) = res.dZ_dB.template block(0,0,9,6);
-                m_Jkit.coeffRef(0,res.ResidualId).template block(2,0,6,9) = res.dZ_dB.transpose().template block(0,0,6,9);
+                m_Jkit.coeffRef(0,res.ResidualId).template block(2,0,6,9) = res.dZ_dB.transpose().template block(0,0,6,9) * res.W;
             }
         }
     }
@@ -806,7 +832,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         for( const int id: lm.ProjResiduals ) {
             const ProjectionResidual& res = m_vProjResiduals[id];
 //                std::cout << "      Adding jacobian cell for measurement " << pMeas->MeasurementId << " in landmark " << pMeas->LandmarkId << std::endl;
-            m_Jl.insert(res.ResidualId,lm.OptId) = res.dZ_dX * res.W;
+            m_Jl.insert(res.ResidualId,lm.OptId) = res.dZ_dX;
             m_Jlt.insert(lm.OptId,res.ResidualId) = res.dZ_dX.transpose() * res.W;
         }
     }

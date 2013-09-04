@@ -544,7 +544,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         res.Residual.template tail<3>() = imuPose.V - poseB.V;
         m_vErrors.push_back(res.Residual.squaredNorm());
 
-        res.dZ_dB.setZero();
+        // res.dZ_dB.setZero();
 
         /*
 
@@ -756,7 +756,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         // now go through the measurements and assign weights
         for( ImuResidual& res : m_vImuResiduals ){
             // calculate the huber norm weight for this measurement
-            const Scalar e = res.Residual.norm() * res.W;
+            const Scalar e = res.Residual.norm();
             // res.W = e > c_huber ? c_huber/e : 1.0;
         }
     }
@@ -800,9 +800,12 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
             std::sort(pose.ImuResiduals.begin(), pose.ImuResiduals.end());
             for( const int id: pose.ImuResiduals ) {
                 const ImuResidual& res = m_vImuResiduals[id];
-                const Eigen::Matrix<Scalar,9,9>& dZ_dZ = res.PoseAId == pose.Id ? res.dZ_dX1 : res.dZ_dX2;
+                Eigen::Matrix<Scalar,9,9> dZ_dZ = res.PoseAId == pose.Id ? res.dZ_dX1 : res.dZ_dX2;
                 m_Ji.insert(res.ResidualId,pose.OptId).setZero().template block<9,9>(0,0) = dZ_dZ;
-                m_Jit.insert(pose.OptId,res.ResidualId).setZero().template block<9,9>(0,0) = dZ_dZ.transpose() * res.W;
+                dZ_dZ.template block<6,9>(0,0) *= res.W;
+                dZ_dZ.template block<3,9>(6,0) *= res.W/10.0;
+                // m_Jit.insert(pose.OptId,res.ResidualId).setZero().template block<9,9>(0,0) = dZ_dZ.transpose() * res.W;
+                m_Jit.insert(pose.OptId,res.ResidualId).setZero().template block<9,9>(0,0) = dZ_dZ.transpose();
 
             }
         }
@@ -814,13 +817,23 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
             // include gravity terms (t total)
             if( CalibSize > 0 ){
                 // std::cout << "Residual " << res.ResidualId << " : dZ_dG: " << res.dZ_dG.template block<9,2>(0,0).transpose() << std::endl;
-                m_Jki.insert(res.ResidualId,0).setZero().template block(0,0,9,2) = res.dZ_dG.template block(0,0,9,2);
-                m_Jkit.insert(0,res.ResidualId).setZero().template block(0,0,2,9) = res.dZ_dG.transpose().template block(0,0,2,9) * res.W;
+                Eigen::Matrix<Scalar,9,2> dZ_dG = res.dZ_dG.template block(0,0,9,2);
+                // m_Jki.insert(res.ResidualId,0).setZero().template block(0,0,9,2) = res.dZ_dG.template block(0,0,9,2);
+                m_Jki.insert(res.ResidualId,0).setZero().template block(0,0,9,2) = dZ_dG;
+                dZ_dG.template block<6,2>(0,0) *= res.W;
+                dZ_dG.template block<3,2>(6,0) *= res.W/10.0;
+                //m_Jkit.insert(0,res.ResidualId).setZero().template block(0,0,2,9) = res.dZ_dG.transpose().template block(0,0,2,9) * res.W;
+                m_Jkit.insert(0,res.ResidualId).setZero().template block(0,0,2,9) = dZ_dG.transpose();
             }
             // include bias terms (6 total)
             if( CalibSize > 2 ){
-                m_Jki.coeffRef(res.ResidualId,0).template block(0,2,9,6) = res.dZ_dB.template block(0,0,9,6);
-                m_Jkit.coeffRef(0,res.ResidualId).template block(2,0,6,9) = res.dZ_dB.transpose().template block(0,0,6,9) * res.W;
+                Eigen::Matrix<Scalar,9,6> dZ_dB = res.dZ_dB.template block(0,0,9,6);
+                // m_Jki.coeffRef(res.ResidualId,0).template block(0,2,9,6) = res.dZ_dB.template block(0,0,9,6);
+                m_Jki.coeffRef(res.ResidualId,0).template block(0,2,9,6) = dZ_dB;
+                dZ_dB.template block<6,6>(0,0) *= res.W;
+                dZ_dB.template block<3,6>(6,0) *= res.W/10.0;
+                m_Jkit.coeffRef(0,res.ResidualId).template block(2,0,6,9) = dZ_dB.transpose();
+                // m_Jkit.coeffRef(0,res.ResidualId).template block(2,0,6,9) = res.dZ_dB.transpose().template block(0,0,6,9) * res.W;
             }
         }
     }

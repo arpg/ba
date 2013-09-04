@@ -5,6 +5,9 @@
 #include "Utils.h"
 #include <calibu/Calibu.h>
 
+#define IMU_GYRO_UNCERTAINTY 100 //0.00104719755
+#define IMU_ACCEL_UNCERTAINTY 100 //0.0392266
+
 namespace ba
 {
 
@@ -47,7 +50,9 @@ template<typename Scalar=double>
 struct ImuCalibrationT
 {
     ImuCalibrationT(const Sophus::SE3Group<Scalar>& tvi, const Eigen::Matrix<Scalar,3,1>& bg, const Eigen::Matrix<Scalar,3,1>& ba, const Eigen::Matrix<Scalar,2,1>& g):
-        Tvi(tvi),Bg(bg),Ba(ba),G(g) {}
+        Tvi(tvi),Bg(bg),Ba(ba),G(g),
+        R((Eigen::Vector6d() << IMU_GYRO_UNCERTAINTY, IMU_GYRO_UNCERTAINTY, IMU_GYRO_UNCERTAINTY,
+           IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY).finished().asDiagonal()){}
     ///
     /// \brief Calibration from vehicle to inertial reference frame
     ///
@@ -64,6 +69,10 @@ struct ImuCalibrationT
     /// \brief Gravity vector (2D, parametrized by roll and pitch of the vector wrt the ground plane)
     ///
     Eigen::Matrix<Scalar,2,1> G;
+    ///
+    /// \brief Sensor uncertainty. The first 3 rows/cols are gyroscope and the last are accel
+    ///
+    Eigen::Matrix<Scalar,6,6> R;
 };
 
 template <typename T>
@@ -192,6 +201,7 @@ struct ImuResidualT
     unsigned int ResidualId;
     unsigned int ResidualOffset;
     Scalar       W;
+    Eigen::Matrix<Scalar,9,9>   SigmanInv;
     std::vector<ImuMeasurement> Measurements;
     std::vector<ImuPose> Poses;
     Eigen::Matrix<Scalar,ResSize,9> dZ_dX1;

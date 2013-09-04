@@ -9,6 +9,7 @@ if( ANDROID )
 else()
     add_definitions(-DREAL_TYPE=double)
 endif()
+add_definitions(-DSOPHUS_DISABLE_ENSURES)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake_modules/")
 

@@ -190,6 +190,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
         // now we have to solve for the pose constraints
         dTime = Tic();
         VectorXt delta_p = uNumPoses == 0 ? VectorXt() : S.ldlt().solve(rhs_p);
+//        VectorXt delta_p = uNumPoses == 0 ? VectorXt() : S.inverse() * rhs_p;
         // std::cout << "Cholesky solve of " << uNumPoses << " by " << uNumPoses << "matrix took " << Toc(dTime) << " seconds." << std::endl;
 
         if(uNumLm > 0){
@@ -544,7 +545,10 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         res.Residual.template tail<3>() = imuPose.V - poseB.V;
         m_vErrors.push_back(res.Residual.squaredNorm());
 
-        // res.dZ_dB.setZero();
+//        res.SigmanInv = (res.dZ_dB * m_Imu.R * res.dZ_dB.transpose()).inverse();
+//        std::cout << "Sigma inv for res " << res.ResidualId << " is " << res.SigmanInv << std::endl;
+
+        res.dZ_dB.setZero();
 
         /*
 
@@ -802,10 +806,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
                 const ImuResidual& res = m_vImuResiduals[id];
                 Eigen::Matrix<Scalar,9,9> dZ_dZ = res.PoseAId == pose.Id ? res.dZ_dX1 : res.dZ_dX2;
                 m_Ji.insert(res.ResidualId,pose.OptId).setZero().template block<9,9>(0,0) = dZ_dZ;
-                dZ_dZ.template block<6,9>(0,0) *= res.W;
-                dZ_dZ.template block<3,9>(6,0) *= res.W/10.0;
-                // m_Jit.insert(pose.OptId,res.ResidualId).setZero().template block<9,9>(0,0) = dZ_dZ.transpose() * res.W;
-                m_Jit.insert(pose.OptId,res.ResidualId).setZero().template block<9,9>(0,0) = dZ_dZ.transpose();
+                m_Jit.insert(pose.OptId,res.ResidualId).setZero().template block<9,9>(0,0) = dZ_dZ.transpose() * res.W;
 
             }
         }
@@ -818,21 +819,14 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
             if( CalibSize > 0 ){
                 // std::cout << "Residual " << res.ResidualId << " : dZ_dG: " << res.dZ_dG.template block<9,2>(0,0).transpose() << std::endl;
                 Eigen::Matrix<Scalar,9,2> dZ_dG = res.dZ_dG.template block(0,0,9,2);
-                // m_Jki.insert(res.ResidualId,0).setZero().template block(0,0,9,2) = res.dZ_dG.template block(0,0,9,2);
                 m_Jki.insert(res.ResidualId,0).setZero().template block(0,0,9,2) = dZ_dG;
-                dZ_dG.template block<6,2>(0,0) *= res.W;
-                dZ_dG.template block<3,2>(6,0) *= res.W/10.0;
-                //m_Jkit.insert(0,res.ResidualId).setZero().template block(0,0,2,9) = res.dZ_dG.transpose().template block(0,0,2,9) * res.W;
-                m_Jkit.insert(0,res.ResidualId).setZero().template block(0,0,2,9) = dZ_dG.transpose();
+                m_Jkit.insert(0,res.ResidualId).setZero().template block(0,0,2,9) = dZ_dG.transpose() * res.W;
             }
             // include bias terms (6 total)
             if( CalibSize > 2 ){
                 Eigen::Matrix<Scalar,9,6> dZ_dB = res.dZ_dB.template block(0,0,9,6);
-                // m_Jki.coeffRef(res.ResidualId,0).template block(0,2,9,6) = res.dZ_dB.template block(0,0,9,6);
                 m_Jki.coeffRef(res.ResidualId,0).template block(0,2,9,6) = dZ_dB;
-                dZ_dB.template block<6,6>(0,0) *= res.W;
-                dZ_dB.template block<3,6>(6,0) *= res.W/10.0;
-                m_Jkit.coeffRef(0,res.ResidualId).template block(2,0,6,9) = dZ_dB.transpose();
+                m_Jkit.coeffRef(0,res.ResidualId).template block(2,0,6,9) = dZ_dB.transpose() * res.W;
                 // m_Jkit.coeffRef(0,res.ResidualId).template block(2,0,6,9) = res.dZ_dB.transpose().template block(0,0,6,9) * res.W;
             }
         }

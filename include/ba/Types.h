@@ -16,6 +16,7 @@ struct PoseT
 {
     Sophus::SE3Group<Scalar> Twp;
     Eigen::Matrix<Scalar,3,1> V;
+    Eigen::Matrix<Scalar,6,1> B;
     bool IsActive;
     unsigned int Id;
     unsigned int OptId;
@@ -50,7 +51,7 @@ template<typename Scalar=double>
 struct ImuCalibrationT
 {
     ImuCalibrationT(const Sophus::SE3Group<Scalar>& tvi, const Eigen::Matrix<Scalar,3,1>& bg, const Eigen::Matrix<Scalar,3,1>& ba, const Eigen::Matrix<Scalar,2,1>& g):
-        Tvi(tvi),Bg(bg),Ba(ba),G(g),
+        Tvi(tvi),/*Bg(bg),Ba(ba),*/G(g),
         R((Eigen::Vector6d() << IMU_GYRO_UNCERTAINTY, IMU_GYRO_UNCERTAINTY, IMU_GYRO_UNCERTAINTY,
            IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY).finished().asDiagonal()){}
     ///
@@ -118,12 +119,18 @@ template< typename Scalar=double >
 struct ImuPoseT
 {
     ImuPoseT(const PoseT<Scalar>& pose) :
-        Twp(pose.Twp), V(pose.V), W(Eigen::Matrix<Scalar,3,1>::Zero()), Time(pose.Time) {}
-    ImuPoseT(const Sophus::SE3Group<Scalar>& twp, const Eigen::Matrix<Scalar,3,1>& v, const Eigen::Matrix<Scalar,3,1>& w, const double time) :
-        Twp(twp), V(v), W(w), Time(time) {}
+        Twp(pose.Twp), V(pose.V), W(Eigen::Matrix<Scalar,3,1>::Zero()),
+        B(Eigen::Matrix<Scalar,6,1>::Zero()), Time(pose.Time) {}
+    ImuPoseT(const Sophus::SE3Group<Scalar>& twp,
+             const Eigen::Matrix<Scalar,3,1>& v,
+             const Eigen::Matrix<Scalar,3,1>& w,
+             const Eigen::Matrix<Scalar,6,1>& b,
+             const double time) :
+        Twp(twp), V(v), W(w), B(b), Time(time) {}
     Sophus::SE3Group<Scalar> Twp;
     Eigen::Matrix<Scalar,3,1> V;
     Eigen::Matrix<Scalar,3,1> W;
+    Eigen::Matrix<Scalar,6,1> B;
     double Time;
 };
 
@@ -195,20 +202,20 @@ struct ImuResidualT
 {
     typedef ImuPoseT<Scalar> ImuPose;
     typedef ImuMeasurementT<Scalar> ImuMeasurement;
-    static const unsigned int ResSize = 9;
+    static const unsigned int ResSize = 15;
     unsigned int PoseAId;
     unsigned int PoseBId;
     unsigned int ResidualId;
     unsigned int ResidualOffset;
     Scalar       W;
-    Eigen::Matrix<Scalar,9,9>   SigmanInv;
+    // Eigen::Matrix<Scalar,9,9>   SigmanInv;
     std::vector<ImuMeasurement> Measurements;
     std::vector<ImuPose> Poses;
-    Eigen::Matrix<Scalar,ResSize,9> dZ_dX1;
-    Eigen::Matrix<Scalar,ResSize,9> dZ_dX2;
+    Eigen::Matrix<Scalar,ResSize,15> dZ_dX1;
+    Eigen::Matrix<Scalar,ResSize,15> dZ_dX2;
     Eigen::Matrix<Scalar,ResSize,2> dZ_dG;
     Eigen::Matrix<Scalar,ResSize,6> dZ_dB;
-    Eigen::Matrix<Scalar,9,1> Residual;
+    Eigen::Matrix<Scalar,ResSize,1> Residual;
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     static ImuPose IntegratePose(const ImuPose& pose, const Eigen::Matrix<Scalar,9,1>& k, const Scalar dt,
@@ -359,6 +366,7 @@ struct ImuResidualT
             res = IntegratePose(y0,k, dt/6.0);
         }
 
+        res.B = y0.B;
         res.W = k.template segment<3>(3);
         res.Time = zEnd.Time;
 //        pose.m_dW = currentPose.m_dW;

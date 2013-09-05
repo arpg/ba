@@ -77,16 +77,17 @@ public:
     ///////////////////////////////////////////////////////////////////////////////////////////////
     unsigned int AddPose(const SE3t& Twp, const bool bIsActive = true, const double dTime = -1)
     {
-        return AddPose( Twp, Vector3t::Zero(), bIsActive, dTime);
+        return AddPose( Twp, Vector3t::Zero(), Vector6t::Zero(), bIsActive, dTime);
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    unsigned int AddPose(const SE3t& Twp, const Vector3t& V, const bool bIsActive = true, const double dTime = -1)
+    unsigned int AddPose(const SE3t& Twp, const Vector3t& V, const Vector6t& B, const bool bIsActive = true, const double dTime = -1)
     {
         Pose pose;
         pose.Time = dTime;
         pose.Twp = Twp;
         pose.V = V;
+        pose.B = B;
         pose.IsActive = bIsActive;
         pose.Tsw.reserve(m_Rig.cameras.size());
         // assume equal distribution of measurements amongst poses

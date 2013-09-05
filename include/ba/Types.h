@@ -5,6 +5,9 @@
 #include "Utils.h"
 #include <calibu/Calibu.h>
 
+#define IMU_GYRO_UNCERTAINTY 100 //0.00104719755
+#define IMU_ACCEL_UNCERTAINTY 100 //0.0392266
+
 namespace ba
 {
 
@@ -12,7 +15,9 @@ template<typename Scalar=double>
 struct PoseT
 {
     Sophus::SE3Group<Scalar> Twp;
+    Sophus::SE3Group<Scalar> Tvs;
     Eigen::Matrix<Scalar,3,1> V;
+    Eigen::Matrix<Scalar,6,1> B;
     bool IsActive;
     unsigned int Id;
     unsigned int OptId;
@@ -46,12 +51,14 @@ struct LandmarkT
 template<typename Scalar=double>
 struct ImuCalibrationT
 {
-    ImuCalibrationT(const Sophus::SE3Group<Scalar>& tvi, const Eigen::Matrix<Scalar,3,1>& bg, const Eigen::Matrix<Scalar,3,1>& ba, const Eigen::Matrix<Scalar,2,1>& g):
-        Tvi(tvi),Bg(bg),Ba(ba),G(g) {}
+    ImuCalibrationT(const Sophus::SE3Group<Scalar>& tvs, const Eigen::Matrix<Scalar,3,1>& bg, const Eigen::Matrix<Scalar,3,1>& ba, const Eigen::Matrix<Scalar,2,1>& g):
+        Tvs(tvs),Bg(bg),Ba(ba),G(g),
+        R((Eigen::Vector6d() << IMU_GYRO_UNCERTAINTY, IMU_GYRO_UNCERTAINTY, IMU_GYRO_UNCERTAINTY,
+           IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY).finished().asDiagonal()){}
     ///
-    /// \brief Calibration from vehicle to inertial reference frame
+    /// \brief Calibration from vehicle to sensor frame (monocular for now)
     ///
-    Sophus::SE3Group<Scalar> Tvi;
+    Sophus::SE3Group<Scalar> Tvs;
     ///
     /// \brief Gyroscope bias vector
     ///
@@ -64,6 +71,10 @@ struct ImuCalibrationT
     /// \brief Gravity vector (2D, parametrized by roll and pitch of the vector wrt the ground plane)
     ///
     Eigen::Matrix<Scalar,2,1> G;
+    ///
+    /// \brief Sensor uncertainty. The first 3 rows/cols are gyroscope and the last are accel
+    ///
+    Eigen::Matrix<Scalar,6,6> R;
 };
 
 template <typename T>
@@ -110,11 +121,14 @@ struct ImuPoseT
 {
     ImuPoseT(const PoseT<Scalar>& pose) :
         Twp(pose.Twp), V(pose.V), W(Eigen::Matrix<Scalar,3,1>::Zero()), Time(pose.Time) {}
-    ImuPoseT(const Sophus::SE3Group<Scalar>& twp, const Eigen::Matrix<Scalar,3,1>& v, const Eigen::Matrix<Scalar,3,1>& w, const double time) :
+    ImuPoseT(const Sophus::SE3Group<Scalar>& twp,
+             const Eigen::Matrix<Scalar,3,1>& v,
+             const Eigen::Matrix<Scalar,3,1>& w,
+             const double time) :
         Twp(twp), V(v), W(w), Time(time) {}
     Sophus::SE3Group<Scalar> Twp;
     Eigen::Matrix<Scalar,3,1> V;
-    Eigen::Matrix<Scalar,3,1> W;
+    Eigen::Matrix<Scalar,3,1> W;    
     double Time;
 };
 
@@ -176,29 +190,31 @@ struct ProjectionResidualT
 
     Eigen::Matrix<Scalar,ResSize,LmSize> dZ_dX;
     Eigen::Matrix<Scalar,2,6> dZ_dP;
+    Eigen::Matrix<Scalar,2,6> dZ_dTvs;
     // Eigen::Matrix<Scalar,2,6> dZ_dTic;    // derivative with respect to imu/camera parameters
     // Eigen::Matrix<Scalar,2,5> dZ_dK;    // derivative with respect to camera parameters
     Eigen::Matrix<Scalar,2,1> Residual;
 };
 
-template< typename Scalar=double >
+template< typename Scalar=double, int ResidualSize = 15 >
 struct ImuResidualT
 {
     typedef ImuPoseT<Scalar> ImuPose;
     typedef ImuMeasurementT<Scalar> ImuMeasurement;
-    static const unsigned int ResSize = 9;
+    static const unsigned int ResSize = ResidualSize;
     unsigned int PoseAId;
     unsigned int PoseBId;
     unsigned int ResidualId;
     unsigned int ResidualOffset;
     Scalar       W;
+    // Eigen::Matrix<Scalar,9,9>   SigmanInv;
     std::vector<ImuMeasurement> Measurements;
     std::vector<ImuPose> Poses;
-    Eigen::Matrix<Scalar,ResSize,9> dZ_dX1;
-    Eigen::Matrix<Scalar,ResSize,9> dZ_dX2;
-    Eigen::Matrix<Scalar,ResSize,2> dZ_dG;
+    Eigen::Matrix<Scalar,ResSize,15> dZ_dX1;
+    Eigen::Matrix<Scalar,ResSize,15> dZ_dX2;
+    Eigen::Matrix<Scalar,9,2> dZ_dG;
     Eigen::Matrix<Scalar,ResSize,6> dZ_dB;
-    Eigen::Matrix<Scalar,9,1> Residual;
+    Eigen::Matrix<Scalar,ResSize,1> Residual;
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     static ImuPose IntegratePose(const ImuPose& pose, const Eigen::Matrix<Scalar,9,1>& k, const Scalar dt,

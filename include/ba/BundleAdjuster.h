@@ -24,7 +24,7 @@ class BundleAdjuster
     typedef ImuMeasurementT<Scalar> ImuMeasurement;
     typedef UnaryResidualT<Scalar> UnaryResidual;
     typedef BinaryResidualT<Scalar> BinaryResidual;
-    typedef ImuResidualT<Scalar> ImuResidual;
+    typedef ImuResidualT<Scalar, PoseSize> ImuResidual;
     typedef ImuCalibrationT<Scalar> ImuCalibration;
     typedef ImuPoseT<Scalar> ImuPose;
 
@@ -77,16 +77,18 @@ public:
     ///////////////////////////////////////////////////////////////////////////////////////////////
     unsigned int AddPose(const SE3t& Twp, const bool bIsActive = true, const double dTime = -1)
     {
-        return AddPose( Twp, Vector3t::Zero(), bIsActive, dTime);
+        return AddPose( Twp, Sophus::SE3d(), Vector3t::Zero(), Vector6t::Zero(), bIsActive, dTime);
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    unsigned int AddPose(const SE3t& Twp, const Vector3t& V, const bool bIsActive = true, const double dTime = -1)
+    unsigned int AddPose(const SE3t& Twp, const SE3t& Tvs, const Vector3t& V, const Vector6t& B, const bool bIsActive = true, const double dTime = -1)
     {
         Pose pose;
         pose.Time = dTime;
         pose.Twp = Twp;
+        pose.Tvs = Tvs;
         pose.V = V;
+        pose.B = B;
         pose.IsActive = bIsActive;
         pose.Tsw.reserve(m_Rig.cameras.size());
         // assume equal distribution of measurements amongst poses
@@ -226,6 +228,7 @@ public:
     }
     void Solve(const unsigned int uMaxIter);
 
+    unsigned int GetNumPoses() const { return m_vPoses.size(); }
     const ImuResidual& GetImuResidual(const unsigned int id) const { return m_vImuResiduals[id]; }
     const ImuCalibration& GetImuCalibration() const { return m_Imu; }
     void SetImuCalibration(const ImuCalibration& calib) { m_Imu = calib; }
@@ -262,6 +265,9 @@ private:
 
     Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,ImuResidual::ResSize,CalibSize> > m_Jki;
     Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,CalibSize,ImuResidual::ResSize> > m_Jkit;
+
+    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,ProjectionResidual::ResSize,CalibSize> > m_Jkpr;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,CalibSize,ProjectionResidual::ResSize> > m_Jkprt;
 
 
     VectorXt m_Ri;

@@ -178,7 +178,7 @@ struct FullImuCostFunction
         //pose_residuals = log_decoupled(endPose.Twp,T_w_x2);
 
         //to calculate the velocity error, first augment the IMU integration velocity with gravity and initial velocity
-        vel_residuals = (endPose.V - v_v2)*(T)m_dWeight*(T)0.5;
+        vel_residuals = (endPose.V - v_v2)*(T)m_dWeight*(T)0.1;
         return true;
     }
 

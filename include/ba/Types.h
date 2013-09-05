@@ -15,6 +15,7 @@ template<typename Scalar=double>
 struct PoseT
 {
     Sophus::SE3Group<Scalar> Twp;
+    Sophus::SE3Group<Scalar> Tvs;
     Eigen::Matrix<Scalar,3,1> V;
     Eigen::Matrix<Scalar,6,1> B;
     bool IsActive;
@@ -50,14 +51,14 @@ struct LandmarkT
 template<typename Scalar=double>
 struct ImuCalibrationT
 {
-    ImuCalibrationT(const Sophus::SE3Group<Scalar>& tvi, const Eigen::Matrix<Scalar,3,1>& bg, const Eigen::Matrix<Scalar,3,1>& ba, const Eigen::Matrix<Scalar,2,1>& g):
-        Tvi(tvi),/*Bg(bg),Ba(ba),*/G(g),
+    ImuCalibrationT(const Sophus::SE3Group<Scalar>& tvs, const Eigen::Matrix<Scalar,3,1>& bg, const Eigen::Matrix<Scalar,3,1>& ba, const Eigen::Matrix<Scalar,2,1>& g):
+        Tvs(tvs),Bg(bg),Ba(ba),G(g),
         R((Eigen::Vector6d() << IMU_GYRO_UNCERTAINTY, IMU_GYRO_UNCERTAINTY, IMU_GYRO_UNCERTAINTY,
            IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY).finished().asDiagonal()){}
     ///
-    /// \brief Calibration from vehicle to inertial reference frame
+    /// \brief Calibration from vehicle to sensor frame (monocular for now)
     ///
-    Sophus::SE3Group<Scalar> Tvi;
+    Sophus::SE3Group<Scalar> Tvs;
     ///
     /// \brief Gyroscope bias vector
     ///
@@ -119,18 +120,15 @@ template< typename Scalar=double >
 struct ImuPoseT
 {
     ImuPoseT(const PoseT<Scalar>& pose) :
-        Twp(pose.Twp), V(pose.V), W(Eigen::Matrix<Scalar,3,1>::Zero()),
-        B(Eigen::Matrix<Scalar,6,1>::Zero()), Time(pose.Time) {}
+        Twp(pose.Twp), V(pose.V), W(Eigen::Matrix<Scalar,3,1>::Zero()), Time(pose.Time) {}
     ImuPoseT(const Sophus::SE3Group<Scalar>& twp,
              const Eigen::Matrix<Scalar,3,1>& v,
              const Eigen::Matrix<Scalar,3,1>& w,
-             const Eigen::Matrix<Scalar,6,1>& b,
              const double time) :
-        Twp(twp), V(v), W(w), B(b), Time(time) {}
+        Twp(twp), V(v), W(w), Time(time) {}
     Sophus::SE3Group<Scalar> Twp;
     Eigen::Matrix<Scalar,3,1> V;
-    Eigen::Matrix<Scalar,3,1> W;
-    Eigen::Matrix<Scalar,6,1> B;
+    Eigen::Matrix<Scalar,3,1> W;    
     double Time;
 };
 
@@ -192,17 +190,18 @@ struct ProjectionResidualT
 
     Eigen::Matrix<Scalar,ResSize,LmSize> dZ_dX;
     Eigen::Matrix<Scalar,2,6> dZ_dP;
+    Eigen::Matrix<Scalar,2,6> dZ_dTvs;
     // Eigen::Matrix<Scalar,2,6> dZ_dTic;    // derivative with respect to imu/camera parameters
     // Eigen::Matrix<Scalar,2,5> dZ_dK;    // derivative with respect to camera parameters
     Eigen::Matrix<Scalar,2,1> Residual;
 };
 
-template< typename Scalar=double >
+template< typename Scalar=double, int ResidualSize = 15 >
 struct ImuResidualT
 {
     typedef ImuPoseT<Scalar> ImuPose;
     typedef ImuMeasurementT<Scalar> ImuMeasurement;
-    static const unsigned int ResSize = 15;
+    static const unsigned int ResSize = ResidualSize;
     unsigned int PoseAId;
     unsigned int PoseBId;
     unsigned int ResidualId;
@@ -213,7 +212,7 @@ struct ImuResidualT
     std::vector<ImuPose> Poses;
     Eigen::Matrix<Scalar,ResSize,15> dZ_dX1;
     Eigen::Matrix<Scalar,ResSize,15> dZ_dX2;
-    Eigen::Matrix<Scalar,ResSize,2> dZ_dG;
+    Eigen::Matrix<Scalar,9,2> dZ_dG;
     Eigen::Matrix<Scalar,ResSize,6> dZ_dB;
     Eigen::Matrix<Scalar,ResSize,1> Residual;
 
@@ -366,7 +365,6 @@ struct ImuResidualT
             res = IntegratePose(y0,k, dt/6.0);
         }
 
-        res.B = y0.B;
         res.W = k.template segment<3>(3);
         res.Time = zEnd.Time;
 //        pose.m_dW = currentPose.m_dW;

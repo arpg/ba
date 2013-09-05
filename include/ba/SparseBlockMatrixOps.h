@@ -150,11 +150,12 @@ static void SparseBlockProduct(const Lhs& lhs, const Rhs& rhs, ResultType& res)
         // this is going down the jth column of the rhs
         for (typename Rhs::InnerIterator rhsIt(rhs, j); rhsIt; ++rhsIt)
         {
+            const auto& rhsVal = rhsIt.value();
             // FIXME should be written like this: tmp += rhsIt.value() * lhs.col(rhsIt.index())
             tempVector.restart();
             for (typename Lhs::InnerIterator lhsIt(lhs, rhsIt.index()); lhsIt; ++lhsIt)
             {
-                tempVector.coeffRef(lhsIt.index()).noalias() += lhsIt.value() * rhsIt.value();
+                tempVector.coeffRef(lhsIt.index()).noalias() += lhsIt.value() * rhsVal;
             }
         }
         res.startVec(j);

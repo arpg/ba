@@ -28,10 +28,15 @@ struct PoseT
     std::vector<int> UnaryResiduals;
     std::vector<Sophus::SE3Group<Scalar>> Tsw;
 
-    const Sophus::SE3Group<Scalar>& GetTsw(const unsigned int camId, const calibu::CameraRigT<Scalar>& rig)
+    const Sophus::SE3Group<Scalar>& GetTsw(const unsigned int camId, const calibu::CameraRigT<Scalar>& rig, const bool bUseTswParam)
     {
         while(Tsw.size() <= camId ){
-          Tsw.push_back( (Twp*rig.cameras[Tsw.size()].T_wc).inverse());
+            if(bUseTswParam == false){
+                Tsw.push_back( (Twp*rig.cameras[Tsw.size()].T_wc).inverse());
+            }else{
+                // this needs to be modified to work with stereo
+                Tsw.push_back( (Twp*Tvs).inverse());
+            }
         }
         return Tsw[camId];
     }
@@ -196,7 +201,7 @@ struct ProjectionResidualT
     Eigen::Matrix<Scalar,2,1> Residual;
 };
 
-template< typename Scalar=double, int ResidualSize = 15 >
+template< typename Scalar=double, int ResidualSize = 15, int PoseSize = 15 >
 struct ImuResidualT
 {
     typedef ImuPoseT<Scalar> ImuPose;
@@ -210,8 +215,8 @@ struct ImuResidualT
     // Eigen::Matrix<Scalar,9,9>   SigmanInv;
     std::vector<ImuMeasurement> Measurements;
     std::vector<ImuPose> Poses;
-    Eigen::Matrix<Scalar,ResSize,15> dZ_dX1;
-    Eigen::Matrix<Scalar,ResSize,15> dZ_dX2;
+    Eigen::Matrix<Scalar,ResSize,PoseSize> dZ_dX1;
+    Eigen::Matrix<Scalar,ResSize,PoseSize> dZ_dX2;
     Eigen::Matrix<Scalar,9,2> dZ_dG;
     Eigen::Matrix<Scalar,ResSize,6> dZ_dB;
     Eigen::Matrix<Scalar,ResSize,1> Residual;

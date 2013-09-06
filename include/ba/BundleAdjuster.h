@@ -18,13 +18,17 @@ namespace ba {
 template< typename Scalar=double,int LmSize=1, int PoseSize=6, int CalibSize=8 >
 class BundleAdjuster
 {
+    static const unsigned int LmDim = LmSize;
+    static const unsigned int PoseDim = PoseSize;
+    static const unsigned int CalibDim = CalibSize;
+
     typedef PoseT<Scalar> Pose;
     typedef LandmarkT<Scalar,LmSize> Landmark;
     typedef ProjectionResidualT<Scalar,LmSize> ProjectionResidual;
     typedef ImuMeasurementT<Scalar> ImuMeasurement;
     typedef UnaryResidualT<Scalar> UnaryResidual;
     typedef BinaryResidualT<Scalar> BinaryResidual;
-    typedef ImuResidualT<Scalar, PoseSize> ImuResidual;
+    typedef ImuResidualT<Scalar, PoseSize, PoseSize> ImuResidual;
     typedef ImuCalibrationT<Scalar> ImuCalibration;
     typedef ImuPoseT<Scalar> ImuPose;
 

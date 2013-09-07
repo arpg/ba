@@ -186,7 +186,8 @@ struct ProjectionResidualT
 {
     static const unsigned int ResSize = 2;
     Eigen::Matrix<Scalar,2,1> Z;
-    unsigned int PoseId;
+    unsigned int MeasPoseId;
+    unsigned int RefPoseId;
     unsigned int LandmarkId;
     unsigned int CameraId;
     unsigned int ResidualId;
@@ -194,8 +195,10 @@ struct ProjectionResidualT
     Scalar       W;
 
     Eigen::Matrix<Scalar,ResSize,LmSize> dZ_dX;
-    Eigen::Matrix<Scalar,2,6> dZ_dP;
-    Eigen::Matrix<Scalar,2,6> dZ_dTvs;
+    Eigen::Matrix<Scalar,2,6> dZ_dPm;
+    Eigen::Matrix<Scalar,2,6> dZ_dPr;
+    Eigen::Matrix<Scalar,2,6> dZ_dTvs_m;
+    Eigen::Matrix<Scalar,2,6> dZ_dTvs_r;
     // Eigen::Matrix<Scalar,2,6> dZ_dTic;    // derivative with respect to imu/camera parameters
     // Eigen::Matrix<Scalar,2,5> dZ_dK;    // derivative with respect to camera parameters
     Eigen::Matrix<Scalar,2,1> Residual;

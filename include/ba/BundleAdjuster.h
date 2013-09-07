@@ -189,7 +189,8 @@ public:
         ProjectionResidual residual;
         residual.W = dWeight;
         residual.LandmarkId = uLandmarkId;
-        residual.PoseId = uPoseId;
+        residual.MeasPoseId = uPoseId;
+        residual.RefPoseId = m_vLandmarks[uLandmarkId].RefPoseId;
         residual.Z = z;
         residual.CameraId = uCameraId;
         residual.ResidualId = m_vProjResiduals.size();
@@ -200,6 +201,7 @@ public:
 
         m_vLandmarks[uLandmarkId].ProjResiduals.push_back(residual.ResidualId);
         m_vPoses[uPoseId].ProjResiduals.push_back(residual.ResidualId);
+        m_vPoses[residual.RefPoseId].ProjResiduals.push_back(residual.ResidualId);
 
         return residual.ResidualId;
     }

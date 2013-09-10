@@ -334,7 +334,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
             // only update active poses, as inactive ones are not part of the optimization
             if( m_vPoses[ii].IsActive ){
 
-                 m_vPoses[ii].Twp = exp_decoupled<Scalar>(m_vPoses[ii].Twp,-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));                 
+                 m_vPoses[ii].Twp = exp_decoupled<Scalar>(m_vPoses[ii].Twp,-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));
                  // m_vPoses[ii].Twp = m_vPoses[ii].Twp * Sophus::SE3d::exp(delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));
                 // update the velocities if they are parametrized
                 if(PoseSize >= 9){
@@ -468,7 +468,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         Pose& pose = m_vPoses[res.MeasPoseId];
         Pose& refPose = m_vPoses[res.RefPoseId];
         lm.Xs = MultHomogeneous(refPose.GetTsw(lm.RefCamId, m_Rig, PoseSize >= 21) ,lm.Xw);
-        // lm.Xs /= lm.Xs[2];
+        //lm.Xs /= lm.Xs[2];
         const SE3t parentTws = refPose.GetTsw(lm.RefCamId,m_Rig, PoseSize >= 21).inverse();
 
         const Vector2t p = m_Rig.cameras[res.CameraId].camera.Transfer3D(pose.GetTsw(res.CameraId,m_Rig, PoseSize >= 21)*parentTws,
@@ -481,7 +481,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
 
         const Eigen::Matrix<Scalar,2,4> dTdP_s = m_Rig.cameras[res.CameraId].camera.dTransfer3D_dP(pose.GetTsw(res.CameraId, m_Rig, PoseSize >= 21)*parentTws,
                                                                                              lm.Xs.template head<3>(),lm.Xs(3));
-
+        // Landmark Jacobian
         if(lm.IsActive){
             res.dZ_dX = -dTdP_s.template block<2,LmSize>( 0, LmSize == 3 ? 0 : 3 );
 
@@ -508,12 +508,9 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
                 maxdZ_dX = res.dZ_dX;
                 maxdZ_dX_fd = dZ_dX_fd;
             }
-//            std::cout << "dZ_dX   :" << res.dZ_dX << std::endl;
-//            std::cout << "dZ_dX_fd:" << dZ_dX_fd << " norm: " << (res.dZ_dX - dZ_dX_fd).norm() <<  std::endl;
+//                    std::cout << "dZ_dX   :" << res.dZ_dX << std::endl;
+//                    std::cout << "dZ_dX_fd:" << dZ_dX_fd << " norm: " << (res.dZ_dX - dZ_dX_fd).norm() <<  std::endl;
         }
-
-
-
 
         if( pose.IsActive || refPose.IsActive ) {
             // std::cout << "Calculating j for residual with poseid " << pose.Id << " and refPoseId " << refPose.Id << std::endl;
@@ -552,8 +549,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
                 maxdZ_dPm = res.dZ_dPm;
                 maxdZ_dPm_fd = dZ_dPm_fd;
             }
-            // std::cout << "dZ_dPm   :" << res.dZ_dPm << std::endl;
-            // std::cout << "dZ_dPm_fd:" << dZ_dPm_fd << " norm: " << (res.dZ_dPm - dZ_dPm_fd).norm() <<  std::endl;
+//            std::cout << "dZ_dPm   :" << res.dZ_dPm << std::endl;
+//            std::cout << "dZ_dPm_fd:" << dZ_dPm_fd << " norm: " << (res.dZ_dPm - dZ_dPm_fd).norm() <<  std::endl;
 
             // only need this if we are in inverse depth mode
             if( LmSize == 1 ){
@@ -589,8 +586,6 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
 //                std::cout << "dZ_dPr   :" << res.dZ_dPr << std::endl;
 //                std::cout << "dZ_dPr_fd:" << dZ_dPr_fd << " norm: " << (res.dZ_dPr - dZ_dPr_fd).norm() <<  std::endl;
             }
-
-
 
             // derivative for the measurement Tsv
             if(PoseSize > 21 && m_vImuResiduals.size() != 0){
@@ -874,7 +869,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
 
         if(PoseSize > 15){
             res.Residual.template segment<6>(15) = log_decoupled(poseA.Tvs, poseB.Tvs);
-            std::cout << "Adding tvs residual of " << res.Residual.template segment<6>(15).transpose() << std::endl;
+            //std::cout << "Adding tvs residual of " << res.Residual.template segment<6>(15).transpose() << std::endl;
             const Eigen::Matrix<Scalar,6,6> dLog = dLog_decoupled_dX(poseA.Tvs, poseB.Tvs);
             res.dZ_dX1.template block<6,6>(15,15) = dLog;
             res.dZ_dX2.template block<6,6>(15,15) = -dLog;
@@ -1158,13 +1153,14 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
                 // The weight is only multiplied by the transpose matrix, this is so we can perform Jt*W*J*dx = Jt*W*r
                 auto dZ_dP = res.MeasPoseId == pose.Id ? res.dZ_dPm : res.dZ_dPr;
                 if( res.RefPoseId == pose.Id ){
-                    // std::cout << "Adding reference jacobian for pose id " << pose.Id << " and residual id " << res.ResidualId << " wih ref pose id " << res.RefPoseId << " and meas pose id " << res.MeasPoseId << std::endl;
+
+                    //std::cout << "Adding reference jacobian for pose id " << pose.Id << " and residual id " << res.ResidualId << " wih ref pose id " << res.RefPoseId << " and meas pose id " << res.MeasPoseId << std::endl;
                     // std::cout << "Jacobian is " << std::endl << dZ_dP << std::endl;
                     // dZ_dP.setZero();
                     // dZ_dP *= -1;
                 }else
                 {
-                    // std::cout << "Adding measurement jacobian for pose id " << pose.Id << " and residual id " << res.ResidualId << " wih ref pose id " << res.RefPoseId << " and meas pose id " << res.MeasPoseId <<  std::endl;
+                    //std::cout << "Adding measurement jacobian for pose id " << pose.Id << " and residual id " << res.ResidualId << " wih ref pose id " << res.RefPoseId << " and meas pose id " << res.MeasPoseId <<  std::endl;
                     // dZ_dP.setZero();
                 }
                 m_Jpr.insert( res.ResidualId, pose.OptId ).setZero().template block<2,6>(0,0) = dZ_dP;

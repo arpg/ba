@@ -57,6 +57,7 @@ public:
         assert(uNumLandmarks != 0 || LmSize == 0);
 
         m_uNumActivePoses = 0;
+        m_uNumActiveLandmakrs = 0;
         m_uProjResidualOffset = 0;
         m_uBinaryResidualOffset = 0;
         m_uUnaryResidualOffset = 0;
@@ -104,7 +105,7 @@ public:
         }else{
             // the is active flag should be checked before reading this value, to see if the pose
             // is part of the optimization or not
-            pose.OptId = 0;
+            pose.OptId = UINT_MAX;
         }
 
         m_vPoses.push_back(pose);        
@@ -113,19 +114,29 @@ public:
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    unsigned int AddLandmark(const Vector4t& Xw,const unsigned int uRefPoseId, const unsigned int uRefCamId = 0)
+    unsigned int AddLandmark(const Vector4t& Xw,const unsigned int uRefPoseId, const unsigned int uRefCamId, const bool bIsActive)
     {
         assert(uRefPoseId < m_vPoses.size());
         Landmark landmark;
         landmark.Xw = Xw;
         // assume equal distribution of measurements amongst landmarks
         landmark.ProjResiduals.reserve(m_vProjResiduals.capacity()/m_vLandmarks.capacity());
-        landmark.OptId = m_vLandmarks.size();
         landmark.RefPoseId = uRefPoseId;
         landmark.RefCamId = uRefCamId;
+        landmark.IsActive = bIsActive;
+        landmark.Id = m_vLandmarks.size();
+        if(bIsActive){
+            landmark.OptId = m_uNumActiveLandmakrs;
+            m_uNumActiveLandmakrs++;
+        }else{
+            // the is active flag should be checked before reading this value, to see if the pose
+            // is part of the optimization or not
+            landmark.OptId = UINT_MAX;
+        }
+
         m_vLandmarks.push_back(landmark);
          //std::cout << "Adding landmark with Xw = [" << Xw.transpose() << "], refPoseId " << uRefPoseId << ", uRefCamId " << uRefCamId << ", OptId " << landmark.OptId << std::endl;
-        return landmark.OptId;
+        return landmark.Id;
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -178,30 +189,38 @@ public:
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     unsigned int AddProjectionResidual(const Vector2t z,
-                                    const unsigned int uPoseId,
+                                    const unsigned int uMeasPoseId,
                                     const unsigned int uLandmarkId,
                                     const unsigned int uCameraId,
                                     const Scalar dWeight = 1.0)
     {
         assert(uLandmarkId < m_vLandmarks.size());
-        assert(uPoseId < m_vPoses.size());
+        assert(uMeasPoseId < m_vPoses.size());
 
         ProjectionResidual residual;
         residual.W = dWeight;
         residual.LandmarkId = uLandmarkId;
-        residual.MeasPoseId = uPoseId;
+        residual.MeasPoseId = uMeasPoseId;
         residual.RefPoseId = m_vLandmarks[uLandmarkId].RefPoseId;
         residual.Z = z;
         residual.CameraId = uCameraId;
         residual.ResidualId = m_vProjResiduals.size();
         residual.ResidualOffset = m_uProjResidualOffset;
 
+
+        if(uMeasPoseId != residual.RefPoseId || LmSize != 1){
+            m_vPoses[uMeasPoseId].ProjResiduals.push_back(residual.ResidualId);
+            m_vLandmarks[uLandmarkId].ProjResiduals.push_back(residual.ResidualId);
+            if(LmSize == 1){
+                m_vPoses[residual.RefPoseId].ProjResiduals.push_back(residual.ResidualId);
+            }
+        }else{
+            // we should not add this residual
+             return -1;
+        }
+
         m_vProjResiduals.push_back(residual);
         m_uProjResidualOffset += ProjectionResidual::ResSize;
-
-        m_vLandmarks[uLandmarkId].ProjResiduals.push_back(residual.ResidualId);
-        m_vPoses[uPoseId].ProjResiduals.push_back(residual.ResidualId);
-        m_vPoses[residual.RefPoseId].ProjResiduals.push_back(residual.ResidualId);
 
         return residual.ResidualId;
     }
@@ -281,6 +300,7 @@ private:
 
 
     unsigned int m_uNumActivePoses;
+    unsigned int m_uNumActiveLandmakrs;
     unsigned int m_uBinaryResidualOffset;
     unsigned int m_uUnaryResidualOffset;
     unsigned int m_uProjResidualOffset;

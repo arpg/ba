@@ -205,6 +205,51 @@ public:
             return insert(row,col);
     }
 
+    /** \returns a non-const reference to the value of the matrix at position \a i, \a j
+      *
+      * If the element does not exist then it is inserted via the insert(Index,Index) function
+      * which itself turns the matrix into a non compressed form if that was not the case.
+      *
+      * This is a O(log(nnz_j)) operation (binary search) plus the cost of insert(Index,Index)
+      * function if the element does not already exist.
+      */
+    inline bool hasCoeff(Index row, Index col)
+    {
+        const Index outer = IsRowMajor ? row : col;
+        const Index inner = IsRowMajor ? col : row;
+
+        Index start = m_outerIndex[outer];
+        Index end = m_innerNonZeros ? m_outerIndex[outer] + m_innerNonZeros[outer] : m_outerIndex[outer+1];
+        eigen_assert(end>=start && "you probably called coeffRef on a non finalized matrix");
+        if(end<=start)
+            return false;
+        const Index p = m_data.searchLowerIndex(start,end-1,inner);
+        if((p<end) && (m_data.index(p)==inner))
+            return true;
+        else
+            return false;
+    }
+
+    inline Eigen::MatrixXd GetSparsityStructure()
+    {
+        Eigen::MatrixXd sparsity(rows(), cols());
+        for( int ii = 0; ii < rows() ; ii++){
+            for( int jj = 0; jj < cols() ; jj++){
+                if( hasCoeff(ii,jj) ) {
+                    const auto& val = coeffRef(ii,jj);
+                    if( val.norm() > 1e-9 ){
+                        sparsity(ii, jj) = 1;
+                    }else{
+                        sparsity(ii, jj) = -1;
+                    }
+                }else{
+                    sparsity(ii, jj) = 0;
+                }
+            }
+        }
+        return sparsity;
+    }
+
     /** \returns a reference to a novel non zero coefficient with coordinates \a row x \a col.
       * The non zero coefficient must \b not already exist.
       *

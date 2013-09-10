@@ -20,16 +20,17 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
 
         const unsigned int uNumPoses = m_uNumActivePoses;
         const unsigned int uNumPoseParams = uNumPoses*PoseSize;
-        const unsigned int uNumLm = m_vLandmarks.size();
+        const unsigned int uNumLm = m_uNumActiveLandmakrs;
 //        const unsigned int uNumMeas = m_vMeasurements.size();
         // calculate bp and bl
         Scalar dMatTime = Tic();
         VectorXt bp(uNumPoseParams);
         VectorXt bk;
         VectorXt bl;
-        Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, LmSize, LmSize> > V_inv(uNumLm, uNumLm);
+        Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, LmSize, LmSize> > Vi(uNumLm, uNumLm);
         VectorXt rhs_p(uNumPoseParams + CalibSize);
-        Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, LmSize, PoseSize> > Wpt(uNumLm, uNumPoses);
+        Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, LmSize, PoseSize> > Jlt_Jpr(uNumLm, uNumPoses);
+        Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, PoseSize, LmSize> > Jprt_Jl_Vi(uNumPoses, uNumLm);
         Eigen::Matrix<Scalar,Eigen::Dynamic,Eigen::Dynamic> S(uNumPoseParams + CalibSize,uNumPoseParams + CalibSize);
         std::cout << "  Rhs vector mult took " << Toc(dMatTime) << " seconds." << std::endl;
 
@@ -44,9 +45,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
 
         if( m_vProjResiduals.size() > 0 ){
             Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, PoseSize, PoseSize> > Jprt_Jpr(uNumPoses, uNumPoses);
-            Eigen::SparseBlockProduct(m_Jprt, m_Jpr, Jprt_Jpr);
-            auto Temp = U;
-            Eigen::SparseBlockAdd(Temp, Jprt_Jpr, U);
+            Eigen::SparseBlockProduct(m_Jprt, m_Jpr, U);
 
             VectorXt Jprt_Rpr(uNumPoseParams);
             Eigen::SparseBlockVectorProductDenseResult(m_Jprt, m_Rpr, Jprt_Rpr);
@@ -106,9 +105,9 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
             // std::cout << "Eigen::SparseBlockProduct(m_Jlt,m_Jl,V);; took  " << Toc(dSchurTime) << " seconds."  << std::endl;
 
             dSchurTime = Tic();
-            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, PoseSize, LmSize> > Jpt_Jl(uNumPoses, uNumLm);
-            Eigen::SparseBlockProduct(m_Jprt,m_Jl,Jpt_Jl);
-            Wpt = Jpt_Jl.transpose();
+            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, PoseSize, LmSize> > Jprt_Jl(uNumPoses, uNumLm);
+            Eigen::SparseBlockProduct(m_Jprt,m_Jl,Jprt_Jl);
+            Jlt_Jpr = Jprt_Jl.transpose();
             // std::cout << "Eigen::SparseBlockProduct(m_Jprt,m_Jl,Wp) and Wpt = Wp.transpose(); took  " << Toc(dSchurTime) << " seconds."  << std::endl;
             //Eigen::SparseBlockProduct(m_Jlt,m_Jpr,Wpt);
 
@@ -121,8 +120,9 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
                         V.coeffRef(ii,ii)(0,0) += 1e-6;
                     }
                 }
-                V_inv.coeffRef(ii,ii) = V.coeffRef(ii,ii).inverse();
+                Vi.coeffRef(ii,ii) = V.coeffRef(ii,ii).inverse();
             }
+
              // std::cout << "  Inversion of V took " << Toc(dSchurTime) << " seconds." << std::endl;
             // Eigen::LoadDenseFromSparse(V_inv,S);
             // std::cout << "Vinv is " << S.format(cleanFmt) << std::endl;
@@ -130,49 +130,53 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
 
              dSchurTime = Tic();
             // attempt to solve for the poses. W_V_inv is used later on, so we cache it
-            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, PoseSize, LmSize> > Jpt_Jl_V_inv(uNumPoses, uNumLm);
-            Eigen::SparseBlockProduct(Jpt_Jl, V_inv, Jpt_Jl_V_inv);
-            // std::cout << "Eigen::SparseBlockProduct(Wp, V_inv, Wp_V_inv) took  " << Toc(dSchurTime) << " seconds."  << std::endl;
-
-            /*dSchurTime = Tic();
-            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, PoseSize, PoseSize> > WV_invWt(uNumPoses, uNumPoses);
-            Eigen::SparseBlockProduct(Wp_V_inv, Wpt, WV_invWt);
-            std::cout << "Eigen::SparseBlockProduct(Wp_V_inv, Wpt, WV_invWt) took  " << Toc(dSchurTime) << " seconds."  << std::endl;
-            */
+            Eigen::SparseBlockProduct(Jprt_Jl, Vi, Jprt_Jl_Vi);
+            // std::cout << "Eigen::SparseBlockProduct(Wp, V_inv, Wp_V_inv) took  " << Toc(dSchurTime) << " seconds."  << std::endl;            
 
 
             dSchurTime = Tic();
-            Eigen::MatrixXd dWp_V_inv(Jpt_Jl_V_inv.rows()*PoseSize,Jpt_Jl_V_inv.cols()*LmSize);
-            Eigen::LoadDenseFromSparse(Jpt_Jl_V_inv,dWp_V_inv);
+            // Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, PoseSize, PoseSize> > WV_invWt(uNumPoses, uNumPoses);
+            // Eigen::SparseBlockProduct(Jprt_Jl_Vi, Jlt_Jpr, WV_invWt);
+            // std::cout << "Eigen::SparseBlockProduct(Wp_V_inv, Wpt, WV_invWt) took  " << Toc(dSchurTime) << " seconds."  << std::endl;
 
-            Eigen::MatrixXd dWpt(Wpt.rows()*LmSize,Wpt.cols()*PoseSize);
-            Eigen::LoadDenseFromSparse(Wpt,dWpt);
+            dSchurTime = Tic();
+            Eigen::MatrixXd dJprt_Jl_Vi(Jprt_Jl_Vi.rows()*PoseSize,Jprt_Jl_Vi.cols()*LmSize);
+            Eigen::LoadDenseFromSparse(Jprt_Jl_Vi,dJprt_Jl_Vi);
 
-            Eigen::MatrixXd dWV_invWt = dWp_V_inv * dWpt;
+            Eigen::MatrixXd dJlt_Jpr(Jlt_Jpr.rows()*LmSize,Jlt_Jpr.cols()*PoseSize);
+            Eigen::LoadDenseFromSparse(Jlt_Jpr,dJlt_Jpr);
+
+            Eigen::MatrixXd dJprt_Jl_Vi_Jlt_Jpr = dJprt_Jl_Vi * dJlt_Jpr;
             // std::cout << "Same with dense took " << Toc(dSchurTime) << " seconds."  << std::endl;
 
 
-            // Eigen::LoadDenseFromSparse(WV_invWt,S);
-            // std::cout << "WV_invWt is " << S.format(cleanFmt) << std::endl;
 
             // this in-place operation should be fine for subtraction
             dSchurTime = Tic();
             Eigen::MatrixXd dU(U.rows()*PoseSize,U.cols()*PoseSize);
             Eigen::LoadDenseFromSparse(U,dU);
+
+            /*std::cout << "Jp sparsity structure: " << std::endl << m_Jpr.GetSparsityStructure().format(cleanFmt) << std::endl;
+            std::cout << "Jprt sparsity structure: " << std::endl << m_Jprt.GetSparsityStructure().format(cleanFmt) << std::endl;
+            std::cout << "U sparsity structure: " << std::endl << U.GetSparsityStructure().format(cleanFmt) << std::endl;
+            std::cout << "dU " << std::endl << dU << std::endl;
+            */
+
             // Eigen::SparseBlockSubtractDenseResult(U, WV_invWt, S.template block(0, 0, uNumPoseParams, uNumPoseParams ));
-            S.template block(0, 0, uNumPoseParams, uNumPoseParams ) = dU - dWV_invWt;
+            // std::cout << "dU matrix is " << dU.format(cleanFmt) << std::endl;
+            S.template block(0, 0, uNumPoseParams, uNumPoseParams ) = dU - dJprt_Jl_Vi_Jlt_Jpr;
             // std::cout << "Eigen::SparseBlockSubtractDenseResult(U, WV_invWt, S.template block(0, 0, uNumPoseParams, uNumPoseParams )) took  " << Toc(dSchurTime) << " seconds."  << std::endl;
 
             // now form the rhs for the pose equations
             dSchurTime = Tic();
-            VectorXt WV_inv_bl(uNumPoseParams);
-            Eigen::SparseBlockVectorProductDenseResult(Jpt_Jl_V_inv, bl, WV_inv_bl);
+            VectorXt Jpt_Jl_Vi_bl(uNumPoseParams);
+            Eigen::SparseBlockVectorProductDenseResult(Jprt_Jl_Vi, bl, Jpt_Jl_Vi_bl);
             // std::cout << "Eigen::SparseBlockVectorProductDenseResult(Wp_V_inv, bl, WV_inv_bl) took  " << Toc(dSchurTime) << " seconds."  << std::endl;
 
-            rhs_p.template head(uNumPoseParams) = bp - WV_inv_bl;
+            rhs_p.template head(uNumPoseParams) = bp - Jpt_Jl_Vi_bl;
 
-//                 std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
-//                 std::cout << "Dense rhs matrix is " << rhs_p.transpose().format(cleanFmt) << std::endl;
+                 // std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
+                 std::cout << "Dense rhs matrix is " << rhs_p.transpose().format(cleanFmt) << std::endl;
 
         }else{
             Eigen::LoadDenseFromSparse(U, S.template block(0, 0, uNumPoseParams, uNumPoseParams));
@@ -204,6 +208,58 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
             rhs_p.template tail<CalibSize>() = bk;
         }
 
+        if( CalibSize > 2){
+            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,CalibSize,CalibSize> > Jkprt_Jkpr(1, 1);
+            Eigen::SparseBlockProduct(m_Jkprt, m_Jkpr, Jkprt_Jkpr);
+            Eigen::MatrixXd dJkprt_Jkpr(CalibSize, CalibSize);
+            Eigen::LoadDenseFromSparse(Jkprt_Jkpr, dJkprt_Jkpr);
+            S.template block<CalibSize, CalibSize>(uNumPoseParams, uNumPoseParams) += dJkprt_Jkpr;
+            std::cout << "dJkprt_Jkpr: " << dJkprt_Jkpr << std::endl;
+
+            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,CalibSize> > Jprt_Jkpr(uNumPoses, 1);
+            Eigen::SparseBlockProduct(m_Jprt, m_Jkpr, Jprt_Jkpr);
+            Eigen::MatrixXd dJprt_Jkpr(PoseSize*uNumPoses, CalibSize);
+            Eigen::LoadDenseFromSparse(Jprt_Jkpr, dJprt_Jkpr);
+            std::cout << "dJprt_Jkpr: " << dJprt_Jkpr << std::endl;
+            S.template block(0, uNumPoseParams, uNumPoseParams, CalibSize) += dJprt_Jkpr;
+            S.template block(uNumPoseParams, 0, CalibSize, uNumPoseParams) += dJprt_Jkpr.transpose();
+
+            bk.resize(CalibSize,1);
+            Eigen::SparseBlockVectorProductDenseResult(m_Jkprt, m_Rpr, bk);
+            rhs_p.template tail<CalibSize>() += bk;
+
+            // schur complement
+            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, CalibSize, LmSize> > Jkprt_Jl(1, uNumLm);
+            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, LmSize, CalibSize> > Jlt_Jkpr(uNumLm, 1);
+            Eigen::SparseBlockProduct(m_Jkprt,m_Jl,Jkprt_Jl);
+            Jlt_Jkpr = Jkprt_Jl.transpose();
+
+            Eigen::MatrixXd dJpt_Jl_Vi_Jlt_Jkpr(PoseSize*uNumPoses, CalibSize);
+            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, PoseSize, CalibSize> > Jpt_Jl_Vi_Jlt_Jkpr(uNumPoses, 1);
+            Eigen::SparseBlockProduct(Jprt_Jl_Vi,Jlt_Jkpr,Jpt_Jl_Vi_Jlt_Jkpr);
+            Eigen::LoadDenseFromSparse(Jpt_Jl_Vi_Jlt_Jkpr, dJpt_Jl_Vi_Jlt_Jkpr);
+            std::cout << "dJpt_Jl_Vi_Jlt_Jkpr: " << dJpt_Jl_Vi_Jlt_Jkpr << std::endl;
+            S.template block(0, uNumPoseParams, uNumPoseParams, CalibSize) -= dJpt_Jl_Vi_Jlt_Jkpr;
+            S.template block(uNumPoseParams, 0, CalibSize, uNumPoseParams) -= dJpt_Jl_Vi_Jlt_Jkpr.transpose();
+
+            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, CalibSize, LmSize> > Jkprt_Jl_Vi(1, uNumLm);
+            Eigen::SparseBlockProduct(Jkprt_Jl,Vi,Jkprt_Jl_Vi);
+            Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar, CalibSize, CalibSize> > Jkprt_Jl_Vi_Jlt_Jkpr(1, 1);
+            Eigen::SparseBlockProduct(Jkprt_Jl_Vi,Jlt_Jkpr,Jkprt_Jl_Vi_Jlt_Jkpr);
+            Eigen::MatrixXd dJkprt_Jl_Vi_Jlt_Jkpr(CalibSize, CalibSize);
+            Eigen::LoadDenseFromSparse(Jkprt_Jl_Vi_Jlt_Jkpr, dJkprt_Jl_Vi_Jlt_Jkpr);
+            std::cout << "dJkprt_Jl_Vi_Jlt_Jkpr: " << dJkprt_Jl_Vi_Jlt_Jkpr << std::endl;
+            S.template block<CalibSize, CalibSize>(uNumPoseParams, uNumPoseParams) -= dJkprt_Jl_Vi_Jlt_Jkpr;
+
+            VectorXt Jkprt_Jl_Vi_bl;
+            Jkprt_Jl_Vi_bl.resize(CalibSize);
+            Eigen::SparseBlockVectorProductDenseResult(Jkprt_Jl_Vi, bl, Jkprt_Jl_Vi_bl);
+            // std::cout << "Eigen::SparseBlockVectorProductDenseResult(Wp_V_inv, bl, WV_inv_bl) took  " << Toc(dSchurTime) << " seconds."  << std::endl;
+            std::cout << "Jkprt_Jl_Vi_bl: " << Jkprt_Jl_Vi_bl.transpose() << std::endl;
+            std::cout << "rhs_p.template tail<CalibSize>(): " << rhs_p.template tail<CalibSize>().transpose() << std::endl;
+            rhs_p.template tail<CalibSize>() -= Jkprt_Jl_Vi_bl;
+        }
+
 //          std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
 //          std::cout << "Dense rhs matrix is " << rhs_p.transpose().format(cleanFmt) << std::endl;
 
@@ -221,21 +277,24 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
             delta_l.resize(uNumLm*LmSize);
             VectorXt Wt_delta_p;
             Wt_delta_p.resize(uNumLm*LmSize );
-            Eigen::SparseBlockVectorProductDenseResult(Wpt,delta_p.head(uNumPoseParams),Wt_delta_p);
+            Eigen::SparseBlockVectorProductDenseResult(Jlt_Jpr,delta_p.head(uNumPoseParams),Wt_delta_p);
             VectorXt rhs_l;
             rhs_l.resize(uNumLm*LmSize );
             rhs_l =  bl - Wt_delta_p;
 
             for(size_t ii = 0 ; ii < uNumLm ; ii++){
-                delta_l.template block<LmSize,1>( ii*LmSize, 0 ).noalias() =  V_inv.coeff(ii,ii)*rhs_l.template block<LmSize,1>(ii*LmSize,0);
+                delta_l.template block<LmSize,1>( ii*LmSize, 0 ).noalias() =  Vi.coeff(ii,ii)*rhs_l.template block<LmSize,1>(ii*LmSize,0);
             }
 
             // update the landmarks
-            for (size_t ii = 0 ; ii < uNumLm ; ii++){
-                if(LmSize == 1){
-                    m_vLandmarks[ii].Xs.template tail<LmSize>() -= delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize);
-                }else{
-                    m_vLandmarks[ii].Xs.template head<LmSize>() -= delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize);
+            for (size_t ii = 0 ; ii < m_vLandmarks.size() ; ii++){
+                if( m_vLandmarks[ii].IsActive ){
+                    if(LmSize == 1){
+                        m_vLandmarks[ii].Xs.template tail<LmSize>() -= delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize);
+                        // m_vLandmarks[ii].Xs /= m_vLandmarks[ii].Xs[3];
+                    }else{
+                        m_vLandmarks[ii].Xs.template head<LmSize>() -= delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize);
+                    }
                 }
             }
             std::cout << "Backsubstitution of " << uNumLm << " landmarks took " << Toc(dTime) << " seconds." << std::endl;
@@ -250,7 +309,8 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
             }
 
             if(CalibSize > 2){
-                m_Imu.Tvs = exp_decoupled<Scalar>(m_Imu.Tvs,-deltaCalib.template block<6,1>(2,0));
+                m_Imu.Tvs = m_Imu.Tvs*SE3t::exp(-deltaCalib.template block<6,1>(2,0)); //exp_decoupled<Scalar>(m_Imu.Tvs,-deltaCalib.template block<6,1>(2,0));
+                m_Rig.cameras[0].T_wc = m_Imu.Tvs;
                 std::cout << "Tvs delta is " << -deltaCalib.template block<6,1>(2,0).transpose() << std::endl;
             }
 
@@ -287,6 +347,8 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
                 if(PoseSize >= 21){
                     m_vPoses[ii].Tvs = exp_decoupled<Scalar>(m_vPoses[ii].Tvs,-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize+15,0));
                     // std::cout << "Velocity for pose " << ii << " is " << m_vPoses[ii].V.transpose() << std::endl;
+                }else{
+                    m_vPoses[ii].Tvs = m_Imu.Tvs;
                 }
 
                 std::cout << "Pose delta for " << ii << " is " << delta_p.template block<PoseSize,1>(m_vPoses[ii].OptId*PoseSize,0).transpose() <<
@@ -294,9 +356,9 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
                 // clear the vector of Tsw values as they will need to be recalculated
                 m_vPoses[ii].Tsw.clear();
             }
-            // else{
-            //  std::cout << " Pose " << ii << " is inactive." << std::endl;
-            //  }
+             else{
+              std::cout << " Pose " << ii << " is inactive." << std::endl;
+              }
         }
         // std::cout << "BA iteration " << kk <<  " error: " << m_Rpr.norm() + m_Ru.norm() + m_Rpp.norm() + m_Ri.norm() << std::endl;
         std::cout << "Iteration " << kk << " took " << Toc(dItTime) << " seconds. " << std::endl;
@@ -326,7 +388,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
 
     // resize as needed
     const unsigned int uNumPoses = m_uNumActivePoses;
-    const unsigned int uNumLm = m_vLandmarks.size();
+    const unsigned int uNumLm = m_uNumActiveLandmakrs;
     const unsigned int uNumProjRes = m_vProjResiduals.size();
     const unsigned int uNumBinRes = m_vBinaryResiduals.size();
     const unsigned int uNumUnRes = m_vUnaryResiduals.size();
@@ -334,6 +396,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
 
     m_Jpr.resize(uNumProjRes, uNumPoses);
     m_Jprt.resize(uNumPoses, uNumProjRes);
+    m_Jkpr.resize(uNumProjRes, 1);
+    m_Jkprt.resize(1, uNumProjRes);
     m_Jl.resize(uNumProjRes, uNumLm);
     m_Jlt.resize(uNumLm, uNumProjRes);
     m_Rpr.resize(uNumProjRes*ProjectionResidual::ResSize);
@@ -356,6 +420,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
     // these calls remove all the blocks, but KEEP allocated memory as long as the object is alive
     m_Jpr.setZero();
     m_Jprt.setZero();
+    m_Jkpr.setZero();
+    m_Jkprt.setZero();
     m_Rpr.setZero();
 
     m_Jpp.setZero();
@@ -382,6 +448,15 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
 
     // set all jacobians
      Scalar dTime = Tic();
+
+     Eigen::Matrix<Scalar,2,LmSize> maxdZ_dX;
+     Eigen::Matrix<Scalar,2,6> maxdZ_dPm;
+     Eigen::Matrix<Scalar,2,6> maxdZ_dPr;
+     Eigen::Matrix<Scalar,2,LmSize> maxdZ_dX_fd;
+     Eigen::Matrix<Scalar,2,6> maxdZ_dPm_fd;
+     Eigen::Matrix<Scalar,2,6> maxdZ_dPr_fd;
+     double maxdZ_dX_norm = 1e-12, maxdZ_dPm_norm = 1e-12, maxdZ_dPr_norm = 1e-12;
+
     for( ProjectionResidual& res : m_vProjResiduals ){
         // calculate measurement jacobians
 
@@ -401,75 +476,117 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         m_vErrors.push_back(res.Residual.squaredNorm());
 
         const Eigen::Matrix<Scalar,2,4> dTdP_s = m_Rig.cameras[res.CameraId].camera.dTransfer3D_dP(pose.GetTsw(res.CameraId, m_Rig, PoseSize >= 21)*parentTws,
-                                                                                                 lm.Xs.template head<3>(),lm.Xs(3));
-        res.dZ_dX = -dTdP_s.template block<2,LmSize>( 0, LmSize == 3 ? 0 : 3 );
-        // std::cout << "Jacobian for landmark " << res.LandmarkId << ", with Xs = " << std::endl << lm.Xs.transpose().format(cleanFmt) << " is " << res.dZ_dX;
+                                                                                             lm.Xs.template head<3>(),lm.Xs(3));
 
-        if( pose.IsActive ) {
+        if(lm.IsActive){
+            res.dZ_dX = -dTdP_s.template block<2,LmSize>( 0, LmSize == 3 ? 0 : 3 );
+
+            Eigen::Matrix<Scalar,2,1> dZ_dX_fd;
+            Scalar dEps = 1e-9;
+            const Vector2t pPlus  = m_Rig.cameras[res.CameraId].camera.Transfer3D(pose.GetTsw(res.CameraId,m_Rig, PoseSize >= 21)*parentTws,
+                                                                                            lm.Xs.template head<3>(),lm.Xs(3) + dEps);
+            const Vector2t pMinus = m_Rig.cameras[res.CameraId].camera.Transfer3D(pose.GetTsw(res.CameraId,m_Rig, PoseSize >= 21)*parentTws,
+                                                                                  lm.Xs.template head<3>(),lm.Xs(3) - dEps);
+            dZ_dX_fd.col(0) = -(pPlus-pMinus)/(2*dEps);
+
+            if( (res.dZ_dX + dZ_dX_fd).norm() > maxdZ_dX_norm ){
+                maxdZ_dX_norm = (res.dZ_dX - dZ_dX_fd).norm();
+                maxdZ_dX = res.dZ_dX;
+                maxdZ_dX_fd = dZ_dX_fd;
+            }
+            //        std::cout << "dZ_dX   :" << res.dZ_dX << std::endl;
+            //        std::cout << "dZ_dX_fd:" << dZ_dX_fd << " norm: " << (res.dZ_dX - dZ_dX_fd).norm() <<  std::endl;
+        }
+
+
+
+
+        if( pose.IsActive || refPose.IsActive ) {
+            // std::cout << "Calculating j for residual with poseid " << pose.Id << " and refPoseId " << refPose.Id << std::endl;
             // derivative for the measurement pose
-            const Eigen::Matrix<Scalar,2,4> dTdP_m = m_Rig.cameras[res.CameraId].camera.dTransfer3D_dP(pose.GetTsw(res.CameraId,m_Rig, PoseSize >= 21),
-                                                                                                     lm.Xw.template head<3>(),lm.Xw(3));
-            res.dZ_dPm.template block<2,3>(0,0) = dTdP_m.template block<2,3>(0,0);
+            Eigen::Matrix<Scalar,4,1> Xs_m = MultHomogeneous(pose.GetTsw(res.CameraId,m_Rig, PoseSize >= 21), lm.Xw);
+            const Eigen::Matrix<Scalar,2,4> dTdP_m = m_Rig.cameras[res.CameraId].camera.dTransfer3D_dP(SE3t(),
+                                                                                                     Xs_m.template head<3>(),Xs_m(3));
+            SE3t Tvs_m = (PoseSize >= 21 ? pose.Tvs :  m_Rig.cameras[res.CameraId].T_wc);
+            SE3t Tvs_r = (PoseSize >= 21 ? refPose.Tvs :  m_Rig.cameras[res.CameraId].T_wc);
+
+            const Eigen::Matrix<Scalar,2,4> dTdP_m_Tsv_m = dTdP_m * Tvs_m.inverse().matrix();
+            for(unsigned int ii=0; ii<3; ++ii){
+                res.dZ_dPm.template block<2,1>(0,ii) = -dTdP_m_Tsv_m * pose.Twp.inverse().matrix() * -Sophus::SE3Group<Scalar>::generator(ii) * lm.Xw;    // translation
+            }
             for(unsigned int ii=3; ii<6; ++ii){
-                res.dZ_dPm.template block<2,1>(0,ii) = dTdP_m * Sophus::SE3Group<Scalar>::generator(ii) * lm.Xw;
+                res.dZ_dPm.template block<2,1>(0,ii) = -dTdP_m_Tsv_m * -Sophus::SE3Group<Scalar>::generator(ii) * pose.Twp.inverse().matrix() * lm.Xw; // rotation
             }
 
-            /*
-            Eigen::Matrix<Scalar,2,6> J_fd;
-            Scalar dEps = 1e-6;
+            Eigen::Matrix<Scalar,2,6> dZ_dPm_fd;
+            Scalar dEps = 1e-9;
             for(int ii = 0; ii < 6 ; ii++) {
                 Eigen::Matrix<Scalar,6,1> delta;
                 delta.setZero();
                 delta[ii] = dEps;
-                SE3t Tsw = (exp_decoupled(pose.Twp,delta)*pose.Tvs).inverse();
-                const Vector2t pPlus = m_Rig.cameras[res.CameraId].camera.Transfer3D(Tsw,lm.Xw.template head(3),lm.Xw[3]);
+                SE3t Tss = (exp_decoupled(pose.Twp,delta)*Tvs_m).inverse() * refPose.Twp * Tvs_r;
+                const Vector2t pPlus = m_Rig.cameras[res.CameraId].camera.Transfer3D(Tss,lm.Xs.template head(3),lm.Xs[3]);
                 delta[ii] = -dEps;
                 // Tsw = (pose.Twp*SE3t::exp(delta)*m_Rig.cameras[meas.CameraId].T_wc).inverse();
-                Tsw = (exp_decoupled(pose.Twp,delta)*pose.Tvs).inverse();
-                const Vector2t pMinus = m_Rig.cameras[res.CameraId].camera.Transfer3D(Tsw,lm.Xw.template head(3),lm.Xw[3]);
-                J_fd.col(ii) = (pPlus-pMinus)/(2*dEps);
+                Tss = (exp_decoupled(pose.Twp,delta)*Tvs_m).inverse() * refPose.Twp * Tvs_r;
+                const Vector2t pMinus = m_Rig.cameras[res.CameraId].camera.Transfer3D(Tss,lm.Xs.template head(3),lm.Xs[3]);
+                dZ_dPm_fd.col(ii) = -(pPlus-pMinus)/(2*dEps);
             }
-            std::cout << "Jproj_1:" << res.dZ_dPm << std::endl;
-            std::cout << "Jproj_fd_1:" << J_fd << std::endl;
-            */
 
-            // derivative for the reference pose
-            Eigen::Matrix<Scalar,4,1> Xv_r = MultHomogeneous(refPose.Tvs, lm.Xs);
-            const Eigen::Matrix<Scalar,2,4> dTdP_r = m_Rig.cameras[res.CameraId].camera.dTransfer3D_dP(pose.GetTsw(res.CameraId,m_Rig, PoseSize >= 21) * refPose.Twp,
-                                                                                                     Xv_r.template head<3>(),Xv_r(3));
-            res.dZ_dPr.template block<2,3>(0,0) = -dTdP_r.template block<2,3>(0,0);
-            for(unsigned int ii=3; ii<6; ++ii){
-                res.dZ_dPr.template block<2,1>(0,ii) = -dTdP_r * -Sophus::SE3Group<Scalar>::generator(ii) * Xv_r;
+            if( (res.dZ_dPm - dZ_dPm_fd).norm() > maxdZ_dPm_norm ){
+                maxdZ_dPm_norm = (res.dZ_dPm - dZ_dPm_fd).norm();
+                maxdZ_dPm = res.dZ_dPm;
+                maxdZ_dPm_fd = dZ_dPm_fd;
             }
-            // res.dZ_dPr.setZero();
+            std::cout << "dZ_dPm   :" << res.dZ_dPm << std::endl;
+            std::cout << "dZ_dPm_fd:" << dZ_dPm_fd << " norm: " << (res.dZ_dPm - dZ_dPm_fd).norm() <<  std::endl;
 
-            /*
-            Eigen::Matrix<Scalar,2,6> J_fd_2;
-            for(int ii = 0; ii < 6 ; ii++) {
-                Eigen::Matrix<Scalar,6,1> delta;
-                delta.setZero();
-                delta[ii] = dEps;
-                SE3t Tswv = (pose.Twp*pose.Tvs).inverse() * (exp_decoupled(refPose.Twp,delta));
-                const Vector2t pPlus = m_Rig.cameras[res.CameraId].camera.Transfer3D(Tswv,Xv_r.template head(3),Xv_r[3]);
-                delta[ii] = -dEps;
-                // Tsw = (pose.Twp*SE3t::exp(delta)*m_Rig.cameras[meas.CameraId].T_wc).inverse();
-                Tswv = (pose.Twp*pose.Tvs).inverse() * (exp_decoupled(refPose.Twp,delta));
-                const Vector2t pMinus = m_Rig.cameras[res.CameraId].camera.Transfer3D(Tswv,Xv_r.template head(3),Xv_r[3]);
-                J_fd_2.col(ii) = (pPlus-pMinus)/(2*dEps);
+            // only need this if we are in inverse depth mode
+            if( LmSize == 1 ){
+                // derivative for the reference pose
+                const Eigen::Matrix<Scalar,2,4> dTdP_m_Tsw_m = dTdP_m * (pose.Twp * Tvs_m).inverse().matrix();
+                for(unsigned int ii=0; ii<3; ++ii){
+                    res.dZ_dPr.template block<2,1>(0,ii) = -dTdP_m_Tsw_m * Sophus::SE3Group<Scalar>::generator(ii) * Tvs_r.matrix() * lm.Xs;
+                }
+                for(unsigned int ii=3; ii<6; ++ii){
+                    res.dZ_dPr.template block<2,1>(0,ii) = -dTdP_m_Tsw_m * refPose.Twp.matrix() * Sophus::SE3Group<Scalar>::generator(ii) * Tvs_r.matrix() * lm.Xs;
+                }
+
+                Eigen::Matrix<Scalar,2,6> dZ_dPr_fd;
+                for(int ii = 0; ii < 6 ; ii++) {
+                    Eigen::Matrix<Scalar,6,1> delta;
+                    delta.setZero();
+                    delta[ii] = dEps;
+                    SE3t Tss = (pose.Twp*Tvs_m).inverse() * (exp_decoupled(refPose.Twp,delta)) * Tvs_r;
+                    const Vector2t pPlus = m_Rig.cameras[res.CameraId].camera.Transfer3D(Tss,lm.Xs.template head(3),lm.Xs[3]);
+                    delta[ii] = -dEps;
+                    // Tsw = (pose.Twp*SE3t::exp(delta)*m_Rig.cameras[meas.CameraId].T_wc).inverse();
+                    Tss = (pose.Twp*Tvs_m).inverse() * (exp_decoupled(refPose.Twp,delta)) * Tvs_r;
+                    const Vector2t pMinus = m_Rig.cameras[res.CameraId].camera.Transfer3D(Tss,lm.Xs.template head(3),lm.Xs[3]);
+                    dZ_dPr_fd.col(ii) = -(pPlus-pMinus)/(2*dEps);
+                }
+
+                if( (res.dZ_dPr - dZ_dPr_fd).norm() > maxdZ_dPr_norm ){
+                    maxdZ_dPr_norm = (res.dZ_dPr - dZ_dPr_fd).norm();
+                    maxdZ_dPr = dZ_dPr_fd;
+                    maxdZ_dPr_fd = res.dZ_dPr;
+                }
+
+                std::cout << "dZ_dPr   :" << res.dZ_dPr << std::endl;
+                std::cout << "dZ_dPr_fd:" << dZ_dPr_fd << " norm: " << (res.dZ_dPr - dZ_dPr_fd).norm() <<  std::endl;
             }
-            std::cout << "Jproj_2:" << res.dZ_dPr << std::endl;
-            std::cout << "Jproj_fd_2:" << J_fd_2 << std::endl;
-            */
+
+
 
             // derivative for the measurement Tsv
-            if(m_vImuResiduals.size() != 0){
+            if(PoseSize > 21 && m_vImuResiduals.size() != 0){
                 Eigen::Matrix<Scalar,4,1> Xv_m = MultHomogeneous(pose.Twp.inverse(), lm.Xw);
                 const Eigen::Matrix<Scalar,2,4> dTvdP_m = m_Rig.cameras[res.CameraId].camera.dTransfer3D_dP(pose.Tvs.inverse(),
                                                                                                          Xv_m.template head<3>(),Xv_m(3));
 
-                res.dZ_dTvs_m.template block<2,3>(0,0) = dTvdP_m.template block<2,3>(0,0);
+                res.dZ_dTvs_m.template block<2,3>(0,0) = -dTvdP_m.template block<2,3>(0,0);
                 for(unsigned int ii=3; ii<6; ++ii){
-                    res.dZ_dTvs_m.template block<2,1>(0,ii) = dTvdP_m * Sophus::SE3Group<Scalar>::generator(ii) * Xv_m;
+                    res.dZ_dTvs_m.template block<2,1>(0,ii) = -dTvdP_m * Sophus::SE3Group<Scalar>::generator(ii) * Xv_m;
                 }
 
                 /*
@@ -518,6 +635,36 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
                 res.dZ_dTvs_r.template block<2,3>(0,0).setZero();
                 res.dZ_dTvs_m.template block<2,3>(0,0).setZero();
 
+            }else if( CalibSize > 2 && m_vImuResiduals.size() != 0 ){
+                Eigen::Matrix<Scalar,4,1> Xs_m = MultHomogeneous(pose.Twp.inverse(), lm.Xw);
+                const Eigen::Matrix<Scalar,2,4> dTvdPs_m = m_Rig.cameras[res.CameraId].camera.dTransfer3D_dP(SE3t(),
+                                                                                                         Xs_m.template head<3>(),Xs_m(3));
+                Eigen::Matrix<Scalar,4,4> Tws = m_Rig.cameras[res.CameraId].T_wc.matrix();
+                Eigen::Matrix<Scalar,4,4> Tsw = m_Rig.cameras[res.CameraId].T_wc.inverse().matrix();
+                for(unsigned int ii=0; ii<6; ++ii){
+                    res.dZ_dTvs_m.template block<2,1>(0,ii) = dTvdPs_m * ( (-SE3t::generator(ii)*Tsw * pose.Twp.inverse().matrix() * refPose.Twp.matrix() * Tws * lm.Xs ) +
+                            (Tsw * pose.Twp.inverse().matrix() * refPose.Twp.matrix() * Tws * SE3t::generator(ii) * lm.Xs));
+                }
+                res.dZ_dTvs_m.template block<2,3>(0,0).setZero();
+
+//                Eigen::Matrix<Scalar,2,6> J_fd_tvs;
+//                Scalar dEps = 1e-6;
+//                for(int ii = 0; ii < 6 ; ii++) {
+//                    Eigen::Matrix<Scalar,6,1> delta;
+//                    delta.setZero();
+//                    delta[ii] = dEps;
+//                    SE3t Tvs = m_Rig.cameras[res.CameraId].T_wc * SE3t::exp(delta);
+//                    const Vector2t pPlus = m_Rig.cameras[res.CameraId].camera.Transfer3D((pose.Twp * Tvs).inverse() *
+//                            refPose.Twp * Tvs,lm.Xs.template head(3),lm.Xs[3]);
+//                    delta[ii] = -dEps;
+//                    // Tsw = (pose.Twp*SE3t::exp(delta)*m_Rig.cameras[meas.CameraId].T_wc).inverse();
+//                    Tvs = m_Rig.cameras[res.CameraId].T_wc * SE3t::exp(delta);
+//                    const Vector2t pMinus = m_Rig.cameras[res.CameraId].camera.Transfer3D((pose.Twp * Tvs).inverse() *
+//                            refPose.Twp * Tvs,lm.Xs.template head(3),lm.Xs[3]);
+//                    J_fd_tvs.col(ii) = (pPlus-pMinus)/(2*dEps);
+//                }
+//                std::cout << "Jproj_tvs:" << res.dZ_dTvs_m << std::endl;
+//                std::cout << "Jproj_fd_tvs:" << J_fd_tvs << std::endl;
             }else{
                 res.dZ_dTvs_m.setZero();
                 res.dZ_dTvs_r.setZero();
@@ -548,12 +695,17 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         m_Rpr.template segment<ProjectionResidual::ResSize>(res.ResidualOffset) = res.Residual;
     }
 
+    std::cout << "Max dZ_dX norm: " << maxdZ_dX_norm << " with dZ_dX: " << std::endl << maxdZ_dX << " with dZ_dX_fd: "  << std::endl << maxdZ_dX_fd << std::endl;
+    std::cout << "Max dZ_dPm norm: " << maxdZ_dPm_norm << " with error: " << std::endl << maxdZ_dPm << " with dZ_dPm_fd: " << std::endl  << maxdZ_dPm_fd <<  std::endl;
+    std::cout << "Max dZ_dPr norm: " << maxdZ_dPr_norm << " with error: " << std::endl << maxdZ_dPr <<  " with dZ_dPr_fd: " << std::endl  << maxdZ_dPr_fd  << std::endl;
+
     // get the sigma for robust norm calculation. This call is O(n) on average,
     // which is desirable over O(nlogn) sort
     if( m_vErrors.size() > 0 ){
         auto it = m_vErrors.begin()+std::floor(m_vErrors.size()/2);
         std::nth_element(m_vErrors.begin(),it,m_vErrors.end());
         const Scalar dSigma = sqrt(*it);
+        std::cout << "Projection error sigma is " << dSigma << std::endl;
         // See "Parameter Estimation Techniques: A Tutorial with Application to Conic
         // Fitting" by Zhengyou Zhang. PP 26 defines this magic number:
         const Scalar c_huber = 1.2107*dSigma;
@@ -714,7 +866,9 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
             res.dZ_dX2.template block<6,6>(15,15) = -dLog;
 
             // disable imu translation error
-            res.Residual.template head<3>().setZero();
+            res.Residual.template head<3>().setZero();     // translation error
+            res.Residual.template segment<3>(6).setZero(); // velocity error
+            res.Residual.template segment<6>(9).setZero(); // bias
             res.dZ_dX1.template block<3, PoseSize>(0,0).setZero();
             res.dZ_dX2.template block<3, PoseSize>(0,0).setZero();
             res.dZ_dX1.template block<3, PoseSize>(6,0).setZero();
@@ -725,6 +879,23 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
             // disable accelerometer bias
             res.dZ_dX1.template block<res.ResSize, 3>(0,12).setZero();
             res.dZ_dX2.template block<res.ResSize, 3>(0,12).setZero();
+        }
+
+        if(CalibSize > 2){
+            // disable imu translation error
+            res.Residual.template head<3>().setZero();
+            res.Residual.template segment<3>(6).setZero(); // velocity error
+            res.Residual.template segment<6>(9).setZero(); // bias
+            res.dZ_dX1.template block<3, PoseSize>(0,0).setZero();
+            res.dZ_dX2.template block<3, PoseSize>(0,0).setZero();
+            res.dZ_dX1.template block<3, PoseSize>(6,0).setZero();
+            res.dZ_dX2.template block<3, PoseSize>(6,0).setZero();
+            res.dZ_dB.template block<3, 6>(0,0).setZero();
+            res.dZ_dG.template block<3, 2>(0,0).setZero();
+
+            // disable accelerometer and gyro bias
+            res.dZ_dX1.template block<res.ResSize, 6>(0,9).setZero();
+            res.dZ_dX2.template block<res.ResSize, 6>(0,9).setZero();
         }
         //if(poseA.IsActive == false || poseB.IsActive == false){
         //    std::cout << "PRIOR RESIDUAL: ";
@@ -971,7 +1142,17 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
                 const ProjectionResidual& res = m_vProjResiduals[id];
                 // insert the jacobians into the sparse matrices
                 // The weight is only multiplied by the transpose matrix, this is so we can perform Jt*W*J*dx = Jt*W*r
-                const auto& dZ_dP = res.MeasPoseId == pose.Id ? res.dZ_dPm : res.dZ_dPr;
+                auto dZ_dP = res.MeasPoseId == pose.Id ? res.dZ_dPm : res.dZ_dPr;
+                if( res.RefPoseId == pose.Id ){
+                    std::cout << "Adding reference jacobian for pose id " << pose.Id << " and residual id " << res.ResidualId << " wih ref pose id " << res.RefPoseId << " and meas pose id " << res.MeasPoseId << std::endl;
+                    // std::cout << "Jacobian is " << std::endl << dZ_dP << std::endl;
+
+                    // dZ_dP *= -1;
+                }else
+                {
+                    std::cout << "Adding measurement jacobian for pose id " << pose.Id << " and residual id " << res.ResidualId << " wih ref pose id " << res.RefPoseId << " and meas pose id " << res.MeasPoseId <<  std::endl;
+                    // dZ_dP.setZero();
+                }
                 m_Jpr.insert( res.ResidualId, pose.OptId ).setZero().template block<2,6>(0,0) = dZ_dP;
                 m_Jprt.insert( pose.OptId, res.ResidualId ).setZero().template block<6,2>(0,0) = dZ_dP.transpose() * res.W;
 
@@ -1033,25 +1214,27 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
             }*/
         }
 
-        /*for( const auto& res : m_vProjResiduals ){
+        for( const auto& res : m_vProjResiduals ){
             // include imu to camera terms (6 total)
             if( CalibSize > 2 ){
-                Eigen::Matrix<Scalar,2,6> dZ_dTvs = res.dZ_dTvs.template block(0,0,2,6);
-                m_Jkpr.coeffRef(res.ResidualId,0).setZero().template block(0,2,2,6) = dZ_dTvs;
-                m_Jkprt.coeffRef(0,res.ResidualId).setZero().template block(2,0,6,2) = dZ_dTvs.transpose() * res.W;
+                Eigen::Matrix<Scalar,2,6> dZ_dTvs = res.dZ_dTvs_m;
+                m_Jkpr.coeffRef(res.ResidualId,0).setZero().template block(0,2,2,6) = dZ_dTvs.template block(0,0,2,6);
+                m_Jkprt.coeffRef(0,res.ResidualId).setZero().template block(2,0,6,2) = dZ_dTvs.template block(0,0,2,6).transpose() * res.W;
                 // m_Jkit.coeffRef(0,res.ResidualId).template block(2,0,6,9) = res.dZ_dB.transpose().template block(0,0,6,9) * res.W;
             }
-        }*/
+        }
     }
 
     for( Landmark& lm : m_vLandmarks ){
-        // sort the measurements by id so the sparse insert is O(1)
-        std::sort(lm.ProjResiduals.begin(), lm.ProjResiduals.end());
-        for( const int id: lm.ProjResiduals ) {
-            const ProjectionResidual& res = m_vProjResiduals[id];
-//                std::cout << "      Adding jacobian cell for measurement " << pMeas->MeasurementId << " in landmark " << pMeas->LandmarkId << std::endl;
-            m_Jl.insert( res.ResidualId, lm.OptId ) = res.dZ_dX;
-            m_Jlt.insert( lm.OptId, res.ResidualId ) = res.dZ_dX.transpose() * res.W;
+        if( lm.IsActive ){
+            // sort the measurements by id so the sparse insert is O(1)
+            std::sort(lm.ProjResiduals.begin(), lm.ProjResiduals.end());
+            for( const int id: lm.ProjResiduals ) {
+                const ProjectionResidual& res = m_vProjResiduals[id];
+    //                std::cout << "      Adding jacobian cell for measurement " << pMeas->MeasurementId << " in landmark " << pMeas->LandmarkId << std::endl;
+                m_Jl.insert( res.ResidualId, lm.OptId ) = res.dZ_dX;
+                m_Jlt.insert( lm.OptId, res.ResidualId ) = res.dZ_dX.transpose() * res.W;
+            }
         }
     }
 
@@ -1061,8 +1244,9 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
 // specializations
 // template class BundleAdjuster<REAL_TYPE, ba::NOT_USED,9,8>;
 template class BundleAdjuster<REAL_TYPE, 1,6,0>;
-template class BundleAdjuster<REAL_TYPE, 1,15,2>;
-template class BundleAdjuster<REAL_TYPE, 1,21,2>;
+template class BundleAdjuster<REAL_TYPE, 1,15,8>;
+// template class BundleAdjuster<REAL_TYPE, 1,15,2>;
+// template class BundleAdjuster<REAL_TYPE, 1,21,2>;
 // template class BundleAdjuster<double, 3,9>;
 
 

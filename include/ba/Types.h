@@ -48,9 +48,11 @@ struct LandmarkT
     Eigen::Matrix<Scalar,4,1> Xs;
     Eigen::Matrix<Scalar,4,1> Xw;
     std::vector<int> ProjResiduals;
+    unsigned int Id;
     unsigned int OptId;
     unsigned int RefPoseId;
     unsigned int RefCamId;
+    bool IsActive;
 };
 
 template<typename Scalar=double>

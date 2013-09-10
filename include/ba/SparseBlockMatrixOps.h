@@ -179,8 +179,8 @@ static void SparseBlockProduct(const Lhs& lhs, const Rhs& rhs, ResultType& res)
         // FIXME:
         //double ratioColRes = (double(rhs.innerVector(j).nonZeros()) + double(lhs.nonZeros())/double(lhs.cols()))/double(lhs.rows());
         // let's do a more accurate determination of the nnz ratio for the current column j of res
-        // tempVector.init(ratioColRes);
-        tempVector.init(0.01);
+        tempVector.init(ratioColRes);
+        // tempVector.init(0.01);
         tempVector.setZero();
         // this is going down the jth column of the rhs
         for (typename Rhs::InnerIterator rhsIt(rhs, j); rhsIt; ++rhsIt)

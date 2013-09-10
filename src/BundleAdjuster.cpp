@@ -1,7 +1,9 @@
 #include <ba/BundleAdjuster.h>
 
+
 namespace ba {
 
+#define DAMPING 0.5
 ///////////////////////////////////////////////////////////////////////////////////////////////
 template< typename Scalar,int LmSize, int PoseSize, int CalibSize >
 void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int uMaxIter)
@@ -292,7 +294,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
             for (size_t ii = 0 ; ii < m_vLandmarks.size() ; ii++){
                 if( m_vLandmarks[ii].IsActive ){
                     if(LmSize == 1){
-                        m_vLandmarks[ii].Xs.template tail<LmSize>() -= delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize) * 0.5;
+                        m_vLandmarks[ii].Xs.template tail<LmSize>() -= delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize) * DAMPING;
                         // m_vLandmarks[ii].Xs /= m_vLandmarks[ii].Xs[3];
                     }else{
                         m_vLandmarks[ii].Xs.template head<LmSize>() -= delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize);
@@ -307,7 +309,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
         if( m_vImuResiduals.size() > 0 ) {
             const VectorXt deltaCalib = delta_p.template tail(CalibSize);
             if(CalibSize > 0){
-                m_Imu.G -= deltaCalib.template block<2,1>(0,0);
+                m_Imu.G -= deltaCalib.template block<2,1>(0,0) * DAMPING;
                 // std::cout << "Gravity delta is " << deltaCalib.template block<2,1>(0,0).transpose() << " gravity is: " << m_Imu.G.transpose() << std::endl;
             }
 
@@ -334,16 +336,16 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
             // only update active poses, as inactive ones are not part of the optimization
             if( m_vPoses[ii].IsActive ){
 
-                 m_vPoses[ii].Twp = exp_decoupled<Scalar>(m_vPoses[ii].Twp,-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0) * 0.5);
+                 m_vPoses[ii].Twp = exp_decoupled<Scalar>(m_vPoses[ii].Twp,-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0) * DAMPING);
                  // m_vPoses[ii].Twp = m_vPoses[ii].Twp * Sophus::SE3d::exp(delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));
                 // update the velocities if they are parametrized
                 if(PoseSize >= 9){
-                    m_vPoses[ii].V -= delta_p.template block<3,1>(m_vPoses[ii].OptId*PoseSize+6,0);
+                    m_vPoses[ii].V -= delta_p.template block<3,1>(m_vPoses[ii].OptId*PoseSize+6,0) * DAMPING;
                     // std::cout << "Velocity for pose " << ii << " is " << m_vPoses[ii].V.transpose() << std::endl;
                 }
 
                 if(PoseSize >= 15){
-                    m_vPoses[ii].B -= delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize+9,0);
+                    m_vPoses[ii].B -= delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize+9,0) * DAMPING;
                     // std::cout << "Velocity for pose " << ii << " is " << m_vPoses[ii].V.transpose() << std::endl;
                 }
 
@@ -724,6 +726,9 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
             // calculate the huber norm weight for this measurement
             const Scalar e = res.Residual.norm();
             res.W = e > c_huber ? c_huber/e : 1.0;
+//            if( GetPose(res.RefPoseId).IsActive == false && GetPose(res.MeasPoseId).IsActive == false ){
+//                std::cout << "Outside landmark residual is " << res.Residual.norm() << std::endl;
+//            }
         }
     }
     m_vErrors.clear();

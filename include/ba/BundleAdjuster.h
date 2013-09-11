@@ -64,6 +64,7 @@ public:
         m_uImuResidualOffset = 0;
         if(pRig != 0){
             m_Rig = *pRig;
+            m_Imu.Tvs = m_Rig.cameras[0].T_wc;
         }
         m_vLandmarks.reserve(uNumLandmarks);
         m_vProjResiduals.reserve(uNumMeasurements);
@@ -109,6 +110,7 @@ public:
         }
 
         m_vPoses.push_back(pose);        
+        std::cout << "Addeded pose with IsActive= " << pose.IsActive << ", Id = " << pose.Id << " and OptId = " << pose.OptId << std::endl;
 
         return pose.Id;
     }
@@ -262,8 +264,8 @@ public:
     const Vector4t& GetLandmark(const unsigned int id) const { return m_vLandmarks[id].Xw; }
 
 
-
 private:
+    void _EvaluateResiduals();
     void _BuildProblem();
 
     // reprojection jacobians and residual
@@ -299,6 +301,10 @@ private:
 
 
 
+    double m_dProjError;
+    double m_dBinaryError;
+    double m_dUnaryError;
+    double m_dImuError;
     unsigned int m_uNumActivePoses;
     unsigned int m_uNumActiveLandmakrs;
     unsigned int m_uBinaryResidualOffset;

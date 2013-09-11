@@ -110,7 +110,7 @@ public:
         }
 
         m_vPoses.push_back(pose);        
-        std::cout << "Addeded pose with IsActive= " << pose.IsActive << ", Id = " << pose.Id << " and OptId = " << pose.OptId << std::endl;
+        // std::cout << "Addeded pose with IsActive= " << pose.IsActive << ", Id = " << pose.Id << " and OptId = " << pose.OptId << std::endl;
 
         return pose.Id;
     }
@@ -263,8 +263,8 @@ public:
     // return the landmark in the world frame
     const Vector4t& GetLandmark(const unsigned int id) const { return m_vLandmarks[id].Xw; }
 
-
 private:
+    void _ApplyUpdate(const VectorXt &delta_p, const VectorXt &delta_l, const VectorXt &deltaCalib, const bool bRollback);
     void _EvaluateResiduals();
     void _BuildProblem();
 
@@ -321,6 +321,7 @@ private:
     std::vector<Scalar> m_vErrors;
 
     ImuCalibration m_Imu;
+
 };
 
 static const int NOT_USED = 0;

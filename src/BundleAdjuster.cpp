@@ -2,8 +2,92 @@
 
 
 namespace ba {
-
 #define DAMPING 0.5
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+template< typename Scalar,int LmSize, int PoseSize, int CalibSize >
+void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::_ApplyUpdate(const VectorXt& delta_p, const VectorXt& delta_l,
+                                                                    const VectorXt& deltaCalib, const bool bRollback)
+{
+    double coef = bRollback == true ? -1.0 : 1.0;
+    // update gravity terms if necessary
+    if( m_vImuResiduals.size() > 0 ) {
+        const VectorXt deltaCalib = delta_p.template tail(CalibSize);
+        if(CalibSize > 0){
+            m_Imu.G -= deltaCalib.template block<2,1>(0,0) * DAMPING * coef;
+            // std::cout << "Gravity delta is " << deltaCalib.template block<2,1>(0,0).transpose() << " gravity is: " << m_Imu.G.transpose() << std::endl;
+        }
+
+        if(CalibSize > 2){
+            m_Imu.Tvs = m_Imu.Tvs*SE3t::exp(-deltaCalib.template block<6,1>(2,0) * DAMPING * coef); //exp_decoupled<Scalar>(m_Imu.Tvs,-deltaCalib.template block<6,1>(2,0));
+            m_Rig.cameras[0].T_wc = m_Imu.Tvs;
+            std::cout << "Tvs delta is " << -deltaCalib.template block<6,1>(2,0).transpose() << std::endl;
+        }
+
+        // update bias terms if necessary
+        // if(CalibSize > 2){
+            // m_Imu.Bg -= deltaCalib.template block<3,1>(2,0);//.template tail(CalibSize);
+            // std::cout << "Bg delta is " << deltaCalib.template block<3,1>(2,0).transpose() << " bg is: " << m_Imu.Bg.transpose() << std::endl;
+            // m_Imu.Ba -= deltaCalib.template block<3,1>(5,0);//.template tail(CalibSize);
+            // std::cout << "Ba delta is " << deltaCalib.template block<3,1>(5,0).transpose() << " ba is: " << m_Imu.Ba.transpose() << std::endl;
+        // }
+    }
+
+    // std::cout << delta_l << std::endl;
+
+    // update poses
+    // std::cout << "Updating " << uNumPoses << " active poses." << std::endl;
+    for (size_t ii = 0 ; ii < m_vPoses.size() ; ii++){
+        // only update active poses, as inactive ones are not part of the optimization
+        if( m_vPoses[ii].IsActive ){
+
+             m_vPoses[ii].Twp = exp_decoupled<Scalar>(m_vPoses[ii].Twp,-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0) * DAMPING * coef);
+             // m_vPoses[ii].Twp = m_vPoses[ii].Twp * Sophus::SE3d::exp(delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));
+            // update the velocities if they are parametrized
+            if(PoseSize >= 9){
+                m_vPoses[ii].V -= delta_p.template block<3,1>(m_vPoses[ii].OptId*PoseSize+6,0) * DAMPING * coef;
+                // std::cout << "Velocity for pose " << ii << " is " << m_vPoses[ii].V.transpose() << std::endl;
+            }
+
+            if(PoseSize >= 15){
+                m_vPoses[ii].B -= delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize+9,0) * DAMPING * coef;
+                // std::cout << "Velocity for pose " << ii << " is " << m_vPoses[ii].V.transpose() << std::endl;
+            }
+
+            if(PoseSize >= 21){
+                m_vPoses[ii].Tvs = exp_decoupled<Scalar>(m_vPoses[ii].Tvs,-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize+15,0) * DAMPING * coef);
+                // std::cout << "Velocity for pose " << ii << " is " << m_vPoses[ii].V.transpose() << std::endl;
+            }else{
+                // m_vPoses[ii].Tvs = m_Imu.Tvs;
+            }
+
+            // std::cout << "Pose delta for " << ii << " is " << delta_p.template block<PoseSize,1>(m_vPoses[ii].OptId*PoseSize,0).transpose() << std::endl;
+            // std::cout << "Pose " << ii << " is " << Eigen::Map<const Eigen::Matrix<Scalar,4,1> >(m_vPoses[ii].Twp.data()).transpose() << std::endl;
+            // std::cout <<  " Tvs: " << std::endl << m_vPoses[ii].Tvs.matrix() <<   std::endl;
+            // clear the vector of Tsw values as they will need to be recalculated
+            m_vPoses[ii].Tsw.clear();
+        }
+         else{
+          // std::cout << " Pose " << ii << " is inactive." << std::endl;
+        }
+    }
+
+    // update the landmarks
+    for (size_t ii = 0 ; ii < m_vLandmarks.size() ; ii++){
+        if( m_vLandmarks[ii].IsActive ){
+            if(LmSize == 1){
+                m_vLandmarks[ii].Xs.template tail<LmSize>() -= delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize) * DAMPING * coef;
+                // std::cout << "Delta for landmark " << ii << " is " << delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize).transpose() << std::endl;
+                // m_vLandmarks[ii].Xs /= m_vLandmarks[ii].Xs[3];
+            }else{
+                m_vLandmarks[ii].Xs.template head<LmSize>() -= delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize) * DAMPING * coef;
+            }
+
+            m_vLandmarks[ii].Xw = MultHomogeneous(m_vPoses[m_vLandmarks[ii].RefPoseId].GetTsw(m_vLandmarks[ii].RefCamId, m_Rig, PoseSize >= 21).inverse(),
+                                                  m_vLandmarks[ii].Xs);
+        }
+    }
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 template< typename Scalar,int LmSize, int PoseSize, int CalibSize >
@@ -16,7 +100,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::_EvaluateResiduals()
        Pose& refPose = m_vPoses[res.RefPoseId];
        const SE3t Tsw_m = pose.GetTsw(res.CameraId, m_Rig, PoseSize >= 21);
        const SE3t Tws_r = refPose.GetTsw(lm.RefCamId,m_Rig, PoseSize >= 21).inverse();
-
+       // lm.Xs = MultHomogeneous(refPose.GetTsw(lm.RefCamId, m_Rig, PoseSize >= 21) ,lm.Xw);
        const Vector2t p = m_Rig.cameras[res.CameraId].camera.Transfer3D(Tsw_m*Tws_r, lm.Xs.template head<3>(),lm.Xs(3));
        res.Residual = res.Z - p;
        m_dProjError += res.Residual.norm() * res.W;
@@ -317,9 +401,9 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
 //        VectorXt delta_p = uNumPoses == 0 ? VectorXt() : S.inverse() * rhs_p;
          std::cout << "Cholesky solve of " << uNumPoses << " by " << uNumPoses << "matrix took " << Toc(dTime) << " seconds." << std::endl;
 
+
+        VectorXt delta_l;
         if(uNumLm > 0){
-            dTime = Tic();
-            VectorXt delta_l;
             delta_l.resize(uNumLm*LmSize);
             VectorXt Wt_delta_p;
             Wt_delta_p.resize(uNumLm*LmSize );
@@ -331,92 +415,30 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
             for(size_t ii = 0 ; ii < uNumLm ; ii++){
                 delta_l.template block<LmSize,1>( ii*LmSize, 0 ).noalias() =  Vi.coeff(ii,ii)*rhs_l.template block<LmSize,1>(ii*LmSize,0);
             }
-
-            // update the landmarks
-            for (size_t ii = 0 ; ii < m_vLandmarks.size() ; ii++){
-                if( m_vLandmarks[ii].IsActive ){
-                    if(LmSize == 1){
-                        m_vLandmarks[ii].Xs.template tail<LmSize>() -= delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize) * DAMPING;
-                        // std::cout << "Delta for landmark " << ii << " is " << delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize).transpose() << std::endl;
-                        // m_vLandmarks[ii].Xs /= m_vLandmarks[ii].Xs[3];
-                    }else{
-                        m_vLandmarks[ii].Xs.template head<LmSize>() -= delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize);
-                    }
-
-                    m_vLandmarks[ii].Xw = MultHomogeneous(m_vPoses[m_vLandmarks[ii].RefPoseId].GetTsw(m_vLandmarks[ii].RefCamId, m_Rig, PoseSize >= 21).inverse(),
-                                                          m_vLandmarks[ii].Xs);
-                }
-            }
-            std::cout << "Backsubstitution of " << uNumLm << " landmarks took " << Toc(dTime) << " seconds." << std::endl;
         }
 
-        // update gravity terms if necessary
-        if( m_vImuResiduals.size() > 0 ) {
-            const VectorXt deltaCalib = delta_p.template tail(CalibSize);
-            if(CalibSize > 0){
-                m_Imu.G -= deltaCalib.template block<2,1>(0,0) * DAMPING;
-                // std::cout << "Gravity delta is " << deltaCalib.template block<2,1>(0,0).transpose() << " gravity is: " << m_Imu.G.transpose() << std::endl;
-            }
-
-            if(CalibSize > 2){
-                m_Imu.Tvs = m_Imu.Tvs*SE3t::exp(-deltaCalib.template block<6,1>(2,0)); //exp_decoupled<Scalar>(m_Imu.Tvs,-deltaCalib.template block<6,1>(2,0));
-                m_Rig.cameras[0].T_wc = m_Imu.Tvs;
-                std::cout << "Tvs delta is " << -deltaCalib.template block<6,1>(2,0).transpose() << std::endl;
-            }
-
-            // update bias terms if necessary
-            // if(CalibSize > 2){
-                // m_Imu.Bg -= deltaCalib.template block<3,1>(2,0);//.template tail(CalibSize);
-                // std::cout << "Bg delta is " << deltaCalib.template block<3,1>(2,0).transpose() << " bg is: " << m_Imu.Bg.transpose() << std::endl;
-                // m_Imu.Ba -= deltaCalib.template block<3,1>(5,0);//.template tail(CalibSize);
-                // std::cout << "Ba delta is " << deltaCalib.template block<3,1>(5,0).transpose() << " ba is: " << m_Imu.Ba.transpose() << std::endl;
-            // }
+        VectorXt deltaCalib;
+        if( CalibSize > 0 && uNumPoseParams > 0 ) {
+             deltaCalib = delta_p.template tail(CalibSize);
         }
 
-        // std::cout << delta_l << std::endl;
+        _ApplyUpdate(delta_p, delta_l, deltaCalib, false);
 
-        // update poses
-        // std::cout << "Updating " << uNumPoses << " active poses." << std::endl;
-        for (size_t ii = 0 ; ii < m_vPoses.size() ; ii++){
-            // only update active poses, as inactive ones are not part of the optimization
-            if( m_vPoses[ii].IsActive ){
 
-                 m_vPoses[ii].Twp = exp_decoupled<Scalar>(m_vPoses[ii].Twp,-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0) * DAMPING);
-                 // m_vPoses[ii].Twp = m_vPoses[ii].Twp * Sophus::SE3d::exp(delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));
-                // update the velocities if they are parametrized
-                if(PoseSize >= 9){
-                    m_vPoses[ii].V -= delta_p.template block<3,1>(m_vPoses[ii].OptId*PoseSize+6,0) * DAMPING;
-                    // std::cout << "Velocity for pose " << ii << " is " << m_vPoses[ii].V.transpose() << std::endl;
-                }
-
-                if(PoseSize >= 15){
-                    m_vPoses[ii].B -= delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize+9,0) * DAMPING;
-                    // std::cout << "Velocity for pose " << ii << " is " << m_vPoses[ii].V.transpose() << std::endl;
-                }
-
-                if(PoseSize >= 21){
-                    m_vPoses[ii].Tvs = exp_decoupled<Scalar>(m_vPoses[ii].Tvs,-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize+15,0));
-                    // std::cout << "Velocity for pose " << ii << " is " << m_vPoses[ii].V.transpose() << std::endl;
-                }else{
-                    m_vPoses[ii].Tvs = m_Imu.Tvs;
-                }
-
-                std::cout << "Pose delta for " << ii << " is " << delta_p.template block<PoseSize,1>(m_vPoses[ii].OptId*PoseSize,0).transpose() << std::endl;
-                std::cout << "Pose " << ii << " is " << Eigen::Map<const Eigen::Matrix<Scalar,4,1> >(m_vPoses[ii].Twp.data()).transpose() << std::endl;
-                std::cout <<  " Tvs: " << std::endl << m_vPoses[ii].Tvs.matrix() <<   std::endl;
-                // clear the vector of Tsw values as they will need to be recalculated
-                m_vPoses[ii].Tsw.clear();
-            }
-             else{
-              // std::cout << " Pose " << ii << " is inactive." << std::endl;
-            }
-        }
 
         const double dPrevError = m_dProjError + m_dImuError;
         std::cout << "Pre-solve norm: " << dPrevError << " with Epr:" << m_dProjError << " and Ei:" << m_dImuError << std::endl;
         _EvaluateResiduals();
         const double dPostError = m_dProjError + m_dImuError;
         std::cout << "Pose-solve norm: " << dPostError << " with Epr:" << m_dProjError << " and Ei:" << m_dImuError << std::endl;
+        if( dPostError > dPrevError ){
+            std::cout << "Error increasing during optimization, rolling back .." << std::endl;
+            _ApplyUpdate(delta_p, delta_l, deltaCalib, true );
+            break;
+        }else if( (dPrevError - dPostError)/dPrevError < 0.01 ){
+            std::cout << "Error decrease less than 1%, aborting." << std::endl;
+            break;
+        }
         // std::cout << "BA iteration " << kk <<  " error: " << m_Rpr.norm() + m_Ru.norm() + m_Rpp.norm() + m_Ri.norm() << std::endl;
         std::cout << "Iteration " << kk << " took " << Toc(dItTime) << " seconds. " << std::endl;
     }
@@ -754,9 +776,9 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         m_Rpr.template segment<ProjectionResidual::ResSize>(res.ResidualOffset) = res.Residual;
     }
 
-    std::cout << "Max dZ_dX norm: " << maxdZ_dX_norm << " with dZ_dX: " << std::endl << maxdZ_dX << " with dZ_dX_fd: "  << std::endl << maxdZ_dX_fd << std::endl;
-    std::cout << "Max dZ_dPm norm: " << maxdZ_dPm_norm << " with error: " << std::endl << maxdZ_dPm << " with dZ_dPm_fd: " << std::endl  << maxdZ_dPm_fd <<  std::endl;
-    std::cout << "Max dZ_dPr norm: " << maxdZ_dPr_norm << " with error: " << std::endl << maxdZ_dPr <<  " with dZ_dPr_fd: " << std::endl  << maxdZ_dPr_fd  << std::endl;
+    // std::cout << "Max dZ_dX norm: " << maxdZ_dX_norm << " with dZ_dX: " << std::endl << maxdZ_dX << " with dZ_dX_fd: "  << std::endl << maxdZ_dX_fd << std::endl;
+    // std::cout << "Max dZ_dPm norm: " << maxdZ_dPm_norm << " with error: " << std::endl << maxdZ_dPm << " with dZ_dPm_fd: " << std::endl  << maxdZ_dPm_fd <<  std::endl;
+    // std::cout << "Max dZ_dPr norm: " << maxdZ_dPr_norm << " with error: " << std::endl << maxdZ_dPr <<  " with dZ_dPr_fd: " << std::endl  << maxdZ_dPr_fd  << std::endl;
 
     // get the sigma for robust norm calculation. This call is O(n) on average,
     // which is desirable over O(nlogn) sort

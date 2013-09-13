@@ -17,8 +17,14 @@ int main( int argc, char** argv )
     std::cout << "Measurement sum w:" << measAdd.W.transpose() << " a " << measAdd.A.transpose() << std::endl;
 
     srand(time(NULL));
-    {
-        Sophus::SE3d T0 = Sophus::SE3d::exp(Eigen::Matrix<double,6,1>::Random()*100);
+
+    const Eigen::Matrix<double,6,1> exp_vec = Eigen::Matrix<double,6,1>::Random()*1000;
+
+    std::cout << "exp(-y)*exp(y):" << std::endl << Sophus::SE3d::exp(-exp_vec).matrix()*Sophus::SE3d::exp(exp_vec).matrix() << std::endl;
+    std::cout << "exp(y)*exp(-y):" << std::endl << Sophus::SE3d::exp(exp_vec).matrix() *Sophus::SE3d::exp(-exp_vec).matrix() << std::endl;
+    // exp test
+    Sophus::SE3d T0 = Sophus::SE3d::exp(exp_vec*100);
+    {        
         double dEps = 1e-9;
         Eigen::Quaterniond q = T0.unit_quaternion();
         q.coeffs() << 0.000718076,   0.0139853, -4.9437e-05,    0.999902;

@@ -20,9 +20,10 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::_ApplyUpdate(const Vector
 
         if( CalibSize > 2 ){
 //            m_Imu.Tvs = m_Imu.Tvs*SE3t::exp(-deltaCalib.template block<6,1>(2,0) * DAMPING * coef); //exp_decoupled<Scalar>(m_Imu.Tvs,-deltaCalib.template block<6,1>(2,0));
-            m_Imu.Tvs = m_Imu.Tvs*SE3t::exp(deltaCalib.template block<6,1>(2,0) * DAMPING * coef);
+            m_Imu.Tvs = SE3t::exp(deltaCalib.template block<6,1>(2,0) * DAMPING * coef)*m_Imu.Tvs;
             m_Rig.cameras[0].T_wc = m_Imu.Tvs;
-            std::cout << "Tvs delta is " << -deltaCalib.template block<6,1>(2,0).transpose() << std::endl;
+            std::cout << "Tvs delta is " << (deltaCalib.template block<6,1>(2,0) * DAMPING * coef).transpose() << std::endl;
+            std::cout << "Tvs is :" << std::endl << m_Imu.Tvs.matrix() << std::endl;
         }
 
         // update bias terms if necessary
@@ -42,12 +43,21 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::_ApplyUpdate(const Vector
         // only update active poses, as inactive ones are not part of the optimization
         if( m_vPoses[ii].IsActive ){
 
-            if( CalibSize > 2 ){
-                m_vPoses[ii].Twp = m_vPoses[ii].Twp * SE3t::exp((-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0)
-                                                                           -deltaCalib.template block<6,1>(2,0)) * DAMPING * coef);
+
+            if( CalibSize > 2 && m_vImuResiduals.size() > 0  ){
+                if( bRollback == false ){
+                    m_vPoses[ii].Twp = m_vPoses[ii].Twp * SE3t::exp(-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0) * DAMPING * coef);
+                    m_vPoses[ii].Twp = m_vPoses[ii].Twp * SE3t::exp(-deltaCalib.template block<6,1>(2,0) * DAMPING * coef);
+                }else{
+                    m_vPoses[ii].Twp = m_vPoses[ii].Twp * SE3t::exp(-deltaCalib.template block<6,1>(2,0) * DAMPING * coef);
+                    m_vPoses[ii].Twp = m_vPoses[ii].Twp * SE3t::exp(-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0) * DAMPING * coef);
+                }
+                std::cout << "Pose " << ii << " calib delta is " << (-deltaCalib.template block<6,1>(2,0) * DAMPING * coef).transpose() << std::endl;
+                m_vPoses[ii].Tvs = m_Imu.Tvs;
             }else{
                 m_vPoses[ii].Twp = m_vPoses[ii].Twp * SE3t::exp(-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0) * DAMPING * coef);
             }
+
              // m_vPoses[ii].Twp = m_vPoses[ii].Twp * Sophus::SE3d::exp(delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0));
             // update the velocities if they are parametrized
             if(PoseSize >= 9){
@@ -63,8 +73,6 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::_ApplyUpdate(const Vector
             if(PoseSize >= 21){
                 m_vPoses[ii].Tvs = m_vPoses[ii].Tvs * SE3t::exp(-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize+15,0) * DAMPING * coef);
                 // std::cout << "Velocity for pose " << ii << " is " << m_vPoses[ii].V.transpose() << std::endl;
-            }else{
-                m_vPoses[ii].Tvs = m_Imu.Tvs;
             }
 
             std::cout << "Pose delta for " << ii << " is " << delta_p.template block<PoseSize,1>(m_vPoses[ii].OptId*PoseSize,0).transpose() << std::endl;
@@ -75,6 +83,15 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::_ApplyUpdate(const Vector
         }
          else{
           // std::cout << " Pose " << ii << " is inactive." << std::endl;
+            if( CalibSize > 2 && m_vImuResiduals.size() > 0  ){
+                if( bRollback == false ){
+                    m_vPoses[ii].Twp = m_vPoses[ii].Twp * SE3t::exp(-deltaCalib.template block<6,1>(2,0) * DAMPING * coef);
+                }else{
+                    m_vPoses[ii].Twp = m_vPoses[ii].Twp * SE3t::exp(-deltaCalib.template block<6,1>(2,0) * DAMPING * coef);
+                }
+                std::cout << "INACTIVE POSE " << ii << " calib delta is " << (-deltaCalib.template block<6,1>(2,0) * DAMPING * coef).transpose() << std::endl;
+                m_vPoses[ii].Tvs = m_Imu.Tvs;
+            }
         }
     }
 
@@ -1346,8 +1363,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
 
             // include Y terms
             if( CalibSize > 2 ){
-                m_Jki.coeffRef(res.ResidualId,0).setZero().template block(0,2,ImuResidual::ResSize, 6) = res.dZ_dY.template block(0,2,ImuResidual::ResSize, 6);
-                m_Jkit.coeffRef(0,res.ResidualId).setZero().template block(2,0, 6, ImuResidual::ResSize) = res.dZ_dY.template block(0,2,ImuResidual::ResSize, 6).transpose() * res.W;
+                m_Jki.coeffRef(res.ResidualId,0).setZero().template block(0,2,ImuResidual::ResSize, 6) = res.dZ_dY.template block(0,0,ImuResidual::ResSize, 6);
+                m_Jkit.coeffRef(0,res.ResidualId).setZero().template block(2,0, 6, ImuResidual::ResSize) = res.dZ_dY.template block(0,0,ImuResidual::ResSize, 6).transpose() * res.W;
                 // m_Jkit.coeffRef(0,res.ResidualId).template block(2,0,6,9) = res.dZ_dB.transpose().template block(0,0,6,9) * res.W;
             }
         }
@@ -1382,8 +1399,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
 // specializations
 // template class BundleAdjuster<REAL_TYPE, ba::NOT_USED,9,8>;
 template class BundleAdjuster<REAL_TYPE, 1,6,0>;
-//template class BundleAdjuster<REAL_TYPE, 1,15,8>;
-template class BundleAdjuster<REAL_TYPE, 1,15,2>;
+template class BundleAdjuster<REAL_TYPE, 1,15,8>;
+//template class BundleAdjuster<REAL_TYPE, 1,15,2>;
 // template class BundleAdjuster<REAL_TYPE, 1,21,2>;
 // template class BundleAdjuster<double, 3,9>;
 

@@ -87,39 +87,48 @@ namespace ba
     template<typename Scalar=double>
     inline Eigen::Matrix<Scalar,3,4> dLog_dq(const Eigen::Quaternion<Scalar>& q)
     {
-        const Scalar vec_squarednorm = powi(q.x(),2) + powi(q.y(),2) + powi(q.z(),2);
+        const Scalar x = q.x();
+        const Scalar y = q.y();
+        const Scalar z = q.z();
+        const Scalar w = q.w();
+        const Scalar vec_squarednorm = powi(x,2) + powi(y,2) + powi(z,2);
         const Scalar vec_norm = sqrt(vec_squarednorm);
         // std::cout << "vec norm = " << vec_norm << std::endl;
         if( vec_norm < 1e-9 ){
+            std::cout << "Vec norm less than 1e-9" << std::endl;
             const Scalar s1 = 2*vec_squarednorm;
-            const Scalar s2 = 1.0/powi(q.w(),3);
-            const Scalar s3 = (3*s1)/powi(q.w(),4) - 2/powi(q.w(),2);
-            const Scalar s4 = 2/q.w();
+            const Scalar s2 = 1.0/powi(w,3);
+            const Scalar s3 = (3*s1)/powi(w,4) - 2/powi(w,2);
+            const Scalar s4 = 2/w;
 
             // std::cout << " s1 " << s1 << " s2 " << s2 << " s3 " << s3 << " s4 " << s4 << std::endl;
 
             return (Eigen::Matrix<Scalar, 3, 4>() <<
-                    -4*s2*powi(q.x(),2)+s4-s1*s2,                 -4*q.x()*q.y()*s2,              -4*q.x()*q.z()*s2, q.x()*s3,
-                               -4*q.x()*q.y()*s2,  -4*s2*powi(q.y(),2) + s4 - s1*s2,              -4*q.y()*q.z()*s2, q.y()*s3,
-                               -4*q.x()*q.z()*s2,                 -4*q.y()*q.z()*s2,   -4*s2*powi(q.z(),2)+s4-s1*s2, q.z()*s3
+                    -4*s2*powi(x,2)+s4-s1*s2,                 -4*x*y*s2,              -4*x*z*s2, x*s3,
+                               -4*x*y*s2,  -4*s2*powi(y,2) + s4 - s1*s2,              -4*y*z*s2, y*s3,
+                               -4*x*z*s2,                 -4*y*z*s2,   -4*s2*powi(z,2)+s4-s1*s2, z*s3
                    ).finished();
 
         }else{
             const Scalar s1 = vec_squarednorm;
-            const Scalar s2 = 1.0/pow(s1,(3.0/2.0));
-            const Scalar s3 = 1.0/sqrt(s1);
-            const Scalar s4 = 1.0/sqrt(1.0 - powi(q.w(),2));
-            const Scalar s5 = acos(q.w());
-            const Scalar s6 = 2.0*s3*s5;
+            const Scalar s2 = 1/(s1/powi(w,2) + 1);
+            const Scalar s3 = atan(sqrt(s1)/w);
+            const Scalar s4 = 1/pow(s1,(3.0/2.0));
+            const Scalar s5 = 1/s1;
+            const Scalar s6 = 1/w;
+            const Scalar s7 = (2*s3)/sqrt(s1);
+            const Scalar s8 = 2*y*z*s2*s5*s6 - 2*y*z*s3*s4;
+            const Scalar s9 = 2*x*z*s2*s5*s6 - 2*x*z*s3*s4;
+            const Scalar s10 = 2*x*y*s2*s5*s6 - 2*x*y*s3*s4;
     //        const Scalar s7 = s3*s4;
     //        const Scalar s8 = s2*s5;
 
             // std::cout << " s1 " << s1 << " s2 " << s2 << " s3 " << s3 << " s4 " << s4 << " s5 " << s5 << " s6 " << s6 << std::endl;
 
             return (Eigen::Matrix<Scalar, 3, 4>() <<
-                     - 2*s2*s5*powi(q.x(),2) + s6,      -2*q.x()*q.y()*s2*s5,      -2*q.x()*q.z()*s2*s5, -2*q.x()*s3*s4,
-                          -2*q.x()*q.y()*s2*s5, - 2*s2*s5*powi(q.y(),2) + s6,      -2*q.y()*q.z()*s2*s5, -2*q.y()*s3*s4,
-                          -2*q.x()*q.z()*s2*s5,      -2*q.y()*q.z()*s2*s5, - 2*s2*s5*powi(q.z(),2) + s6, -2*q.z()*s3*s4
+                     s7 - 2*powi(x,2)*s3*s4 + 2*powi(x,2)*s2*s5*s6,                                 s10,                                  s9, -(2*x*s2)/powi(w,2),
+                                                     s10, s7 - 2*powi(y,2)*s3*s4 + 2*powi(y,2)*s2*s5*s6,                                  s8, -(2*y*s2)/powi(w,2),
+                                                      s9,                                  s8, s7 - 2*powi(z,2)*s3*s4 + 2*powi(z,2)*s2*s5*s6, -(2*z*s2)/powi(w,2)
                    ).finished();
         }
     }
@@ -253,6 +262,72 @@ namespace ba
         dLog_decoupled.template block<3,3>(3,3) = dLog.template block<3,3>(3,3);
         // dLog_decoupled.template block<3,3>(3,3) = dLog_dq(A.unit_quaternion()*Bso3inv.unit_quaternion()) * dq1q2_dq1(Bso3inv.unit_quaternion()) * dqExp_dw<Scalar>(Eigen::Matrix<Scalar,3,1>::Zero());
         return dLog_decoupled;
+    }
+
+    template<typename Scalar=double>
+    inline Eigen::Matrix<Scalar, 6, 7> dLog_dSE3(Sophus::SE3Group<Scalar> T){
+
+        const Eigen::Matrix<Scalar,3,4> dw_dq = dLog_dq(T.unit_quaternion());
+
+        const Scalar x = T.translation()[0];
+        const Scalar y = T.translation()[1];
+        const Scalar z = T.translation()[2];
+        const Eigen::Matrix<Scalar,3,1> w = T.so3().log();
+        const Scalar wx = w[0];
+        const Scalar wy = w[1];
+        const Scalar wz = w[2];
+
+        const Scalar s1 = powi(wx,2) + powi(wy,2) + powi(wz,2);
+        const Scalar s2 = tan(sqrt(s1)/2);
+        const Scalar s3 = sqrt(s1)/(2*s2) - 1;
+        const Scalar s4 = wz/(2*sqrt(s1)*s2) - (wz*(powi(s2,2) + 1))/(4*powi(s2,2));
+        const Scalar s5 = wy/(2*sqrt(s1)*s2) - (wy*(powi(s2,2) + 1))/(4*powi(s2,2));
+        const Scalar s6 = wx/(2*sqrt(s1)*s2) - (wx*(powi(s2,2) + 1))/(4*powi(s2,2));
+        const Scalar s7 = 1/s1;
+        const Scalar s8 = 1/powi(s1, 2);
+        const Scalar s9 = powi(wx,2) + powi(wy,2);
+        const Scalar s10 = powi(wx,2) + powi(wz,2);
+        const Scalar s11 = powi(wy,2) + powi(wz,2);
+        const Scalar s12 = 2*s3*s8*wx*wy*wz;
+        const Scalar s13 = - 2*s3*s8*wy*powi(wz,2) + s4*s7*wy*wz + s3*s7*wy;
+        const Scalar s14 = - 2*s3*s8*wx*powi(wz,2) + s4*s7*wx*wz + s3*s7*wx;
+        const Scalar s15 = - 2*s3*s8*wz*powi(wy,2) + s5*s7*wz*wy + s3*s7*wz;
+        const Scalar s16 = - 2*s3*s8*wz*powi(wx,2) + s6*s7*wz*wx + s3*s7*wz;
+        const Scalar s17 = - 2*s3*s8*wx*powi(wy,2) + s5*s7*wx*wy + s3*s7*wx;
+        const Scalar s18 = - 2*s3*s8*wy*powi(wx,2) + s6*s7*wy*wx + s3*s7*wy;
+        const Scalar s19 = 2*s3*s7*wy;
+        const Scalar s20 = 2*s3*s7*wx;
+
+        const Eigen::Matrix<Scalar, 3, 3> dLog_dw((Eigen::Matrix<Scalar, 3, 3>() <<
+        x*(s6*s7*s11 - 2*s3*s8*s11*wx) - s18*y - s16*z,
+        x*(s19 + s5*s7*s11 - 2*s3*s8*s11*wy) - s17*y - z*(s5*s7*wx*wz - 2*s3*s8*wx*wy*wz + 0.5),
+        x*(s4*s7*s11 + 2*s3*s7*wz - 2*s3*s8*s11*wz) - s14*z + y*(s12 - s4*s7*wx*wy + 0.5),
+        y*(s20 + s6*s7*s10 - 2*s3*s8*s10*wx) - s18*x + z*(s12 - s6*s7*wy*wz + 0.5),
+        y*(s5*s7*s10 - 2*s3*s8*s10*wy) - s17*x - s15*z,
+        y*(s4*s7*s10 + 2*s3*s7*wz - 2*s3*s8*s10*wz) - s13*z - x*(s4*s7*wx*wy - s12 + 0.5),
+        z*(s20 + s6*s7*s9 - 2*s3*s8*s9*wx) - s16*x - y*(s6*s7*wy*wz - s12 + 0.5),
+        z*(s19 + s5*s7*s9 - 2*s3*s8*s9*wy) - s15*y + x*(s12 - s5*s7*wx*wz + 0.5),
+        z*(s4*s7*s9 - 2*s3*s8*s9*wz) - s14*x - s13*y ).finished());
+
+        Eigen::Matrix<Scalar,3,1> upsilon_omega;
+        Scalar theta;
+        upsilon_omega.template tail<3>()
+            = Sophus::SO3Group<Scalar>::logAndTheta(T.so3(), &theta);
+        const Eigen::Matrix<Scalar,3,3> & Omega
+            = Sophus::SO3Group<Scalar>::hat(upsilon_omega.template tail<3>());
+        const Eigen::Matrix<Scalar,3,3> & V_inv =
+            ( Eigen::Matrix<Scalar,3,3>::Identity() - static_cast<Scalar>(0.5)*Omega
+              + ( static_cast<Scalar>(1)
+                  - theta/(static_cast<Scalar>(2)*tan(theta/Scalar(2)))) /
+              (theta*theta)*(Omega*Omega) );
+
+        Eigen::Matrix<Scalar,6,7> dlog;
+        dlog.setZero();
+        dlog.template block<3,3>(0,0) = V_inv;
+        dlog.template block<3,4>(0,3) = dLog_dw * dw_dq;
+        dlog.template block<3,4>(3,3) = dw_dq;
+
+        return dlog;
     }
 
 //    ///////////////////////////////////////////////////////////////////////////////

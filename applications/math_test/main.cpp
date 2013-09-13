@@ -16,6 +16,71 @@ int main( int argc, char** argv )
     ImuMeasurementT<double> measAdd = meas + meas2;
     std::cout << "Measurement sum w:" << measAdd.W.transpose() << " a " << measAdd.A.transpose() << std::endl;
 
+    srand(time(NULL));
+    {
+        Sophus::SE3d T0 = Sophus::SE3d::exp(Eigen::Matrix<double,6,1>::Random()*100);
+        double dEps = 1e-9;
+        Eigen::Quaterniond q = T0.unit_quaternion();
+        q.coeffs() << 0.000718076,   0.0139853, -4.9437e-05,    0.999902;
+        std::cout << "q:" << q.coeffs().transpose() << std::endl;
+        Eigen::Matrix<double,3,4> dLog_dq_fd;
+        for(int ii = 0 ; ii < 4 ; ii++){
+            Eigen::Vector4d eps = Eigen::Vector4d::Zero();
+            eps[ii] += dEps;
+            Eigen::Quaterniond qPlus = q;
+            qPlus.coeffs() += eps;
+            Sophus::SO3d so3_plus;
+            memcpy(so3_plus.data(),qPlus.coeffs().data(),sizeof(double)*4);
+            Eigen::Vector3d resPlus = so3_plus.log();
+            std::cout << "resPlus " << resPlus.transpose() << std::endl;
+
+            eps[ii] -= 2*dEps;
+            Eigen::Quaterniond qMinus = q;
+            qMinus.coeffs() += eps;
+            Sophus::SO3d so3_Minus;
+            memcpy(so3_Minus.data(),qMinus.coeffs().data(),sizeof(double)*4);
+            Eigen::Vector3d resMinus = so3_Minus.log();
+            std::cout << "resMinus " << resMinus.transpose() << std::endl;
+
+            dLog_dq_fd.col(ii) = (resPlus-resMinus)/(2*dEps);
+        }
+        std::cout << "dlog_dq = [" << dLog_dq(q).format(cleanFmt) << "]" << std::endl;
+        std::cout << "dlog_dqf = [" << dLog_dq_fd.format(cleanFmt) << "]" << std::endl;
+        std::cout << "dlog_dq - dlog_dqf = [" << (dLog_dq(q)- dLog_dq_fd).format(cleanFmt) << "]" << std::endl;
+
+        std::cout << "Testing log derivative" << std::endl;
+
+        Eigen::Matrix<double,6,7>  _dLog_dSE3_fd;
+        for(int ii = 0; ii < 7 ; ii++){
+            Eigen::Matrix<double,7,1> epsVec = Eigen::Matrix<double,7,1>::Zero();
+            epsVec[ii] += dEps;
+            Sophus::SE3d Tplus = T0;
+            Tplus.translation() += epsVec.head<3>();
+            Eigen::Quaterniond qPlus = Tplus.so3().unit_quaternion();
+            qPlus.coeffs() += epsVec.tail<4>();
+            memcpy(Tplus.so3().data(),qPlus.coeffs().data(),4*sizeof(double));
+
+            Eigen::Matrix<double,6,1> yPlus = Tplus.log(Tplus);
+
+            epsVec[ii] -= 2*dEps;
+            Sophus::SE3d Tminus = T0;
+            Tminus.translation() += epsVec.head<3>();
+            Eigen::Quaterniond qMinus = Tminus.so3().unit_quaternion();
+            qMinus.coeffs() += epsVec.tail<4>();
+            memcpy(Tminus.so3().data(),qMinus.coeffs().data(),4*sizeof(double));
+
+            Eigen::Matrix<double,6,1> yMinus = Tminus.log();
+
+            _dLog_dSE3_fd.col(ii) = (yPlus-yMinus)/(2*dEps);
+        }
+
+
+        std::cout << "_dLog_dSE3_fd" << std::endl << _dLog_dSE3_fd << std::endl;
+        std::cout << "_dLog_dSE3" << std::endl << dLog_dSE3(T0) << std::endl;
+        std::cout << "_dLog_dSE3-_dLog_dSE3_fd" << std::endl << dLog_dSE3(T0)-_dLog_dSE3_fd << std::endl;
+    }
+
+
     Sophus::SO3d Twa = Sophus::SO3d::exp(Eigen::Vector3d::Random());
     Sophus::SO3d Tab = Sophus::SO3d::exp(Eigen::Vector3d::Random());
     Sophus::SO3d Twb = Sophus::SO3d::exp(Eigen::Vector3d::Random());

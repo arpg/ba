@@ -36,6 +36,7 @@ class BundleAdjuster
     typedef Eigen::Matrix<Scalar,3,1> Vector3t;
     typedef Eigen::Matrix<Scalar,4,1> Vector4t;
     typedef Eigen::Matrix<Scalar,6,1> Vector6t;
+    typedef Eigen::Matrix<Scalar,7,1> Vector7t;
     typedef Eigen::Matrix<Scalar,Eigen::Dynamic,1> VectorXt;
     typedef Eigen::Matrix<Scalar,3,3> Matrix3t;
     typedef Sophus::SE3Group<Scalar> SE3t;

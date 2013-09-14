@@ -84,11 +84,11 @@ public:
     ///////////////////////////////////////////////////////////////////////////////////////////////
     unsigned int AddPose(const SE3t& Twp, const bool bIsActive = true, const double dTime = -1)
     {
-        return AddPose( Twp, Sophus::SE3d(), Vector3t::Zero(), Vector6t::Zero(), bIsActive, dTime);
+        return AddPose( Twp, Sophus::SE3d(), VectorXt(5).setZero(), Vector3t::Zero(), Vector6t::Zero(), bIsActive, dTime);
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    unsigned int AddPose(const SE3t& Twp, const SE3t& Tvs, const Vector3t& V, const Vector6t& B, const bool bIsActive = true, const double dTime = -1)
+    unsigned int AddPose(const SE3t& Twp, const SE3t& Tvs, const VectorXt camParams, const Vector3t& V, const Vector6t& B, const bool bIsActive = true, const double dTime = -1)
     {
         Pose pose;
         pose.Time = dTime;
@@ -96,6 +96,7 @@ public:
         pose.Tvs = Tvs;
         pose.V = V;
         pose.B = B;
+        pose.CamParams = camParams;
         pose.IsActive = bIsActive;
         pose.Tsw.reserve(m_Rig.cameras.size());
         // assume equal distribution of measurements amongst poses

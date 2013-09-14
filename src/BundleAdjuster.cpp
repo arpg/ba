@@ -48,8 +48,6 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::_ApplyUpdate(const Vector
     for (size_t ii = 0 ; ii < m_vPoses.size() ; ii++){
         // only update active poses, as inactive ones are not part of the optimization
         if( m_vPoses[ii].IsActive ){
-
-
             if( CalibSize > 2 && m_vImuResiduals.size() > 0  ){
                 if( bRollback == false ){
                     m_vPoses[ii].Twp = m_vPoses[ii].Twp * SE3t::exp(-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize,0) * DAMPING * coef);
@@ -77,15 +75,16 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::_ApplyUpdate(const Vector
             }
 
             if(PoseSize >= 21){
-                m_vPoses[ii].Tvs = m_vPoses[ii].Tvs * SE3t::exp(-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize+15,0) * DAMPING * coef);
-                // std::cout << "Velocity for pose " << ii << " is " << m_vPoses[ii].V.transpose() << std::endl;
+                m_vPoses[ii].Tvs = SE3t::exp(delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize+15,0) * DAMPING * coef)*m_vPoses[ii].Tvs;
+                m_vPoses[ii].Twp = m_vPoses[ii].Twp * SE3t::exp(-delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize+15,0) * DAMPING * coef);
+                std::cout << "Tvs of pose " << ii << " after update " << (delta_p.template block<6,1>(m_vPoses[ii].OptId*PoseSize+15,0) * DAMPING * coef).transpose()
+                          << " is " << std::endl << m_vPoses[ii].Tvs.matrix() << std::endl;
             }
 
             std::cout << "Pose delta for " << ii << " is " << delta_p.template block<PoseSize,1>(m_vPoses[ii].OptId*PoseSize,0).transpose() << std::endl;
             // std::cout << "Pose " << ii << " is " << Eigen::Map<const Eigen::Matrix<Scalar,4,1> >(m_vPoses[ii].Twp.data()).transpose() << std::endl;
             // std::cout <<  " Tvs: " << std::endl << m_vPoses[ii].Tvs.matrix() <<   std::endl;
             // clear the vector of Tsw values as they will need to be recalculated
-            m_vPoses[ii].Tsw.clear();
         }
          else{
           // std::cout << " Pose " << ii << " is inactive." << std::endl;
@@ -99,6 +98,8 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::_ApplyUpdate(const Vector
                 m_vPoses[ii].Tvs = m_Imu.Tvs;
             }
         }
+
+        m_vPoses[ii].Tsw.clear();
     }
 
     // update the landmarks
@@ -151,16 +152,23 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::_EvaluateResiduals()
        const SE3t& Twa = poseA.Twp;
        const SE3t& Twb = poseB.Twp;
 
+       res.Residual.setZero();
        res.Residual.template head<6>() = SE3t::log(Twa*Tab*Twb.inverse());
        res.Residual.template segment<3>(6) = imuPose.V - poseB.V;
        res.Residual.template segment<6>(9) = poseA.B - poseB.B;
 
-       if(CalibSize > 2){
+       if(CalibSize > 2 || PoseSize > 15 ){
            // disable imu translation error
            res.Residual.template head<3>().setZero();
            res.Residual.template segment<3>(6).setZero(); // velocity error
            res.Residual.template segment<6>(9).setZero(); // bias
        }
+
+       if( PoseSize > 15 ){
+           res.Residual.template segment<6>(15) = SE3t::log(poseA.Tvs*poseB.Tvs.inverse());
+           res.Residual.template segment<3>(15).setZero();
+       }
+       // std::cout << "EVALUATE imu res between " << res.PoseAId << " and " << res.PoseBId << ":" << res.Residual.transpose () << std::endl;
        m_dImuError += res.Residual.norm() * res.W;
    }
 }
@@ -472,8 +480,9 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
             std::cout << "Error increasing during optimization, rolling back .." << std::endl;
             _ApplyUpdate(delta_p, delta_l, deltaCalib, true );
             break;
-        }else if( (dPrevError - dPostError)/dPrevError < 0.01 ){
-            std::cout << "Error decrease less than 1%, aborting." << std::endl;
+        }
+        else if( (dPrevError - dPostError)/dPrevError < 0.001 ){
+            std::cout << "Error decrease less than 0.1%, aborting." << std::endl;
             break;
         }
         // std::cout << "BA iteration " << kk <<  " error: " << m_Rpr.norm() + m_Ru.norm() + m_Rpp.norm() + m_Ri.norm() << std::endl;
@@ -675,7 +684,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         for( ProjectionResidual& res : m_vProjResiduals ){
             // calculate the huber norm weight for this measurement
             const Scalar e = res.Residual.norm();
-            res.W = e > c_huber ? c_huber/e : 1.0;
+            // res.W = e > c_huber ? c_huber/e : 1.0;
             m_dProjError += res.Residual.norm() * res.W;
         }
     }
@@ -764,6 +773,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         Vab_0 = poseA.Twp.so3().inverse() * Vab_0;
 
         // derivative with respect to the start pose
+        res.Residual.setZero();
         res.dZ_dX1.setZero();
         res.dZ_dX2.setZero();
         res.dZ_dG.setZero();
@@ -817,30 +827,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         res.Residual.template segment<3>(6) = imuPose.V - poseB.V;
         res.Residual.template segment<6>(9) = poseA.B - poseB.B;
 
-        if(PoseSize > 15){
-//            res.Residual.template segment<6>(15) = SE3t::log(poseA.Tvs * poseB.Tvs.inverse());
-//            //std::cout << "Adding tvs residual of " << res.Residual.template segment<6>(15).transpose() << std::endl;
-//            const Eigen::Matrix<Scalar,6,6> dLog = dLog_decoupled_dX(poseA.Tvs, poseB.Tvs);
-//            res.dZ_dX1.template block<6,6>(15,15) = dLog;
-//            res.dZ_dX2.template block<6,6>(15,15) = -dLog;
-
-//            // disable imu translation error
-//            res.Residual.template head<3>().setZero();     // translation error
-//            res.Residual.template segment<3>(6).setZero(); // velocity error
-//            res.Residual.template segment<6>(9).setZero(); // bias
-//            res.dZ_dX1.template block<3, PoseSize>(0,0).setZero();
-//            res.dZ_dX2.template block<3, PoseSize>(0,0).setZero();
-//            res.dZ_dX1.template block<3, PoseSize>(6,0).setZero();
-//            res.dZ_dX2.template block<3, PoseSize>(6,0).setZero();
-//            res.dZ_dB.template block<3, 6>(0,0).setZero();
-//            res.dZ_dG.template block<3, 2>(0,0).setZero();
-
-//            // disable accelerometer bias
-//            res.dZ_dX1.template block<res.ResSize, 3>(0,12).setZero();
-//            res.dZ_dX2.template block<res.ResSize, 3>(0,12).setZero();
-        }
-
-        if(CalibSize > 2){
+        if( CalibSize > 2 || PoseSize > 15 ){
             // disable imu translation error
             res.Residual.template head<3>().setZero();
             res.Residual.template segment<3>(6).setZero(); // velocity error
@@ -855,11 +842,59 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
             // disable accelerometer and gyro bias
             res.dZ_dX1.template block<res.ResSize, 6>(0,9).setZero();
             res.dZ_dX2.template block<res.ResSize, 6>(0,9).setZero();
+        }        
+
+        if( PoseSize > 15 ){
+            res.dZ_dX1.template block<9,6>(0,15) = res.dZ_dX1.template block<9, 6>(0,0);
+            res.dZ_dX2.template block<9,6>(0,15) = res.dZ_dX2.template block<9, 6>(0,0);
+
+            res.Residual.template segment<6>(15) = SE3t::log(poseA.Tvs*poseB.Tvs.inverse());    //Tvs bias residual
+            res.dZ_dX1.template block<6,6>(15,15) = -dLog_dX(SE3t(), poseA.Tvs * poseB.Tvs.inverse());
+            res.dZ_dX2.template block<6,6>(15,15) = dLog_dX(poseA.Tvs * poseB.Tvs.inverse(), SE3t());
+            res.Residual.template segment<3>(15).setZero();
+            res.dZ_dX1.template block<6,3>(15,15).setZero();
+            res.dZ_dX2.template block<6,3>(15,15).setZero();
+
+            // std::cout << "res.dZ_dX1: " << std::endl << res.dZ_dX1.format(cleanFmt) << std::endl;
+
+            /*{
+                Scalar dEps = 1e-9;
+                Eigen::Matrix<Scalar,6,6> drTvs_dX1_dF;
+                for(int ii = 0 ; ii < 6 ; ii++){
+                    Vector6t eps = Vector6t::Zero();
+                    eps[ii] = dEps;
+                    Vector6t resPlus = SE3t::log(SE3t::exp(-eps)*poseA.Tvs * poseB.Tvs.inverse());
+                    eps[ii] = -dEps;
+                    Vector6t resMinus = SE3t::log(SE3t::exp(-eps)*poseA.Tvs * poseB.Tvs.inverse());
+                    drTvs_dX1_dF.col(ii) = (resPlus-resMinus)/(2*dEps);
+                }
+                std::cout << "drTvs_dX1 = [" << res.dZ_dX1.template block<6,6>(15,15).format(cleanFmt) << "]" << std::endl;
+                std::cout << "drTvs_dX1_dF = [" << drTvs_dX1_dF.format(cleanFmt) << "]" << std::endl;
+                std::cout << "drTvs_dX1 - drTvs_dX1_dF = [" << (res.dZ_dX1.template block<6,6>(15,15)- drTvs_dX1_dF).format(cleanFmt) << "]" << std::endl;
+            }
+            {
+                Scalar dEps = 1e-9;
+                Eigen::Matrix<Scalar,6,6> drTvs_dX2_dF;
+                for(int ii = 0 ; ii < 6 ; ii++){
+                    Vector6t eps = Vector6t::Zero();
+                    eps[ii] = dEps;
+                    Vector6t resPlus = SE3t::log(poseA.Tvs * (SE3t::exp(-eps)*poseB.Tvs).inverse());
+                    eps[ii] = -dEps;
+                    //Vector6t resMinus = SE3t::log(SE3t::exp(-eps)*poseA.Tvs * poseB.Tvs.inverse());
+                    Vector6t resMinus = SE3t::log(poseA.Tvs * (SE3t::exp(-eps)*poseB.Tvs).inverse());
+                    drTvs_dX2_dF.col(ii) = (resPlus-resMinus)/(2*dEps);
+                }
+                std::cout << "drTvs_dX2 = [" << res.dZ_dX2.template block<6,6>(15,15).format(cleanFmt) << "]" << std::endl;
+                std::cout << "drTvs_dX2_dF = [" << drTvs_dX2_dF.format(cleanFmt) << "]" << std::endl;
+                std::cout << "drTvs_dX2 - drTvs_dX2_dF = [" << (res.dZ_dX2.template block<6,6>(15,15)- drTvs_dX2_dF).format(cleanFmt) << "]" << std::endl;
+            }*/
+        }else{
+            res.dZ_dY = res.dZ_dX1.template block<ImuResidual::ResSize, 6>(0,0) +
+                        res.dZ_dX2.template block<ImuResidual::ResSize, 6>(0,0);
+            res.dZ_dY.template block<ImuResidual::ResSize, 3>(0,0).setZero();
         }
 
-        res.dZ_dY = res.dZ_dX1.template block<ImuResidual::ResSize, 6>(0,0) +
-                    res.dZ_dX2.template block<ImuResidual::ResSize, 6>(0,0);
-        res.dZ_dY.template block<ImuResidual::ResSize, 3>(0,0).setZero();
+        // std::cout << "BUILD imu res between " << res.PoseAId << " and " << res.PoseBId << ":" << res.Residual.transpose () << std::endl;
 
         //if(poseA.IsActive == false || poseB.IsActive == false){
         //    std::cout << "PRIOR RESIDUAL: ";
@@ -1246,9 +1281,9 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
 // specializations
 // template class BundleAdjuster<REAL_TYPE, ba::NOT_USED,9,8>;
 template class BundleAdjuster<REAL_TYPE, 1,6,0>;
-template class BundleAdjuster<REAL_TYPE, 1,15,13>;
+// template class BundleAdjuster<REAL_TYPE, 1,15,8>;
 //template class BundleAdjuster<REAL_TYPE, 1,15,2>;
-// template class BundleAdjuster<REAL_TYPE, 1,21,2>;
+template class BundleAdjuster<REAL_TYPE, 1,21,2>;
 // template class BundleAdjuster<double, 3,9>;
 
 

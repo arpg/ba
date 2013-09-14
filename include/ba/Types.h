@@ -18,6 +18,7 @@ struct PoseT
     Sophus::SE3Group<Scalar> Tvs;
     Eigen::Matrix<Scalar,3,1> V;
     Eigen::Matrix<Scalar,6,1> B;
+    Eigen::Matrix<Scalar,Eigen::Dynamic,1> CamParams;
     bool IsActive;
     unsigned int Id;
     unsigned int OptId;

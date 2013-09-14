@@ -237,7 +237,7 @@ public:
         assert(uPoseAId < m_vPoses.size());
         assert(uPoseBId < m_vPoses.size());
         // we must be using 9DOF poses for IMU residuals
-        assert(PoseSize == 9);
+        //assert(PoseSize == 9);
 
         ImuResidual residual;
         residual.W = dWeight;

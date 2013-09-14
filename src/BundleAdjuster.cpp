@@ -591,7 +591,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
 
             Eigen::Matrix<Scalar,2,4> dZ_dX_fd_4d;
             Scalar dEps = 1e-9;
-            for(int ii = 0; ii < 6 ; ii++) {
+            for(int ii = 0; ii < 4 ; ii++) {
                 Eigen::Matrix<Scalar,4,1> delta;
                 delta.setZero();
                 delta[ii] = dEps;

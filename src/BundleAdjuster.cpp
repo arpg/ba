@@ -115,6 +115,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::_ApplyUpdate(const Vector
 
             m_vLandmarks[ii].Xw = MultHomogeneous(m_vPoses[m_vLandmarks[ii].RefPoseId].GetTsw(m_vLandmarks[ii].RefCamId, m_Rig, PoseSize >= 21).inverse(),
                                                   m_vLandmarks[ii].Xs);
+            m_vLandmarks[ii].Xw /= m_vLandmarks[ii].Xw[3];
         }
     }
 }
@@ -137,6 +138,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::_EvaluateResiduals()
    }
 
    m_dImuError = 0;
+   double dTotalTvsChange = 0;
    for( ImuResidual& res : m_vImuResiduals ){
        // set up the initial pose for the integration
        const Vector3t gravity = GetGravityVector(m_Imu.G);
@@ -166,11 +168,22 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::_EvaluateResiduals()
 
        if( PoseSize > 15 ){
            res.Residual.template segment<6>(15) = SE3t::log(poseA.Tvs*poseB.Tvs.inverse());
+           if( m_bEnableTranslation == false ){
+                dTotalTvsChange += res.Residual.template segment<6>(15).norm();
+           }
            res.Residual.template segment<3>(15).setZero();
        }
        // std::cout << "EVALUATE imu res between " << res.PoseAId << " and " << res.PoseBId << ":" << res.Residual.transpose () << std::endl;
        m_dImuError += res.Residual.norm() * res.W;
    }
+
+   std::cout << "Total tvs change is: " << dTotalTvsChange << std::endl;
+   if(m_dTotalTvsChange != 0 && dTotalTvsChange< 0.1){
+       std::cout << "EMABLING TRANSLATION ERRORS" << std::endl;
+       m_bEnableTranslation = true;
+       dTotalTvsChange = 0;
+   }
+   m_dTotalTvsChange = dTotalTvsChange;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -744,7 +757,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         // m_Ru.template segment<UnaryResidual::ResSize>(res.ResidualOffset) = (Twp*res.Twp.inverse()).log();
     }
 
-    m_dImuError = 0;
+    m_dImuError = 0;    
     for( ImuResidual& res : m_vImuResiduals ){
         // set up the initial pose for the integration
         const Vector3t gravity = GetGravityVector(m_Imu.G);
@@ -827,7 +840,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         res.Residual.template segment<3>(6) = imuPose.V - poseB.V;
         res.Residual.template segment<6>(9) = poseA.B - poseB.B;
 
-        if( CalibSize > 2 || PoseSize > 15 ){
+        if( (CalibSize > 2 || PoseSize > 15) && m_bEnableTranslation == false ){
             // disable imu translation error
             res.Residual.template head<3>().setZero();
             res.Residual.template segment<3>(6).setZero(); // velocity error
@@ -849,11 +862,18 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
             res.dZ_dX2.template block<9,6>(0,15) = res.dZ_dX2.template block<9, 6>(0,0);
 
             res.Residual.template segment<6>(15) = SE3t::log(poseA.Tvs*poseB.Tvs.inverse());    //Tvs bias residual
+
             res.dZ_dX1.template block<6,6>(15,15) = -dLog_dX(SE3t(), poseA.Tvs * poseB.Tvs.inverse());
             res.dZ_dX2.template block<6,6>(15,15) = dLog_dX(poseA.Tvs * poseB.Tvs.inverse(), SE3t());
+
+            // if( m_bEnableTranslation == false ){
             res.Residual.template segment<3>(15).setZero();
+            // removing translation elements of Tvs
             res.dZ_dX1.template block<6,3>(15,15).setZero();
             res.dZ_dX2.template block<6,3>(15,15).setZero();
+            res.dZ_dX1.template block<9,3>(0,15).setZero();
+            res.dZ_dX2.template block<9,3>(0,15).setZero();
+            // }
 
             // std::cout << "res.dZ_dX1: " << std::endl << res.dZ_dX1.format(cleanFmt) << std::endl;
 

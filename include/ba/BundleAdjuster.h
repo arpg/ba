@@ -44,7 +44,7 @@ class BundleAdjuster
 public:
     ///////////////////////////////////////////////////////////////////////////////////////////////
     BundleAdjuster() :
-        m_Imu(SE3t(),Vector3t::Zero(),Vector3t::Zero(),Vector2t::Zero()) {}
+        m_Imu(SE3t(),Vector3t::Zero(),Vector3t::Zero(),Vector2t::Zero()), m_bEnableTranslation(false), m_dTotalTvsChange(0) {}
 
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -78,7 +78,6 @@ public:
         m_vUnaryResiduals.clear();
         m_vImuResiduals.clear();
         m_vLandmarks.clear();
-
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -257,6 +256,7 @@ public:
     }
     void Solve(const unsigned int uMaxIter);
 
+    bool IsTranslationEnabled() { return m_bEnableTranslation; }
     unsigned int GetNumPoses() const { return m_vPoses.size(); }
     const ImuResidual& GetImuResidual(const unsigned int id) const { return m_vImuResiduals[id]; }
     const ImuCalibration& GetImuCalibration() const { return m_Imu; }
@@ -301,8 +301,8 @@ private:
 
     VectorXt m_Ri;
 
-
-
+    bool m_bEnableTranslation;
+    double m_dTotalTvsChange;
     double m_dProjError;
     double m_dBinaryError;
     double m_dUnaryError;

@@ -212,12 +212,16 @@ public:
         residual.ResidualId = m_vProjResiduals.size();
         residual.ResidualOffset = m_uProjResidualOffset;
 
+        Landmark& lm = m_vLandmarks[uLandmarkId];
         // set the reference measurement
-        if(uMeasPoseId == residual.RefPoseId){
-            m_vLandmarks[uLandmarkId].Zref = z;
+        if(uMeasPoseId == residual.RefPoseId && uCameraId == lm.RefCamId){
+            lm.Zref = z;
         }
 
-        if(uMeasPoseId != residual.RefPoseId || LmSize != 1){
+        // this prevents adding measurements of the landmark in the privileged frame in which
+        // it was first seen, as with inverse depth, the error would always be zero.
+        // however, if 3dof parametrization of landmarks is used, we add all measurements
+        if(uMeasPoseId != residual.RefPoseId || uCameraId != lm.RefCamId || LmSize != 1){
             m_vPoses[uMeasPoseId].ProjResiduals.push_back(residual.ResidualId);
             m_vLandmarks[uLandmarkId].ProjResiduals.push_back(residual.ResidualId);
             if(LmSize == 1){

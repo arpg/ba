@@ -680,9 +680,10 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
             }
 
             // calculate jacobian wrt to camera parameters
-            Vector3t Xs_m_norm = Xs_m.template head<3>() / Xs_m[3];
-            const VectorXt params = m_Rig.cameras[res.CameraId].camera.GenericParams();
-            res.dZ_dK = -m_Rig.cameras[res.CameraId].camera.dMap_dParams(Xs_m_norm, params);
+            // [TEST]: This is only working for fov models
+//            Vector3t Xs_m_norm = Xs_m.template head<3>() / Xs_m[3];
+//            const VectorXt params = m_Rig.cameras[res.CameraId].camera.GenericParams();
+//            res.dZ_dK = -m_Rig.cameras[res.CameraId].camera.dMap_dParams(Xs_m_norm, params);
 
 //            {
 //                double dEps = 1e-9;

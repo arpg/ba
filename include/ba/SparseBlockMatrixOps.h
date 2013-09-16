@@ -113,6 +113,40 @@ static void SparseBlockTransposeProduct(const Lhs& lhs,const Rhs& rhs, ResultTyp
 
 //////////////////////////////////////////////////////////////////////////////////////////
 template<typename Lhs, typename Rhs, typename ResultType>
+static void SparseBlockProductDenseResult(const Lhs& lhs, const Rhs& rhs, ResultType& res)
+{
+    // return sparse_sparse_product_with_pruning_impl2(lhs,rhs,res);
+//    const int nBlockRows = ResultType::Scalar::RowsAtCompileTime;
+//    const int nBlockCols = ResultType::Scalar::ColsAtCompileTime;
+    typedef typename ResultType::Scalar ResultScalar;
+    typedef typename Lhs::Scalar LhsScalar;
+    typedef typename Rhs::Scalar RhsScalar;
+    typedef typename Rhs::Index Index;
+
+    // make sure to call innerSize/outerSize since we fake the storage order.
+    Index rows = lhs.innerSize();
+    Index cols = rhs.outerSize();
+    //int size = lhs.outerSize();
+    eigen_assert(lhs.outerSize() == rhs.innerSize());
+
+    res.setZero();
+    for (Index j=0; j<cols; ++j)
+    {
+        // this is going down the jth column of the rhs
+        for (typename Rhs::InnerIterator rhsIt(rhs, j); rhsIt; ++rhsIt)
+        {
+            const auto& rhsVal = rhsIt.value();
+            for (typename Lhs::InnerIterator lhsIt(lhs, rhsIt.index()); lhsIt; ++lhsIt)
+            {
+                res.template block<LhsScalar::RowsAtCompileTime,RhsScalar::ColsAtCompileTime>
+                        ( lhsIt.index()*LhsScalar::RowsAtCompileTime, j*RhsScalar::ColsAtCompileTime ).noalias() += lhsIt.value() * rhsVal;
+            }
+        }
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////
+template<typename Lhs, typename Rhs, typename ResultType>
 static void SparseBlockProduct(const Lhs& lhs, const Rhs& rhs, ResultType& res)
 {
     const typename ResultType::Scalar zero = ResultType::Scalar::Zero();
@@ -146,6 +180,7 @@ static void SparseBlockProduct(const Lhs& lhs, const Rhs& rhs, ResultType& res)
         //double ratioColRes = (double(rhs.innerVector(j).nonZeros()) + double(lhs.nonZeros())/double(lhs.cols()))/double(lhs.rows());
         // let's do a more accurate determination of the nnz ratio for the current column j of res
         tempVector.init(ratioColRes);
+        // tempVector.init(0.01);
         tempVector.setZero();
         // this is going down the jth column of the rhs
         for (typename Rhs::InnerIterator rhsIt(rhs, j); rhsIt; ++rhsIt)

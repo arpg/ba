@@ -18,13 +18,17 @@ namespace ba {
 template< typename Scalar=double,int LmSize=1, int PoseSize=6, int CalibSize=8 >
 class BundleAdjuster
 {
+    static const unsigned int LmDim = LmSize;
+    static const unsigned int PoseDim = PoseSize;
+    static const unsigned int CalibDim = CalibSize;
+
     typedef PoseT<Scalar> Pose;
     typedef LandmarkT<Scalar,LmSize> Landmark;
     typedef ProjectionResidualT<Scalar,LmSize> ProjectionResidual;
     typedef ImuMeasurementT<Scalar> ImuMeasurement;
     typedef UnaryResidualT<Scalar> UnaryResidual;
     typedef BinaryResidualT<Scalar> BinaryResidual;
-    typedef ImuResidualT<Scalar, PoseSize> ImuResidual;
+    typedef ImuResidualT<Scalar, PoseSize, PoseSize> ImuResidual;
     typedef ImuCalibrationT<Scalar> ImuCalibration;
     typedef ImuPoseT<Scalar> ImuPose;
 
@@ -32,6 +36,7 @@ class BundleAdjuster
     typedef Eigen::Matrix<Scalar,3,1> Vector3t;
     typedef Eigen::Matrix<Scalar,4,1> Vector4t;
     typedef Eigen::Matrix<Scalar,6,1> Vector6t;
+    typedef Eigen::Matrix<Scalar,7,1> Vector7t;
     typedef Eigen::Matrix<Scalar,Eigen::Dynamic,1> VectorXt;
     typedef Eigen::Matrix<Scalar,3,3> Matrix3t;
     typedef Sophus::SE3Group<Scalar> SE3t;
@@ -39,7 +44,8 @@ class BundleAdjuster
 public:
     ///////////////////////////////////////////////////////////////////////////////////////////////
     BundleAdjuster() :
-        m_Imu(SE3t(),Vector3t::Zero(),Vector3t::Zero(),Vector2t::Zero()) {}
+        m_Imu(SE3t(),Vector3t::Zero(),Vector3t::Zero(),Vector2t::Zero()),
+        m_bEnableTranslation(false), m_dTotalTvsChange(0),m_dTvsTransPrior(1.0),m_dTvsRotPrior(1.0) {}
 
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -53,12 +59,15 @@ public:
         assert(uNumLandmarks != 0 || LmSize == 0);
 
         m_uNumActivePoses = 0;
+        m_uNumActiveLandmakrs = 0;
         m_uProjResidualOffset = 0;
         m_uBinaryResidualOffset = 0;
         m_uUnaryResidualOffset = 0;
         m_uImuResidualOffset = 0;
         if(pRig != 0){
             m_Rig = *pRig;
+            m_Imu.Tvs = m_Rig.cameras[0].T_wc;
+            m_dLastTvs = m_Imu.Tvs;
         }
         m_vLandmarks.reserve(uNumLandmarks);
         m_vProjResiduals.reserve(uNumMeasurements);
@@ -71,17 +80,16 @@ public:
         m_vUnaryResiduals.clear();
         m_vImuResiduals.clear();
         m_vLandmarks.clear();
-
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     unsigned int AddPose(const SE3t& Twp, const bool bIsActive = true, const double dTime = -1)
     {
-        return AddPose( Twp, Sophus::SE3d(), Vector3t::Zero(), Vector6t::Zero(), bIsActive, dTime);
+        return AddPose( Twp, Sophus::SE3d(), VectorXt(5).setZero(), Vector3t::Zero(), Vector6t::Zero(), bIsActive, dTime);
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    unsigned int AddPose(const SE3t& Twp, const SE3t& Tvs, const Vector3t& V, const Vector6t& B, const bool bIsActive = true, const double dTime = -1)
+    unsigned int AddPose(const SE3t& Twp, const SE3t& Tvs, const VectorXt camParams, const Vector3t& V, const Vector6t& B, const bool bIsActive = true, const double dTime = -1)
     {
         Pose pose;
         pose.Time = dTime;
@@ -89,6 +97,7 @@ public:
         pose.Tvs = Tvs;
         pose.V = V;
         pose.B = B;
+        pose.CamParams = camParams;
         pose.IsActive = bIsActive;
         pose.Tsw.reserve(m_Rig.cameras.size());
         // assume equal distribution of measurements amongst poses
@@ -100,28 +109,39 @@ public:
         }else{
             // the is active flag should be checked before reading this value, to see if the pose
             // is part of the optimization or not
-            pose.OptId = 0;
+            pose.OptId = UINT_MAX;
         }
 
         m_vPoses.push_back(pose);        
+        // std::cout << "Addeded pose with IsActive= " << pose.IsActive << ", Id = " << pose.Id << " and OptId = " << pose.OptId << std::endl;
 
         return pose.Id;
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    unsigned int AddLandmark(const Vector4t& Xw,const unsigned int uRefPoseId, const unsigned int uRefCamId = 0)
+    unsigned int AddLandmark(const Vector4t& Xw,const unsigned int uRefPoseId, const unsigned int uRefCamId, const bool bIsActive)
     {
         assert(uRefPoseId < m_vPoses.size());
         Landmark landmark;
         landmark.Xw = Xw;
         // assume equal distribution of measurements amongst landmarks
         landmark.ProjResiduals.reserve(m_vProjResiduals.capacity()/m_vLandmarks.capacity());
-        landmark.OptId = m_vLandmarks.size();
         landmark.RefPoseId = uRefPoseId;
         landmark.RefCamId = uRefCamId;
+        landmark.IsActive = bIsActive;
+        landmark.Id = m_vLandmarks.size();
+        if(bIsActive){
+            landmark.OptId = m_uNumActiveLandmakrs;
+            m_uNumActiveLandmakrs++;
+        }else{
+            // the is active flag should be checked before reading this value, to see if the pose
+            // is part of the optimization or not
+            landmark.OptId = UINT_MAX;
+        }
+
         m_vLandmarks.push_back(landmark);
          //std::cout << "Adding landmark with Xw = [" << Xw.transpose() << "], refPoseId " << uRefPoseId << ", uRefCamId " << uRefCamId << ", OptId " << landmark.OptId << std::endl;
-        return landmark.OptId;
+        return landmark.Id;
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -174,28 +194,46 @@ public:
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     unsigned int AddProjectionResidual(const Vector2t z,
-                                    const unsigned int uPoseId,
+                                    const unsigned int uMeasPoseId,
                                     const unsigned int uLandmarkId,
                                     const unsigned int uCameraId,
                                     const Scalar dWeight = 1.0)
     {
         assert(uLandmarkId < m_vLandmarks.size());
-        assert(uPoseId < m_vPoses.size());
+        assert(uMeasPoseId < m_vPoses.size());
 
         ProjectionResidual residual;
         residual.W = dWeight;
         residual.LandmarkId = uLandmarkId;
-        residual.PoseId = uPoseId;
+        residual.MeasPoseId = uMeasPoseId;
+        residual.RefPoseId = m_vLandmarks[uLandmarkId].RefPoseId;
         residual.Z = z;
         residual.CameraId = uCameraId;
         residual.ResidualId = m_vProjResiduals.size();
         residual.ResidualOffset = m_uProjResidualOffset;
 
+        Landmark& lm = m_vLandmarks[uLandmarkId];
+        // set the reference measurement
+        if(uMeasPoseId == residual.RefPoseId && uCameraId == lm.RefCamId){
+            lm.Zref = z;
+        }
+
+        // this prevents adding measurements of the landmark in the privileged frame in which
+        // it was first seen, as with inverse depth, the error would always be zero.
+        // however, if 3dof parametrization of landmarks is used, we add all measurements
+        if(uMeasPoseId != residual.RefPoseId || uCameraId != lm.RefCamId || LmSize != 1){
+            m_vPoses[uMeasPoseId].ProjResiduals.push_back(residual.ResidualId);
+            m_vLandmarks[uLandmarkId].ProjResiduals.push_back(residual.ResidualId);
+            if(LmSize == 1){
+                m_vPoses[residual.RefPoseId].ProjResiduals.push_back(residual.ResidualId);
+            }
+        }else{
+            // we should not add this residual
+             return -1;
+        }
+
         m_vProjResiduals.push_back(residual);
         m_uProjResidualOffset += ProjectionResidual::ResSize;
-
-        m_vLandmarks[uLandmarkId].ProjResiduals.push_back(residual.ResidualId);
-        m_vPoses[uPoseId].ProjResiduals.push_back(residual.ResidualId);
 
         return residual.ResidualId;
     }
@@ -209,7 +247,7 @@ public:
         assert(uPoseAId < m_vPoses.size());
         assert(uPoseBId < m_vPoses.size());
         // we must be using 9DOF poses for IMU residuals
-        assert(PoseSize == 9);
+        //assert(PoseSize == 9);
 
         ImuResidual residual;
         residual.W = dWeight;
@@ -228,6 +266,7 @@ public:
     }
     void Solve(const unsigned int uMaxIter);
 
+    bool IsTranslationEnabled() { return m_bEnableTranslation; }
     unsigned int GetNumPoses() const { return m_vPoses.size(); }
     const ImuResidual& GetImuResidual(const unsigned int id) const { return m_vImuResiduals[id]; }
     const ImuCalibration& GetImuCalibration() const { return m_Imu; }
@@ -236,9 +275,9 @@ public:
     // return the landmark in the world frame
     const Vector4t& GetLandmark(const unsigned int id) const { return m_vLandmarks[id].Xw; }
 
-
-
 private:
+    void _ApplyUpdate(const VectorXt &delta_p, const VectorXt &delta_l, const VectorXt &deltaCalib, const bool bRollback);
+    void _EvaluateResiduals();
     void _BuildProblem();
 
     // reprojection jacobians and residual
@@ -272,9 +311,17 @@ private:
 
     VectorXt m_Ri;
 
-
-
+    bool m_bEnableTranslation;
+    double m_dTotalTvsChange;
+    SE3t m_dLastTvs;
+    double m_dProjError;
+    double m_dBinaryError;
+    double m_dUnaryError;
+    double m_dImuError;
+    double m_dTvsTransPrior;
+    double m_dTvsRotPrior;
     unsigned int m_uNumActivePoses;
+    unsigned int m_uNumActiveLandmakrs;
     unsigned int m_uBinaryResidualOffset;
     unsigned int m_uUnaryResidualOffset;
     unsigned int m_uProjResidualOffset;
@@ -289,6 +336,7 @@ private:
     std::vector<Scalar> m_vErrors;
 
     ImuCalibration m_Imu;
+
 };
 
 static const int NOT_USED = 0;

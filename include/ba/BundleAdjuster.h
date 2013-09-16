@@ -44,7 +44,8 @@ class BundleAdjuster
 public:
     ///////////////////////////////////////////////////////////////////////////////////////////////
     BundleAdjuster() :
-        m_Imu(SE3t(),Vector3t::Zero(),Vector3t::Zero(),Vector2t::Zero()), m_bEnableTranslation(false), m_dTotalTvsChange(0) {}
+        m_Imu(SE3t(),Vector3t::Zero(),Vector3t::Zero(),Vector2t::Zero()),
+        m_bEnableTranslation(false), m_dTotalTvsChange(0),m_dTvsTransPrior(1.0),m_dTvsRotPrior(1.0) {}
 
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -66,6 +67,7 @@ public:
         if(pRig != 0){
             m_Rig = *pRig;
             m_Imu.Tvs = m_Rig.cameras[0].T_wc;
+            m_dLastTvs = m_Imu.Tvs;
         }
         m_vLandmarks.reserve(uNumLandmarks);
         m_vProjResiduals.reserve(uNumMeasurements);
@@ -210,6 +212,10 @@ public:
         residual.ResidualId = m_vProjResiduals.size();
         residual.ResidualOffset = m_uProjResidualOffset;
 
+        // set the reference measurement
+        if(uMeasPoseId == residual.RefPoseId){
+            m_vLandmarks[uLandmarkId].Zref = z;
+        }
 
         if(uMeasPoseId != residual.RefPoseId || LmSize != 1){
             m_vPoses[uMeasPoseId].ProjResiduals.push_back(residual.ResidualId);
@@ -303,10 +309,13 @@ private:
 
     bool m_bEnableTranslation;
     double m_dTotalTvsChange;
+    SE3t m_dLastTvs;
     double m_dProjError;
     double m_dBinaryError;
     double m_dUnaryError;
     double m_dImuError;
+    double m_dTvsTransPrior;
+    double m_dTvsRotPrior;
     unsigned int m_uNumActivePoses;
     unsigned int m_uNumActiveLandmakrs;
     unsigned int m_uBinaryResidualOffset;

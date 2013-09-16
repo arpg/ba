@@ -10,7 +10,7 @@
 
 namespace ba
 {
-
+static const double Gravity = 9.80665;
 template<typename Scalar=double>
 struct PoseT
 {
@@ -46,6 +46,7 @@ struct PoseT
 template<typename Scalar=double,int LmSize=1>
 struct LandmarkT
 {
+    Eigen::Matrix<Scalar,2,1> Zref;
     Eigen::Matrix<Scalar,4,1> Xs;
     Eigen::Matrix<Scalar,4,1> Xw;
     std::vector<int> ProjResiduals;
@@ -92,7 +93,7 @@ template <typename T>
 /// \param g Gravity of 1 g in m/s^2
 /// \return The 3d gravity vecto
 ///
-static Eigen::Matrix<T,3,1> GetGravityVector(const Eigen::Matrix<T,2,1>& direction, const T g = (T)9.80665)
+static Eigen::Matrix<T,3,1> GetGravityVector(const Eigen::Matrix<T,2,1>& direction, const T g = ba::Gravity)
 {
     T sp = sin(direction[0]);
     T cp = cos(direction[0]);
@@ -110,7 +111,7 @@ template <typename T>
 /// \param g Gravity of 1 g in m/s^2
 /// \return The 3x2 jacobian matrix
 ///
-static Eigen::Matrix<T,3,2> dGravity_dDirection(const Eigen::Matrix<T,2,1>& direction, const T g = (T)9.80665)
+static Eigen::Matrix<T,3,2> dGravity_dDirection(const Eigen::Matrix<T,2,1>& direction, const T g = ba::Gravity)
 {
     T sp = sin(direction[0]);
     T cp = cos(direction[0]);

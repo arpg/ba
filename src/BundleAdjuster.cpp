@@ -9,7 +9,7 @@ template< typename Scalar,int LmSize, int PoseSize, int CalibSize >
 void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::_ApplyUpdate(const VectorXt& delta_p, const VectorXt& delta_l,
                                                                     const VectorXt& deltaCalib, const bool bRollback)
 {
-    double coef = bRollback == true ? -1.0 : 1.0;
+    double coef = bRollback == true ? -1.0 : 1.0;    
     // update gravity terms if necessary
     if( m_vImuResiduals.size() > 0 ) {
         const VectorXt deltaCalib = delta_p.template tail(CalibSize);
@@ -26,12 +26,6 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::_ApplyUpdate(const Vector
             std::cout << "Tvs is :" << std::endl << m_Imu.Tvs.matrix() << std::endl;
         }
 
-        // update the camera parameters
-        if( CalibSize > 8 ){
-            const VectorXt params = m_Rig.cameras[0].camera.GenericParams();
-            m_Rig.cameras[0].camera.SetGenericParams(params + (deltaCalib.template block<5,1>(8,0) * DAMPING * coef));
-        }
-
         // update bias terms if necessary
         // if(CalibSize > 2){
             // m_Imu.Bg -= deltaCalib.template block<3,1>(2,0);//.template tail(CalibSize);
@@ -39,6 +33,14 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::_ApplyUpdate(const Vector
             // m_Imu.Ba -= deltaCalib.template block<3,1>(5,0);//.template tail(CalibSize);
             // std::cout << "Ba delta is " << deltaCalib.template block<3,1>(5,0).transpose() << " ba is: " << m_Imu.Ba.transpose() << std::endl;
         // }
+    }
+
+    // update the camera parameters
+    if( CalibSize > 8 && deltaCalib.rows() > 8){
+        std::cout << "calib delta: " << (deltaCalib.template block<5,1>(8,0) * DAMPING * coef).transpose() << std::endl;
+        const VectorXt params = m_Rig.cameras[0].camera.GenericParams();
+        m_Rig.cameras[0].camera.SetGenericParams(params - (deltaCalib.template block<5,1>(8,0) * DAMPING * coef));
+        std::cout << "new params: " << m_Rig.cameras[0].camera.GenericParams().transpose() << std::endl;
     }
 
     // std::cout << delta_l << std::endl;
@@ -111,11 +113,23 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::_ApplyUpdate(const Vector
                 // m_vLandmarks[ii].Xs /= m_vLandmarks[ii].Xs[3];
             }else{
                 m_vLandmarks[ii].Xs.template head<LmSize>() -= delta_l.template segment<LmSize>(m_vLandmarks[ii].OptId*LmSize) * DAMPING * coef;
-            }
+            }            
+            /*
+            std::cout << "Adjusting landmark with zref: " << m_vLandmarks[ii].Zref.transpose() << " from " << m_vLandmarks[ii].Xs.transpose() << std::endl;
+            m_vLandmarks[ii].Xs /= m_vLandmarks[ii].Xs[3];
+            const Scalar depth = m_vLandmarks[ii].Xs.template head<3>().norm();
+            //reproject this landmark
+            //VectorXt origParams = m_Rig.cameras[0].camera.GenericParams();
+            //m_Rig.cameras[0].camera.SetGenericParams(m_vPoses[m_vLandmarks[ii].RefPoseId].CamParams);
+            Vector3t Xs_reproj = m_Rig.cameras[0].camera.Unproject(m_vLandmarks[ii].Zref);
+            m_vLandmarks[ii].Xs.template head<3>() = Xs_reproj*depth;
+            //m_Rig.cameras[0].camera.SetGenericParams(origParams);
+            std::cout << "to " << m_vLandmarks[ii].Xs.transpose() << std::endl;
+            */
 
             m_vLandmarks[ii].Xw = MultHomogeneous(m_vPoses[m_vLandmarks[ii].RefPoseId].GetTsw(m_vLandmarks[ii].RefCamId, m_Rig, PoseSize >= 21).inverse(),
                                                   m_vLandmarks[ii].Xs);
-            m_vLandmarks[ii].Xw /= m_vLandmarks[ii].Xw[3];
+            // m_vLandmarks[ii].Xw /= m_vLandmarks[ii].Xw[3];
         }
     }
 }
@@ -166,24 +180,40 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::_EvaluateResiduals()
            res.Residual.template segment<6>(9).setZero(); // bias
        }
 
-       if( PoseSize > 15 ){
+       if(PoseSize > 15){
            res.Residual.template segment<6>(15) = SE3t::log(poseA.Tvs*poseB.Tvs.inverse());
            if( m_bEnableTranslation == false ){
                 dTotalTvsChange += res.Residual.template segment<6>(15).norm();
+
            }
            res.Residual.template segment<3>(15).setZero();
        }
+
        // std::cout << "EVALUATE imu res between " << res.PoseAId << " and " << res.PoseBId << ":" << res.Residual.transpose () << std::endl;
        m_dImuError += res.Residual.norm() * res.W;
    }
 
-   std::cout << "Total tvs change is: " << dTotalTvsChange << std::endl;
-   if(m_dTotalTvsChange != 0 && dTotalTvsChange< 0.1){
-       std::cout << "EMABLING TRANSLATION ERRORS" << std::endl;
-       m_bEnableTranslation = true;
-       dTotalTvsChange = 0;
+   if(m_vImuResiduals.size() > 0 && m_bEnableTranslation == false){
+       if(CalibSize > 2){
+           const Scalar logDif = SE3t::log(m_Imu.Tvs * m_dLastTvs.inverse()).norm();
+           std::cout << "logDif is " << logDif << std::endl;
+           if(logDif < 0.01 && m_vPoses.size() >= 30 ){
+               std::cout << "EMABLING TRANSLATION ERRORS" << std::endl;
+               m_bEnableTranslation = true;
+           }
+           m_dLastTvs = m_Imu.Tvs;
+       }
+
+       if(PoseSize > 15){
+           std::cout << "Total tvs change is: " << dTotalTvsChange << std::endl;
+           if(m_dTotalTvsChange != 0 && dTotalTvsChange/m_vImuResiduals.size() < 0.1 && m_vPoses.size() >= 30){
+               std::cout << "EMABLING TRANSLATION ERRORS" << std::endl;
+               m_bEnableTranslation = true;
+               dTotalTvsChange = 0;
+           }
+           m_dTotalTvsChange = dTotalTvsChange;
+       }
    }
-   m_dTotalTvsChange = dTotalTvsChange;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -301,7 +331,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
             // one landmark, which doesn't make sense)
             for(size_t ii = 0 ; ii < uNumLm ; ii++){
                 if(LmSize == 1){
-                    if(V.coeffRef(ii,ii)(0,0) < 1e-6){
+                    if(fabs(V.coeffRef(ii,ii)(0,0)) < 1e-6){
                         std::cout << "Landmark coeff too small: " << V.coeffRef(ii,ii)(0,0) << std::endl;
                         V.coeffRef(ii,ii)(0,0) += 1e-6;
                     }
@@ -454,6 +484,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
 
         // now we have to solve for the pose constraints
         dTime = Tic();
+        S.template block<3,3>(S.rows()-3,S.cols()-3) += Eigen::Matrix<Scalar,3,3>::Identity()*1e-6;
         VectorXt delta_p = uNumPoses == 0 ? VectorXt() : S.ldlt().solve(rhs_p);
 //        VectorXt delta_p = uNumPoses == 0 ? VectorXt() : S.inverse() * rhs_p;
          std::cout << "Cholesky solve of " << uNumPoses << " by " << uNumPoses << "matrix took " << Toc(dTime) << " seconds." << std::endl;
@@ -494,8 +525,8 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(const unsigned int 
             _ApplyUpdate(delta_p, delta_l, deltaCalib, true );
             break;
         }
-        else if( (dPrevError - dPostError)/dPrevError < 0.001 ){
-            std::cout << "Error decrease less than 0.1%, aborting." << std::endl;
+        else if( (dPrevError - dPostError)/dPrevError < 0.01 ){
+            std::cout << "Error decrease less than 1%, aborting." << std::endl;
             break;
         }
         // std::cout << "BA iteration " << kk <<  " error: " << m_Rpr.norm() + m_Ru.norm() + m_Rpp.norm() + m_Ri.norm() << std::endl;
@@ -866,14 +897,14 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
             res.dZ_dX1.template block<6,6>(15,15) = -dLog_dX(SE3t(), poseA.Tvs * poseB.Tvs.inverse());
             res.dZ_dX2.template block<6,6>(15,15) = dLog_dX(poseA.Tvs * poseB.Tvs.inverse(), SE3t());
 
-            // if( m_bEnableTranslation == false ){
-            res.Residual.template segment<3>(15).setZero();
-            // removing translation elements of Tvs
-            res.dZ_dX1.template block<6,3>(15,15).setZero();
-            res.dZ_dX2.template block<6,3>(15,15).setZero();
-            res.dZ_dX1.template block<9,3>(0,15).setZero();
-            res.dZ_dX2.template block<9,3>(0,15).setZero();
-            // }
+            //if( m_bEnableTranslation == false ){
+                res.Residual.template segment<3>(15).setZero();
+                // removing translation elements of Tvs
+                res.dZ_dX1.template block<6,3>(15,15).setZero();
+                res.dZ_dX2.template block<6,3>(15,15).setZero();
+                res.dZ_dX1.template block<9,3>(0,15).setZero();
+                res.dZ_dX2.template block<9,3>(0,15).setZero();
+            //}
 
             // std::cout << "res.dZ_dX1: " << std::endl << res.dZ_dX1.format(cleanFmt) << std::endl;
 
@@ -911,7 +942,9 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         }else{
             res.dZ_dY = res.dZ_dX1.template block<ImuResidual::ResSize, 6>(0,0) +
                         res.dZ_dX2.template block<ImuResidual::ResSize, 6>(0,0);
-            res.dZ_dY.template block<ImuResidual::ResSize, 3>(0,0).setZero();
+            if( m_bEnableTranslation == false ){
+                res.dZ_dY.template block<ImuResidual::ResSize, 3>(0,0).setZero();
+            }
         }
 
         // std::cout << "BUILD imu res between " << res.PoseAId << " and " << res.PoseBId << ":" << res.Residual.transpose () << std::endl;
@@ -1245,7 +1278,16 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
                 const ImuResidual& res = m_vImuResiduals[id];
                 Eigen::Matrix<Scalar,ImuResidual::ResSize,PoseSize> dZ_dZ = res.PoseAId == pose.Id ? res.dZ_dX1 : res.dZ_dX2;
                 m_Ji.insert( res.ResidualId, pose.OptId ).setZero().template block<ImuResidual::ResSize,PoseSize>(0,0) = dZ_dZ;
-                // dZ_dZ.template block<3,PoseSize>(6,0) *= 0.1;
+                // this down weights the velocity error
+                dZ_dZ.template block<3,PoseSize>(6,0) *= 0.1;
+                // up weight the Tvs translation prior
+                if(PoseSize > 15){
+                    dZ_dZ.template block<3,PoseSize>(15,0) *= (100/**m_dTvsTransPrior*/);
+                    dZ_dZ.template block<3,PoseSize>(18,0) *= (10/**m_dTvsRotPrior*/);
+//                    std::cout << "m_dTvsTransPrior: " <<  m_dTvsTransPrior << " m_dTvsRotPrior:" << m_dTvsRotPrior << std::endl;
+//                    m_dTvsTransPrior += 0.00001;
+//                    m_dTvsRotPrior += 0.00002;
+                }
                 m_Jit.insert( pose.OptId, res.ResidualId ).setZero().template block<PoseSize,ImuResidual::ResSize>(0,0) = dZ_dZ.transpose() * res.W;
             }
         }
@@ -1259,7 +1301,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
                 // std::cout << "Residual " << res.ResidualId << " : dZ_dG: " << res.dZ_dG.template block<9,2>(0,0).transpose() << std::endl;
                 Eigen::Matrix<Scalar,9,2> dZ_dG = res.dZ_dG;
                 m_Jki.insert(res.ResidualId, 0 ).setZero().template block(0,0,9,2) = dZ_dG.template block(0,0,9,2);
-                // dZ_dG.template block<3,2>(6,0) *= 0.1;
+                // this down weights the velocity error
+                dZ_dG.template block<3,2>(6,0) *= 0.1;
                 m_Jkit.insert( 0, res.ResidualId ).setZero().template block(0,0,2,9) = dZ_dG.transpose().template block(0,0,2,9) * res.W;
             }
 
@@ -1301,9 +1344,9 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
 // specializations
 // template class BundleAdjuster<REAL_TYPE, ba::NOT_USED,9,8>;
 template class BundleAdjuster<REAL_TYPE, 1,6,0>;
-// template class BundleAdjuster<REAL_TYPE, 1,15,8>;
-//template class BundleAdjuster<REAL_TYPE, 1,15,2>;
-template class BundleAdjuster<REAL_TYPE, 1,21,2>;
+//template class BundleAdjuster<REAL_TYPE, 1,15,8>;
+template class BundleAdjuster<REAL_TYPE, 1,15,2>;
+//template class BundleAdjuster<REAL_TYPE, 1,21,2>;
 // template class BundleAdjuster<double, 3,9>;
 
 

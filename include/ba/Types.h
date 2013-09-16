@@ -10,7 +10,7 @@
 
 namespace ba
 {
-
+static const double Gravity = 9.80665;
 template<typename Scalar=double>
 struct PoseT
 {
@@ -18,6 +18,7 @@ struct PoseT
     Sophus::SE3Group<Scalar> Tvs;
     Eigen::Matrix<Scalar,3,1> V;
     Eigen::Matrix<Scalar,6,1> B;
+    Eigen::Matrix<Scalar,Eigen::Dynamic,1> CamParams;
     bool IsActive;
     unsigned int Id;
     unsigned int OptId;
@@ -28,10 +29,15 @@ struct PoseT
     std::vector<int> UnaryResiduals;
     std::vector<Sophus::SE3Group<Scalar>> Tsw;
 
-    const Sophus::SE3Group<Scalar>& GetTsw(const unsigned int camId, const calibu::CameraRigT<Scalar>& rig)
+    const Sophus::SE3Group<Scalar>& GetTsw(const unsigned int camId, const calibu::CameraRigT<Scalar>& rig, const bool bUseTswParam)
     {
         while(Tsw.size() <= camId ){
-          Tsw.push_back( (Twp*rig.cameras[Tsw.size()].T_wc).inverse());
+            if(bUseTswParam == false){
+                Tsw.push_back( (Twp*rig.cameras[Tsw.size()].T_wc).inverse());
+            }else{
+                // this needs to be modified to work with stereo
+                Tsw.push_back( (Twp*Tvs).inverse());
+            }
         }
         return Tsw[camId];
     }
@@ -40,12 +46,15 @@ struct PoseT
 template<typename Scalar=double,int LmSize=1>
 struct LandmarkT
 {
+    Eigen::Matrix<Scalar,2,1> Zref;
     Eigen::Matrix<Scalar,4,1> Xs;
     Eigen::Matrix<Scalar,4,1> Xw;
     std::vector<int> ProjResiduals;
+    unsigned int Id;
     unsigned int OptId;
     unsigned int RefPoseId;
     unsigned int RefCamId;
+    bool IsActive;
 };
 
 template<typename Scalar=double>
@@ -84,7 +93,7 @@ template <typename T>
 /// \param g Gravity of 1 g in m/s^2
 /// \return The 3d gravity vecto
 ///
-static Eigen::Matrix<T,3,1> GetGravityVector(const Eigen::Matrix<T,2,1>& direction, const T g = (T)9.80665)
+static Eigen::Matrix<T,3,1> GetGravityVector(const Eigen::Matrix<T,2,1>& direction, const T g = ba::Gravity)
 {
     T sp = sin(direction[0]);
     T cp = cos(direction[0]);
@@ -102,7 +111,7 @@ template <typename T>
 /// \param g Gravity of 1 g in m/s^2
 /// \return The 3x2 jacobian matrix
 ///
-static Eigen::Matrix<T,3,2> dGravity_dDirection(const Eigen::Matrix<T,2,1>& direction, const T g = (T)9.80665)
+static Eigen::Matrix<T,3,2> dGravity_dDirection(const Eigen::Matrix<T,2,1>& direction, const T g = ba::Gravity)
 {
     T sp = sin(direction[0]);
     T cp = cos(direction[0]);
@@ -181,7 +190,8 @@ struct ProjectionResidualT
 {
     static const unsigned int ResSize = 2;
     Eigen::Matrix<Scalar,2,1> Z;
-    unsigned int PoseId;
+    unsigned int MeasPoseId;
+    unsigned int RefPoseId;
     unsigned int LandmarkId;
     unsigned int CameraId;
     unsigned int ResidualId;
@@ -189,14 +199,13 @@ struct ProjectionResidualT
     Scalar       W;
 
     Eigen::Matrix<Scalar,ResSize,LmSize> dZ_dX;
-    Eigen::Matrix<Scalar,2,6> dZ_dP;
-    Eigen::Matrix<Scalar,2,6> dZ_dTvs;
-    // Eigen::Matrix<Scalar,2,6> dZ_dTic;    // derivative with respect to imu/camera parameters
-    // Eigen::Matrix<Scalar,2,5> dZ_dK;    // derivative with respect to camera parameters
+    Eigen::Matrix<Scalar,2,6> dZ_dPm;
+    Eigen::Matrix<Scalar,2,6> dZ_dPr;
+    Eigen::Matrix<Scalar,2,Eigen::Dynamic> dZ_dK;
     Eigen::Matrix<Scalar,2,1> Residual;
 };
 
-template< typename Scalar=double, int ResidualSize = 15 >
+template< typename Scalar=double, int ResidualSize = 15, int PoseSize = 15 >
 struct ImuResidualT
 {
     typedef ImuPoseT<Scalar> ImuPose;
@@ -210,8 +219,9 @@ struct ImuResidualT
     // Eigen::Matrix<Scalar,9,9>   SigmanInv;
     std::vector<ImuMeasurement> Measurements;
     std::vector<ImuPose> Poses;
-    Eigen::Matrix<Scalar,ResSize,15> dZ_dX1;
-    Eigen::Matrix<Scalar,ResSize,15> dZ_dX2;
+    Eigen::Matrix<Scalar,ResSize,PoseSize> dZ_dX1;
+    Eigen::Matrix<Scalar,ResSize,PoseSize> dZ_dX2;
+    Eigen::Matrix<Scalar,ResSize,6> dZ_dY;
     Eigen::Matrix<Scalar,9,2> dZ_dG;
     Eigen::Matrix<Scalar,ResSize,6> dZ_dB;
     Eigen::Matrix<Scalar,ResSize,1> Residual;

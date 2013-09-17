@@ -729,7 +729,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::_BuildProblem()
         for( ProjectionResidual& res : m_vProjResiduals ){
             // calculate the huber norm weight for this measurement
             const Scalar e = res.Residual.norm();
-            // res.W = e > c_huber ? c_huber/e : 1.0;
+            res.W = e > c_huber ? c_huber/e : 1.0;
             m_dProjError += res.Residual.norm() * res.W;
         }
     }

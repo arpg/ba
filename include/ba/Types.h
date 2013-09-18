@@ -14,881 +14,1061 @@ static const double Gravity = 9.80665;
 template<typename Scalar=double>
 struct PoseT
 {
-    Sophus::SE3Group<Scalar> Twp;
-    Sophus::SE3Group<Scalar> Tvs;
-    Eigen::Matrix<Scalar,3,1> V;
-    Eigen::Matrix<Scalar,6,1> B;
-    Eigen::Matrix<Scalar,Eigen::Dynamic,1> CamParams;
-    bool IsActive;
-    unsigned int Id;
-    unsigned int OptId;
-    double Time;
-    std::vector<int> ProjResiduals;
-    std::vector<int> ImuResiduals;
-    std::vector<int> BinaryResiduals;
-    std::vector<int> UnaryResiduals;
-    std::vector<Sophus::SE3Group<Scalar>> Tsw;
+  Sophus::SE3Group<Scalar> t_wp;
+  Sophus::SE3Group<Scalar> t_vs;
+  Eigen::Matrix<Scalar,3,1> v_w;
+  Eigen::Matrix<Scalar,6,1> b;
+  Eigen::Matrix<Scalar,Eigen::Dynamic,1> cam_params;
+  bool is_active;
+  unsigned int id;
+  unsigned int opt_id;
+  double time;
+  std::vector<int> proj_residuals;
+  std::vector<int> inertial_residuals;
+  std::vector<int> binary_residuals;
+  std::vector<int> unary_residuals;
+  std::vector<Sophus::SE3Group<Scalar>> t_sw;
 
-    const Sophus::SE3Group<Scalar>& GetTsw(const unsigned int camId, const calibu::CameraRigT<Scalar>& rig, const bool bUseTswParam)
-    {
-        while(Tsw.size() <= camId ){
-            if(bUseTswParam == false){
-                Tsw.push_back( (Twp*rig.cameras[Tsw.size()].T_wc).inverse());
-            }else{
-                // this needs to be modified to work with stereo
-                Tsw.push_back( (Twp*Tvs).inverse());
-            }
-        }
-        return Tsw[camId];
+  const Sophus::SE3Group<Scalar>& GetTsw(const unsigned int cam_id,
+                                         const calibu::CameraRigT<Scalar>& rig,
+                                         const bool use_internal_t_sw)
+  {
+    while (t_sw.size() <= cam_id ) {
+      if (use_internal_t_sw == false) {
+        t_sw.push_back((t_wp*rig.cameras[t_sw.size()].T_wc).inverse());
+      } else {
+        // this needs to be modified to work with stereo
+        t_sw.push_back( (t_wp*t_vs).inverse());
+      }
     }
+    return t_sw[cam_id];
+  }
 };
 
 template<typename Scalar=double,int LmSize=1>
 struct LandmarkT
 {
-    Eigen::Matrix<Scalar,2,1> Zref;
-    Eigen::Matrix<Scalar,4,1> Xs;
-    Eigen::Matrix<Scalar,4,1> Xw;
-    std::vector<int> ProjResiduals;
-    unsigned int Id;
-    unsigned int OptId;
-    unsigned int RefPoseId;
-    unsigned int RefCamId;
-    bool IsActive;
+  Eigen::Matrix<Scalar,2,1> z_ref;
+  Eigen::Matrix<Scalar,4,1> x_s;
+  Eigen::Matrix<Scalar,4,1> x_w;
+  std::vector<int> proj_residuals;
+  unsigned int id;
+  unsigned int opt_id;
+  unsigned int ref_pose_id;
+  unsigned int ref_cam_id;
+  bool is_active;
 };
 
 template<typename Scalar=double>
 struct ImuCalibrationT
 {
-    ImuCalibrationT(const Sophus::SE3Group<Scalar>& tvs, const Eigen::Matrix<Scalar,3,1>& bg, const Eigen::Matrix<Scalar,3,1>& ba, const Eigen::Matrix<Scalar,2,1>& g):
-        Tvs(tvs),Bg(bg),Ba(ba),G(g),
-        R((Eigen::Vector6d() << IMU_GYRO_UNCERTAINTY, IMU_GYRO_UNCERTAINTY, IMU_GYRO_UNCERTAINTY,
-           IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY).finished().asDiagonal()){}
-    ///
-    /// \brief Calibration from vehicle to sensor frame (monocular for now)
-    ///
-    Sophus::SE3Group<Scalar> Tvs;
-    ///
-    /// \brief Gyroscope bias vector
-    ///
-    Eigen::Matrix<Scalar,3,1> Bg;
-    ///
-    /// \brief Accelerometer bias vector
-    ///
-    Eigen::Matrix<Scalar,3,1> Ba;
-    ///
-    /// \brief Gravity vector (2D, parametrized by roll and pitch of the vector wrt the ground plane)
-    ///
-    Eigen::Matrix<Scalar,2,1> G;
-    ///
-    /// \brief Sensor uncertainty. The first 3 rows/cols are gyroscope and the last are accel
-    ///
-    Eigen::Matrix<Scalar,6,6> R;
+  ImuCalibrationT(const Sophus::SE3Group<Scalar>& t_vs,
+                  const Eigen::Matrix<Scalar,3,1>& b_g,
+                  const Eigen::Matrix<Scalar,3,1>& b_a,
+                  const Eigen::Matrix<Scalar,2,1>& g):
+    t_vs(t_vs),b_g(b_g),b_a(b_a),g(g),
+    r((Eigen::Vector6d() << IMU_GYRO_UNCERTAINTY,
+       IMU_GYRO_UNCERTAINTY,
+       IMU_GYRO_UNCERTAINTY,
+       IMU_ACCEL_UNCERTAINTY,
+       IMU_ACCEL_UNCERTAINTY,
+       IMU_ACCEL_UNCERTAINTY).finished().asDiagonal())
+  {}
+
+  /// \brief Calibration from vehicle to sensor frame (monocular for now)
+  Sophus::SE3Group<Scalar> t_vs;
+
+  /// \brief Gyroscope bias vector
+  Eigen::Matrix<Scalar,3,1> b_g;
+
+  /// \brief Accelerometer bias vector
+  Eigen::Matrix<Scalar,3,1> b_a;
+
+  /// \brief Gravity vector (2D, parametrized by roll and pitch of the
+  /// vector wrt the ground plane)
+  Eigen::Matrix<Scalar,2,1> g;
+
+  /// \brief Sensor uncertainty. The first 3 rows/cols are gyroscope
+  /// and the last are accel
+  Eigen::Matrix<Scalar,6,6> r;
 };
 
 template <typename T>
 ///
-/// \brief GetGravityVector Returns the 3d gravity vector from the 2d direction vector
+/// \brief GetGravityVector Returns the 3d gravity vector from the 2d
+/// direction vector
 /// \param direction The 2d gravity direction vector
 /// \param g Gravity of 1 g in m/s^2
 /// \return The 3d gravity vecto
 ///
-static Eigen::Matrix<T,3,1> GetGravityVector(const Eigen::Matrix<T,2,1>& direction, const T g = ba::Gravity)
+static Eigen::Matrix<T,3,1> GetGravityVector(const Eigen::Matrix<T,2,1>& dir,
+                                             const T g = ba::Gravity)
 {
-    T sp = sin(direction[0]);
-    T cp = cos(direction[0]);
-    T sq = sin(direction[1]);
-    T cq = cos(direction[1]);
-    Eigen::Matrix<T,3,1> vec(cp*sq,-sp,cp*cq);
-    vec *= -g;
-    return vec;
+  T sp = sin(dir[0]);
+  T cp = cos(dir[0]);
+  T sq = sin(dir[1]);
+  T cq = cos(dir[1]);
+  Eigen::Matrix<T,3,1> vec(cp*sq,-sp,cp*cq);
+  vec *= -g;
+  return vec;
 }
 
 template <typename T>
 ///
-/// \brief dGravity_dDirection Returns the jacobian associated with getting the 3d gravity vector from the 2d direction
+/// \brief dGravity_dDirection Returns the jacobian associated with getting
+/// the 3d gravity vector from the 2d direction
 /// \param direction The 2d gravity direction vector
 /// \param g Gravity of 1 g in m/s^2
 /// \return The 3x2 jacobian matrix
 ///
-static Eigen::Matrix<T,3,2> dGravity_dDirection(const Eigen::Matrix<T,2,1>& direction, const T g = ba::Gravity)
+static Eigen::Matrix<T,3,2> dGravity_dDirection(
+    const Eigen::Matrix<T,2,1>& dir,
+    const T g = ba::Gravity)
 {
-    T sp = sin(direction[0]);
-    T cp = cos(direction[0]);
-    T sq = sin(direction[1]);
-    T cq = cos(direction[1]);
-    Eigen::Matrix<T,3,2> vec;
-    vec << -sp*sq, cp*cq,
-              -cp,     0,
-           -cq*sp,-cp*sq;
-    vec *= -g;
-    return vec;
+  T sp = sin(dir[0]);
+  T cp = cos(dir[0]);
+  T sq = sin(dir[1]);
+  T cq = cos(dir[1]);
+  Eigen::Matrix<T,3,2> vec;
+  vec << -sp*sq, cp*cq,
+      -cp,     0,
+      -cq*sp,-cp*sq;
+  vec *= -g;
+  return vec;
 }
 
 template< typename Scalar=double >
 struct ImuPoseT
 {
-    ImuPoseT(const PoseT<Scalar>& pose) :
-        Twp(pose.Twp), V(pose.V), W(Eigen::Matrix<Scalar,3,1>::Zero()), Time(pose.Time) {}
-    ImuPoseT(const Sophus::SE3Group<Scalar>& twp,
-             const Eigen::Matrix<Scalar,3,1>& v,
-             const Eigen::Matrix<Scalar,3,1>& w,
-             const double time) :
-        Twp(twp), V(v), W(w), Time(time) {}
-    Sophus::SE3Group<Scalar> Twp;
-    Eigen::Matrix<Scalar,3,1> V;
-    Eigen::Matrix<Scalar,3,1> W;    
-    double Time;
+  ImuPoseT(const PoseT<Scalar>& pose) :
+    t_wp(pose.t_wp), v_w(pose.v_w),
+    w_w(Eigen::Matrix<Scalar,3,1>::Zero()), time(pose.time)
+  {}
+
+  ImuPoseT(const Sophus::SE3Group<Scalar>& twp,
+           const Eigen::Matrix<Scalar,3,1>& v,
+           const Eigen::Matrix<Scalar,3,1>& w,
+           const double time) :
+    t_wp(twp), v_w(v), w_w(w), time(time)
+  {}
+
+  /// \brief pose in world coordinates
+  Sophus::SE3Group<Scalar> t_wp;
+
+  /// \brief velocity in world coordinates
+  Eigen::Matrix<Scalar,3,1> v_w;
+
+  /// \brief angular rates in world coordinates
+  Eigen::Matrix<Scalar,3,1> w_w;
+
+  /// \brief time in seconds
+  double time;
 };
 
 template< typename Scalar=double >
 struct ImuMeasurementT
 {
-    ImuMeasurementT() {}
-    ImuMeasurementT(const Eigen::Matrix<Scalar,3,1>& w,const Eigen::Matrix<Scalar,3,1>& a, const double time): W(w), A(a), Time(time) {}
-    Eigen::Matrix<Scalar,3,1> W;
-    Eigen::Matrix<Scalar,3,1> A;
-    double Time;
-    ImuMeasurementT operator*(const Scalar &rhs) {
-        return ImuMeasurementT( W*rhs, A*rhs, Time );
-    }
-    ImuMeasurementT operator+(const ImuMeasurementT &rhs) {
-        return ImuMeasurementT( W+rhs.W, A+rhs.A, Time );
-    }
+  ImuMeasurementT()
+  {}
+
+  ImuMeasurementT(const Eigen::Matrix<Scalar,3,1>& w,
+                  const Eigen::Matrix<Scalar,3,1>& a,
+                  const double time):
+    w_i(w), w_a(a), time(time)
+  {}
+
+  /// \brief angular rates in inertial coordinates
+  Eigen::Matrix<Scalar,3,1> w_i;
+  /// \brief accelerations in inertial coordinates
+  Eigen::Matrix<Scalar,3,1> w_a;
+  double time;
+
+  ImuMeasurementT operator*(const Scalar &rhs) {
+    return ImuMeasurementT( w_i*rhs, w_a*rhs, time );
+  }
+
+  ImuMeasurementT operator+(const ImuMeasurementT &rhs) {
+    return ImuMeasurementT( w_i+rhs.w_i, w_a+rhs.w_a, time );
+  }
 };
 
 template< typename Scalar=double >
 struct UnaryResidualT
 {
-    static const unsigned int ResSize = 6;
-    unsigned int PoseId;
-    unsigned int ResidualId;
-    unsigned int ResidualOffset;
-    Scalar       W;
-    Sophus::SE3Group<Scalar> Twp;
-    Eigen::Matrix<Scalar,ResSize,6> dZ_dX;
-    Eigen::Matrix<Scalar,6,1> Residual;
+  static const unsigned int kResSize = 6;
+  unsigned int pose_id;
+  unsigned int residual_id;
+  unsigned int residual_offset;
+  Scalar       weight;
+  Sophus::SE3Group<Scalar> t_wp;
+  Eigen::Matrix<Scalar,kResSize,6> dz_dx;
+  Eigen::Matrix<Scalar,6,1> residual;
 };
 
 template< typename Scalar=double >
 struct BinaryResidualT
 {
-    static const unsigned int ResSize = 6;
-    unsigned int PoseAId;
-    unsigned int PoseBId;
-    unsigned int ResidualId;
-    unsigned int ResidualOffset;
-    Scalar       W;
-    Sophus::SE3Group<Scalar> Tab;
-    Eigen::Matrix<Scalar,ResSize,6> dZ_dX1;
-    Eigen::Matrix<Scalar,ResSize,6> dZ_dX2;
-    Eigen::Matrix<Scalar,6,1> Residual;
+  static const unsigned int kResSize = 6;
+  unsigned int x1_id;
+  unsigned int x2_id;
+  unsigned int residual_id;
+  unsigned int residual_offset;
+  Scalar       weight;
+  Sophus::SE3Group<Scalar> t_ab;
+  Eigen::Matrix<Scalar,kResSize,6> dz_dx1;
+  Eigen::Matrix<Scalar,kResSize,6> dZ_dX2;
+  Eigen::Matrix<Scalar,6,1> residual;
 };
 
 template<typename Scalar=double, int LmSize = 1>
 struct ProjectionResidualT
 {
-    static const unsigned int ResSize = 2;
-    Eigen::Matrix<Scalar,2,1> Z;
-    unsigned int MeasPoseId;
-    unsigned int RefPoseId;
-    unsigned int LandmarkId;
-    unsigned int CameraId;
-    unsigned int ResidualId;
-    unsigned int ResidualOffset;
-    Scalar       W;
+  static const unsigned int kResSize = 2;
+  Eigen::Matrix<Scalar,2,1> z;
+  unsigned int x_meas_id;
+  unsigned int x_ref_id;
+  unsigned int landmark_id;
+  unsigned int cam_id;
+  unsigned int residual_id;
+  unsigned int residual_offset;
+  Scalar       weight;
 
-    Eigen::Matrix<Scalar,ResSize,LmSize> dZ_dX;
-    Eigen::Matrix<Scalar,2,6> dZ_dPm;
-    Eigen::Matrix<Scalar,2,6> dZ_dPr;
-    Eigen::Matrix<Scalar,2,Eigen::Dynamic> dZ_dK;
-    Eigen::Matrix<Scalar,2,1> Residual;
+  Eigen::Matrix<Scalar,kResSize,LmSize> dz_dlm;
+  Eigen::Matrix<Scalar,2,6> dz_dx_meas;
+  Eigen::Matrix<Scalar,2,6> dz_dx_ref;
+  Eigen::Matrix<Scalar,2,Eigen::Dynamic> dz_dcam_params;
+  Eigen::Matrix<Scalar,2,1> residual;
 };
 
 template< typename Scalar=double, int ResidualSize = 15, int PoseSize = 15 >
 struct ImuResidualT
 {
-    typedef ImuPoseT<Scalar> ImuPose;
-    typedef ImuMeasurementT<Scalar> ImuMeasurement;
-    static const unsigned int ResSize = ResidualSize;
-    unsigned int PoseAId;
-    unsigned int PoseBId;
-    unsigned int ResidualId;
-    unsigned int ResidualOffset;
-    Scalar       W;
-    // Eigen::Matrix<Scalar,9,9>   SigmanInv;
-    std::vector<ImuMeasurement> Measurements;
-    std::vector<ImuPose> Poses;
-    Eigen::Matrix<Scalar,ResSize,PoseSize> dZ_dX1;
-    Eigen::Matrix<Scalar,ResSize,PoseSize> dZ_dX2;
-    Eigen::Matrix<Scalar,ResSize,6> dZ_dY;
-    Eigen::Matrix<Scalar,9,2> dZ_dG;
-    Eigen::Matrix<Scalar,ResSize,6> dZ_dB;
-    Eigen::Matrix<Scalar,ResSize,1> Residual;
+  typedef ImuPoseT<Scalar> ImuPose;
+  typedef ImuMeasurementT<Scalar> ImuMeasurement;
+  static const unsigned int kResSize = ResidualSize;
+  unsigned int pose1_id;
+  unsigned int pose2_id;
+  unsigned int residual_id;
+  unsigned int residual_offset;
+  Scalar       weight;
+  // Eigen::Matrix<Scalar,9,9>   SigmanInv;
+  std::vector<ImuMeasurement> measurements;
+  std::vector<ImuPose> poses;
+  Eigen::Matrix<Scalar,kResSize,PoseSize> dz_dx1;
+  Eigen::Matrix<Scalar,kResSize,PoseSize> dz_dx2;
+  Eigen::Matrix<Scalar,kResSize,6> dz_dy;
+  Eigen::Matrix<Scalar,9,2> dZ_dG;
+  Eigen::Matrix<Scalar,kResSize,6> dz_db;
+  Eigen::Matrix<Scalar,kResSize,1> residual;
 
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    static ImuPose IntegratePose(const ImuPose& pose, const Eigen::Matrix<Scalar,9,1>& k, const Scalar dt,
-                                 Eigen::Matrix<Scalar,10,9>* pdy_dk = 0,Eigen::Matrix<Scalar,10,10>* pdy_dy = 0)
-    {
-        const Sophus::SO3Group<Scalar> Rv2v1(Sophus::SO3Group<Scalar>::exp(k.template segment<3>(3)*dt));
+  //////////////////////////////////////////////////////////////////////////////
+  static ImuPose IntegratePose(const ImuPose&                   pose,
+                               const Eigen::Matrix<Scalar,9,1>& k,
+                               const Scalar                     dt,
+                               Eigen::Matrix<Scalar,10,9>*      pdy_dk = 0,
+                               Eigen::Matrix<Scalar,10,10>*     pdy_dy = 0)
+  {
+    const Sophus::SO3Group<Scalar> r_v2_v1(
+          Sophus::SO3Group<Scalar>::exp(k.template segment<3>(3)*dt));
 
-        ImuPose y = pose;
-        y.Twp.translation() += k.template head<3>()*dt;
-//        y.Twp.so3() = Rv2v1*pose.Twp.so3();
-        memcpy(y.Twp.so3().data(),(Rv2v1.unit_quaternion()*pose.Twp.so3().unit_quaternion()).coeffs().data(),sizeof(Scalar)*4);
-        // do euler integration for now
-        y.V += k.template tail<3>()*dt;
+    ImuPose y = pose;
+    // integrate translation
+    y.t_wp.translation() += k.template head<3>()*dt;
+    // integrate rotation using exp
+    const auto q =
+        (r_v2_v1.unit_quaternion()*pose.t_wp.so3().unit_quaternion());
+    // unfortunately need to memcpy to avoid normalization
+    memcpy(y.t_wp.so3().data(), q.coeffs().data(), sizeof(Scalar)*4);
+    // integrate velocity
+    y.v_w += k.template tail<3>()*dt;
 
-        // jacobian of output pose relative to the derivative
-        if( pdy_dk != 0 ){
-            pdy_dk->setZero();
-            pdy_dk->template block<3,3>(0,0) = Eigen::Matrix<Scalar,3,3>::Identity()*dt;  // dt/dv
-            pdy_dk->template block<4,3>(3,3) = dq1q2_dq1<Scalar>(pose.Twp.so3().unit_quaternion()) * dqExp_dw<Scalar>(k.template segment<3>(3)*dt) *dt;  // dq/dw
-            pdy_dk->template block<3,3>(7,6) = Eigen::Matrix<Scalar,3,3>::Identity()*dt;  // dv/da
-        }
-
-        if( pdy_dy != 0 )
-        {
-            pdy_dy->setZero();
-            pdy_dy->template block<3,3>(0,0) = Eigen::Matrix<Scalar,3,3>::Identity();
-            pdy_dy->template block<4,4>(3,3) = dq1q2_dq2(Rv2v1.unit_quaternion());
-            pdy_dy->template block<3,3>(7,7) = Eigen::Matrix<Scalar,3,3>::Identity();
-
-
-            assert( _Test_IntegratePose_ExpJacobian(k,dt) );
-            assert( _Test_IntegratePose_StateKJacobian(pose, k, dt, *pdy_dk));
-        }
-
-        return y;
+    // jacobian of output pose relative to the derivative
+    if (pdy_dk != 0) {
+      pdy_dk->setZero();
+      // dt/dv
+      pdy_dk->template block<3,3>(0,0) =
+          Eigen::Matrix<Scalar,3,3>::Identity()*dt;
+      // dq/dw
+      pdy_dk->template block<4,3>(3,3) =
+          dq1q2_dq1<Scalar>(pose.t_wp.so3().unit_quaternion()) *
+          dqExp_dw<Scalar>(k.template segment<3>(3)*dt)*dt;
+      // dv/da
+      pdy_dk->template block<3,3>(7,6) =
+          Eigen::Matrix<Scalar,3,3>::Identity()*dt;
     }
 
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    static Eigen::Matrix<Scalar,9,1> GetPoseDerivative(const ImuPose& pose, const Eigen::Matrix<Scalar,3,1>& tG_w, const ImuMeasurement& zStart,
-                                                       const ImuMeasurement& zEnd, const Eigen::Matrix<Scalar,3,1>& vBg,
-                                                       const Eigen::Matrix<Scalar,3,1>& vBa, const Scalar dt,
-                                                       Eigen::Matrix<Scalar,9,6>* dk_db = 0,Eigen::Matrix<Scalar,9,10>* dk_dx = 0)
-    {
-        double alpha = (zEnd.Time - (zStart.Time+dt))/(zEnd.Time - zStart.Time);
-        Eigen::Matrix<Scalar,3,1> zg = zStart.W*alpha + zEnd.W*(1.0-alpha);
-        Eigen::Matrix<Scalar,3,1> za = zStart.A*alpha + zEnd.A*(1.0-alpha);
+    if (pdy_dy != 0) {
+      pdy_dy->setZero();
+      pdy_dy->template block<3,3>(0,0) =
+          Eigen::Matrix<Scalar,3,3>::Identity();
 
-        Eigen::Matrix<Scalar,9,1> deriv;
-        //derivative of position is velocity
-        deriv.template head<3>() = pose.V;                               // v (velocity)
-        //deriv.template segment<3>(3) = Sophus::SO3Group<T>::vee(tTwb.so3().matrix()*Sophus::SO3Group<T>::hat(zb));
-        deriv.template segment<3>(3) = pose.Twp.so3().Adj()*(zg+vBg);    // w (angular rates)
-        deriv.template segment<3>(6) = pose.Twp.so3()*(za+vBa) - tG_w;   // a (acceleration)
+      pdy_dy->template block<4,4>(3,3) = dq1q2_dq2(r_v2_v1.unit_quaternion());
 
-        if(dk_db != 0) {
-            dk_db->setZero();
-            dk_db->template block<3,3>(3,0) = pose.Twp.so3().Adj(); // dw/dbg
-            dk_db->template block<3,3>(6,3) = pose.Twp.so3().matrix();       // da/dba
-        }
-        if(dk_dx != 0){
-            dk_dx->setZero();
-            dk_dx->template block<3,3>(0,7) = Eigen::Matrix<Scalar,3,3>::Identity(); // dv/dv
-            dk_dx->template block<3,4>(3,3) = dqx_dq(pose.Twp.so3().unit_quaternion(),zg) + dqx_dq(pose.Twp.so3().unit_quaternion(),vBg); // dw/dq
-            dk_dx->template block<3,4>(6,3) = dqx_dq(pose.Twp.so3().unit_quaternion(),za) + dqx_dq(pose.Twp.so3().unit_quaternion(),vBa); // da/dq
-        }
-        return deriv;
+      pdy_dy->template block<3,3>(7,7) =
+          Eigen::Matrix<Scalar,3,3>::Identity();
+
+      assert( _Test_IntegratePose_ExpJacobian(k,dt) );
+      assert( _Test_IntegratePose_StateKJacobian(pose, k, dt, *pdy_dk));
+    }
+    return y;
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
+  static Eigen::Matrix<Scalar,9,1> GetPoseDerivative(
+      const ImuPose&                    pose,
+      const Eigen::Matrix<Scalar,3,1>&  g_w,
+      const ImuMeasurement&             z_start,
+      const ImuMeasurement&             z_end,
+      const Eigen::Matrix<Scalar,3,1>&  bg,
+      const Eigen::Matrix<Scalar,3,1>&  ba,
+      const Scalar                      dt,
+      Eigen::Matrix<Scalar,9,6>*        dk_db = 0,
+      Eigen::Matrix<Scalar,9,10>*       dk_dx = 0
+      )
+  {
+    double alpha =
+        (z_end.time - (z_start.time+dt))/(z_end.time - z_start.time);
+    Eigen::Matrix<Scalar,3,1> zg = z_start.w_i*alpha + z_end.w_i*(1.0-alpha);
+    Eigen::Matrix<Scalar,3,1> za = z_start.w_a*alpha + z_end.w_a*(1.0-alpha);
+
+    // calculate derivatives at this point
+    Eigen::Matrix<Scalar,9,1> deriv;
+    // v (velocity)
+    deriv.template head<3>() = pose.v_w;
+    // w (angular rates)
+    deriv.template segment<3>(3) = pose.t_wp.so3().Adj()*(zg+bg);
+    // a (acceleration)
+    deriv.template segment<3>(6) = pose.t_wp.so3()*(za+ba) - g_w;
+
+    if (dk_db != 0) {
+      dk_db->setZero();
+      dk_db->template block<3,3>(3,0) = pose.t_wp.so3().Adj(); // dw/dbg
+      dk_db->template block<3,3>(6,3) = pose.t_wp.so3().matrix();  // da/dba
+    }
+    if (dk_dx != 0) {
+      dk_dx->setZero();
+      dk_dx->template block<3,3>(0,7) =
+          Eigen::Matrix<Scalar,3,3>::Identity(); // dv/dv
+      dk_dx->template block<3,4>(3,3) =
+          dqx_dq(pose.t_wp.so3().unit_quaternion(),zg) +
+          dqx_dq(pose.t_wp.so3().unit_quaternion(),bg); // dw/dq
+      dk_dx->template block<3,4>(6,3) =
+          dqx_dq(pose.t_wp.so3().unit_quaternion(),za) +
+          dqx_dq(pose.t_wp.so3().unit_quaternion(),ba); // da/dq
+    }
+    return deriv;
+  }
+
+
+  //////////////////////////////////////////////////////////////////////////////
+  static ImuPose IntegrateImu(
+      const ImuPose&                    pose,
+      const ImuMeasurement&             z_start,
+      const ImuMeasurement&             z_end,
+      const Eigen::Matrix<Scalar,3,1>&  bg,
+      const Eigen::Matrix<Scalar,3,1>&  ba,
+      const Eigen::Matrix<Scalar,3,1>&  g,
+      Eigen::Matrix<Scalar,10,6>*       dy_db_ptr = 0,
+      Eigen::Matrix<Scalar,10,10>*      dy_dpose_ptr = 0)
+  {
+    //construct the state matrix
+    Scalar dt = z_end.time - z_start.time;
+    if (dt == 0) {
+      return pose;
     }
 
+    ImuPose res = pose;
+    Eigen::Matrix<Scalar,9,1> k;
 
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    static ImuPose IntegrateImu(const ImuPose& y0, const ImuMeasurement& zStart,
-                     const ImuMeasurement& zEnd, const Eigen::Matrix<Scalar,3,1>& vBg,
-                     const Eigen::Matrix<Scalar,3,1>& vBa,const Eigen::Matrix<Scalar,3,1>& dG,
-                     Eigen::Matrix<Scalar,10,6>* pDy_db = 0,
-                     Eigen::Matrix<Scalar,10,10>* pDy_dy0 = 0)
-    {
-        //construct the state matrix
-        Scalar dt = zEnd.Time - zStart.Time;
-        if(dt == 0){
-            return y0;
-        }
+    if (dy_db_ptr != 0 && dy_dpose_ptr != 0) {
+      Eigen::Matrix<Scalar,10,6>& dy_db = *dy_db_ptr;
+      Eigen::Matrix<Scalar,10,10>& dy_dy0 = *dy_dpose_ptr;
 
+      Eigen::Matrix<Scalar,9,6>  dk_db;
+      Eigen::Matrix<Scalar,9,10> dk_dy;
+      Eigen::Matrix<Scalar,10,9> dy_dk;
+      Eigen::Matrix<Scalar,10,10> dy_dy;
+      dy_db.setZero();
+      dy_dy0.setIdentity();   // dy0_y0 starts at identity
 
-        ImuPose res = y0;
-        Eigen::Matrix<Scalar,9,1> k;
+      const Eigen::Matrix<Scalar,9,1> k1 =
+          GetPoseDerivative(pose,g,z_start,z_end,bg,ba,0,&dk_db,&dk_dy);
 
-        if(pDy_db != 0) {
-            Eigen::Matrix<Scalar,10,6>& dy_db = *pDy_db;
-            Eigen::Matrix<Scalar,10,10>& dy_dy0 = *pDy_dy0;
+      assert( _Test_IntegrateImu_KBiasJacobian( pose, z_start, z_end,
+                                                bg, ba, g, dk_db ) );
+      assert( _Test_IntegrateImu_KStateJacobian( pose, z_start, z_end, bg,
+                                                 ba, g, dk_dy ) );
 
-            Eigen::Matrix<Scalar,9,6>  dk_db;
-            Eigen::Matrix<Scalar,9,10> dk_dy;
-            Eigen::Matrix<Scalar,10,9> dy_dk;
-            Eigen::Matrix<Scalar,10,10> dy_dy;
-            dy_db.setZero();
-            dy_dy0.setIdentity();   // dy0_y0 starts at identity
+      // total derivative of k1 wrt b: dk1/db = dG/db + dG/dy*dy/db
+      const Eigen::Matrix<Scalar,9,6> dk1_db = dk_db + dk_dy*dy_db;
+      const Eigen::Matrix<Scalar,9,10> dk1_dy= dk_dy*dy_dy0;
+      const ImuPose y1 = IntegratePose(pose,k1,dt*0.5,&dy_dk,&dy_dy);
+      //dy1/db = dInt/db + dInt/dy*dy0/db + dInt/dk*dk/db
+      // however dy0/db = 0 (only for y0), therefore we don't
+      // need the second term, just dInt/dk and dInt/db.
+      // but dInt/db is also 0, as the integration doesn't directly depend on b
+      dy_db = dy_dk*dk1_db;
+      dy_dy0 = dy_dy + dy_dk*dk1_dy; // this is dy1_dy0
 
-            const Eigen::Matrix<Scalar,9,1> k1 = GetPoseDerivative(y0,dG,zStart,zEnd,vBg,vBa,0,&dk_db,&dk_dy);
-            assert( _Test_IntegrateImu_KBiasJacobian( y0, zStart, zEnd, vBg, vBa, dG, dk_db ) );
-            assert( _Test_IntegrateImu_KStateJacobian( y0, zStart, zEnd, vBg, vBa, dG, dk_dy ) );
+      assert( _Test_IntegrateImu_StateStateJacobian( pose, k1, dy_dy, dt ) );
 
-            // total derivative of k1 wrt b: dk1/db = dG/db + dG/dy*dy/db
-            const Eigen::Matrix<Scalar,9,6> dk1_db = dk_db + dk_dy*dy_db;
-            const Eigen::Matrix<Scalar,9,10> dk1_dy= dk_dy*dy_dy0;
-            const ImuPose y1 = IntegratePose(y0,k1,dt*0.5,&dy_dk,&dy_dy);
-            //dy1/db = dInt/db + dInt/dy*dy0/db + dInt/dk*dk/db
-            // however dy0/db = 0 (only for y0), therefore we don't need the second term, just dInt/dk and dInt/db.
-            // but dInt/db is also 0, as the integration doesn't directly depend on b
-            dy_db = dy_dk*dk1_db;
-            dy_dy0 = dy_dy + dy_dk*dk1_dy; // this is dy1_dy0
+      const Eigen::Matrix<Scalar,9,1> k2 =
+          GetPoseDerivative(y1,g,z_start,z_end,bg,ba,dt/2,&dk_db,&dk_dy);
+      const Eigen::Matrix<Scalar,9,6> dk2_db = dk_db + dk_dy*dy_db;
+      const Eigen::Matrix<Scalar,9,10> dk2_dy= dk_dy*dy_dy0;
+      const ImuPose y2 = IntegratePose(pose,k2,dt*0.5,&dy_dk,&dy_dy);
+      dy_db = dy_dk*dk2_db;
+      dy_dy0 = dy_dy + dy_dk*dk2_dy; // this is dy2_dy0
 
-            assert( _Test_IntegrateImu_StateStateJacobian( y0, k1, dy_dy, dt ) );
+      const Eigen::Matrix<Scalar,9,1> k3 =
+          GetPoseDerivative(y2,g,z_start,z_end,bg,ba,dt/2,&dk_db,&dk_dy);
+      const Eigen::Matrix<Scalar,9,6> dk3_db = dk_db + dk_dy*dy_db;
+      const Eigen::Matrix<Scalar,9,10> dk3_dy = dk_dy*dy_dy0;
+      const ImuPose y3 = IntegratePose(pose,k3,dt,&dy_dk,&dy_dy);
+      dy_db = dy_dk*dk3_db;
+      dy_dy0 = dy_dy + dy_dk*dk3_dy; // this is dy3_dy0
 
-            const Eigen::Matrix<Scalar,9,1> k2 = GetPoseDerivative(y1,dG,zStart,zEnd,vBg,vBa,dt/2,&dk_db,&dk_dy);
-            const Eigen::Matrix<Scalar,9,6> dk2_db = dk_db + dk_dy*dy_db;
-            const Eigen::Matrix<Scalar,9,10> dk2_dy= dk_dy*dy_dy0;
-            const ImuPose y2 = IntegratePose(y0,k2,dt*0.5,&dy_dk,&dy_dy);
-            dy_db = dy_dk*dk2_db;
-            dy_dy0 = dy_dy + dy_dk*dk2_dy; // this is dy2_dy0
+      const Eigen::Matrix<Scalar,9,1> k4 =
+          GetPoseDerivative(y3,g,z_start,z_end,bg,ba,dt,&dk_db,&dk_dy);
+      const Eigen::Matrix<Scalar,9,6> dk4_db = dk_db + dk_dy*dy_db;
+      const Eigen::Matrix<Scalar,9,10> dk4_dy = dk_dy*dy_dy0;
 
-            const Eigen::Matrix<Scalar,9,1> k3 = GetPoseDerivative(y2,dG,zStart,zEnd,vBg,vBa,dt/2,&dk_db,&dk_dy);
-            const Eigen::Matrix<Scalar,9,6> dk3_db = dk_db + dk_dy*dy_db;
-            const Eigen::Matrix<Scalar,9,10> dk3_dy = dk_dy*dy_dy0;
-            const ImuPose y3 = IntegratePose(y0,k3,dt,&dy_dk,&dy_dy);
-            dy_db = dy_dk*dk3_db;
-            dy_dy0 = dy_dy + dy_dk*dk3_dy; // this is dy3_dy0
+      k = (k1+2*k2+2*k3+k4);
+      const Eigen::Matrix<Scalar,9,6> dk_total_db =
+          dk1_db + 2*dk2_db + 2*dk3_db + dk4_db;
+      const Eigen::Matrix<Scalar,9,10> dk_total_dy =
+          dk1_dy + 2*dk2_dy + 2*dk3_dy + dk4_dy;
 
-            const Eigen::Matrix<Scalar,9,1> k4 = GetPoseDerivative(y3,dG,zStart,zEnd,vBg,vBa,dt,&dk_db,&dk_dy);
-            const Eigen::Matrix<Scalar,9,6> dk4_db = dk_db + dk_dy*dy_db;
-            const Eigen::Matrix<Scalar,9,10> dk4_dy = dk_dy*dy_dy0;
+      res = IntegratePose(pose,k, dt/6.0,&dy_dk,&dy_dy);
+      dy_db = dy_dk*dk_total_db;
+      dy_dy0 = dy_dy + dy_dk*dk_total_dy;
 
-            k = (k1+2*k2+2*k3+k4);
-            const Eigen::Matrix<Scalar,9,6> dk_total_db = dk1_db + 2*dk2_db + 2*dk3_db + dk4_db;
-            const Eigen::Matrix<Scalar,9,10> dk_total_dy = dk1_dy + 2*dk2_dy + 2*dk3_dy + dk4_dy;
-            res = IntegratePose(y0,k, dt/6.0,&dy_dk,&dy_dy);
-            dy_db = dy_dk*dk_total_db;
-            dy_dy0 = dy_dy + dy_dk*dk_total_dy;
+    } else {
+      const Eigen::Matrix<Scalar,9,1> k1 =
+          GetPoseDerivative(pose,g,z_start,z_end,bg,ba,0);
+      const ImuPose y1 = IntegratePose(pose,k1,dt*0.5);
+      const Eigen::Matrix<Scalar,9,1> k2 =
+          GetPoseDerivative(y1,g,z_start,z_end,bg,ba,dt/2);
+      const ImuPose y2 = IntegratePose(pose,k2,dt*0.5);
+      const Eigen::Matrix<Scalar,9,1> k3 =
+          GetPoseDerivative(y2,g,z_start,z_end,bg,ba,dt/2);
+      const ImuPose y3 = IntegratePose(pose,k3,dt);
+      const Eigen::Matrix<Scalar,9,1> k4 =
+          GetPoseDerivative(y3,g,z_start,z_end,bg,ba,dt);
 
-        }else{
-            const Eigen::Matrix<Scalar,9,1> k1 = GetPoseDerivative(y0,dG,zStart,zEnd,vBg,vBa,0);
-            const ImuPose y1 = IntegratePose(y0,k1,dt*0.5);
-            const Eigen::Matrix<Scalar,9,1> k2 = GetPoseDerivative(y1,dG,zStart,zEnd,vBg,vBa,dt/2);
-            const ImuPose y2 = IntegratePose(y0,k2,dt*0.5);
-            const Eigen::Matrix<Scalar,9,1> k3 = GetPoseDerivative(y2,dG,zStart,zEnd,vBg,vBa,dt/2);
-            const ImuPose y3 = IntegratePose(y0,k3,dt);
-            const Eigen::Matrix<Scalar,9,1> k4 = GetPoseDerivative(y3,dG,zStart,zEnd,vBg,vBa,dt);
-            k = (k1+2*k2+2*k3+k4);
-            res = IntegratePose(y0,k, dt/6.0);
-        }
-
-        res.W = k.template segment<3>(3);
-        res.Time = zEnd.Time;
-//        pose.m_dW = currentPose.m_dW;
-        return res;
+      k = (k1+2*k2+2*k3+k4);
+      res = IntegratePose(pose,k, dt/6.0);
     }
 
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    static ImuPose IntegrateResidual(const PoseT<Scalar>& imuPose,
-                                     const std::vector<ImuMeasurement>& vMeasurements,
-                                     const Eigen::Matrix<Scalar,3,1>& bg,
-                                     const Eigen::Matrix<Scalar,3,1>& ba,
-                                     const Eigen::Matrix<Scalar,3,1>& g,
-                                     std::vector<ImuPose>& vPoses,
-                                     Eigen::Matrix<Scalar,10,6>* pJb = 0,
-                                     Eigen::Matrix<Scalar,10,10>* pJy = 0)
-    {
-        return IntegrateResidual(ImuPose(imuPose),vMeasurements,bg,ba,g,vPoses,pJb,pJy);
+    res.w_w = k.template segment<3>(3);
+    res.time = z_end.time;
+    //        pose.m_dW = currentPose.m_dW;
+    return res;
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
+  static ImuPose IntegrateResidual(
+       const PoseT<Scalar>&               pose,
+       const std::vector<ImuMeasurement>& measurements,
+       const Eigen::Matrix<Scalar,3,1>&   bg,
+       const Eigen::Matrix<Scalar,3,1>&   ba,
+       const Eigen::Matrix<Scalar,3,1>&   g,
+       std::vector<ImuPose>&              poses_out,
+       Eigen::Matrix<Scalar,10,6>*        dpose_db = 0,
+       Eigen::Matrix<Scalar,10,10>*       dpose_dpose = 0)
+  {
+    return IntegrateResidual(ImuPose(pose),measurements,
+                             bg,ba,g,poses_out,dpose_db,dpose_dpose);
+  }
+
+
+  //////////////////////////////////////////////////////////////////////////////
+  static ImuPose IntegrateResidual(
+       ImuPose                            pose,
+       const std::vector<ImuMeasurement>& measurements,
+       const Eigen::Matrix<Scalar,3,1>&   bg,
+       const Eigen::Matrix<Scalar,3,1>&   ba,
+       const Eigen::Matrix<Scalar,3,1>&   g,
+       std::vector<ImuPose>&              poses,
+       Eigen::Matrix<Scalar,10,6>*        dpose_db = 0,
+       Eigen::Matrix<Scalar,10,10>*       dpose_dpose = 0)
+  {
+    const ImuPose orig_pose = pose;
+    const ImuMeasurement* prev_meas = 0;
+    poses.clear();
+    poses.reserve(measurements.size()+1);
+    poses.push_back(pose);
+
+    if (dpose_db != 0) {
+      dpose_db->setZero();
     }
 
-
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    static ImuPose IntegrateResidual(ImuPose imuPose,
-                                     const std::vector<ImuMeasurement>& vMeasurements,
-                                     const Eigen::Matrix<Scalar,3,1>& bg,
-                                     const Eigen::Matrix<Scalar,3,1>& ba,
-                                     const Eigen::Matrix<Scalar,3,1>& g,
-                                     std::vector<ImuPose>& vPoses,
-                                     Eigen::Matrix<Scalar,10,6>* pJb = 0,
-                                     Eigen::Matrix<Scalar,10,10>* pJy = 0)
-    {
-        Eigen::IOFormat cleanFmt(4, 0, ", ", ";\n" , "" , "");
-        // ImuPose imuPose(pose.Twp,pose.V,Eigen::Matrix<Scalar,3,1>::Zero(),pose.Time);
-        const ImuPose origPose = imuPose;
-        const ImuMeasurement* pPrevMeas = 0;
-        vPoses.clear();
-        vPoses.reserve(vMeasurements.size()+1);
-        vPoses.push_back(imuPose);
-
-        if(pJb != 0){
-            pJb->setZero();
-        }
-
-        if(pJy != 0){
-            pJy->setIdentity();
-        }
-
-        // integrate forward in time, and retain all the poses
-        for(const ImuMeasurement& meas : vMeasurements){
-            if(pPrevMeas != 0){
-//                std::cout << "Integrating from time " << pPrevMeas->Time << " to " << meas.Time << std::endl;
-                if( pJb != 0 ){
-                    //double dt = meas.Time - pPrevMeas->Time;
-                    Eigen::Matrix<Scalar,10,6> dy_db;
-                    Eigen::Matrix<Scalar,10,10> dy_dy;
-                    const ImuPose y0 = imuPose;
-                    imuPose = IntegrateImu(imuPose,*pPrevMeas,meas,bg,ba,g,&dy_db,&dy_dy);
-
-                    assert( _Test_IntegrateImu_BiasJacobian( y0,*pPrevMeas,meas,bg,ba,g,dy_db ) );
-                    assert( _Test_IntegrateImu_StateJacobian( y0,*pPrevMeas,meas,bg,ba,g,dy_dy ) );
-
-                    // now push forward the jacobian. This calculates the total derivative Jb = dG/dB + dG/dX * dX/dB
-                    // where dG/dB is the jacobian of the return values of IntegrateImu with respect to the bias
-                    // values (which is returned in dq_dBg and dv_dBa, as the other values are 0). dG/dX is the
-                    // jacobian of the IntegrateImu function with respect to its inputs (a 10x10 matrix, but only
-                    // dq2_dq1 is complex, and is returned by IntegrateImu). dX/dB yis the jacobian from the previous
-                    // step, which is stored in Jb. The following is the addition and multiplication unrolled into
-                    // sparse operations.
-                    if(pJb != 0){
-                        (*pJb) = dy_db + dy_dy*(*pJb);
-                    }
-
-                    if(pJy != 0){
-                        *pJy = dy_dy*(*pJy);
-                    }
-                }else{
-                    imuPose = IntegrateImu(imuPose,*pPrevMeas,meas,bg,ba,g);
-                }
-                vPoses.push_back(imuPose);
-            }
-            pPrevMeas = &meas;
-        }
-
-        if( pJb != 0 ){
-            assert(_Test_IntegrateResidual_BiasJacobian(origPose, vMeasurements, bg, ba, g, *pJb ) );
-        }
-
-        if(pJy != 0){
-            assert(_Test_IntegrateResidual_StateJacobian( origPose, vMeasurements, bg, ba, g, *pJy ) );
-        }
-
-
-        return imuPose;
+    if (dpose_dpose != 0) {
+      dpose_dpose->setIdentity();
     }
 
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    static bool _Test_IntegrateImu_BiasJacobian(const ImuPose& y0,
-                                                const ImuMeasurement& pPrevMeas,
-                                                const ImuMeasurement& meas,
-                                                const Eigen::Matrix<Scalar,3,1>& bg,
-                                                const Eigen::Matrix<Scalar,3,1>& ba,
-                                                const Eigen::Matrix<Scalar,3,1>& g,
-                                                const Eigen::Matrix<Scalar,10,6>& dy_db)
-    {
-        Eigen::Matrix<Scalar, 10,6> J_fd;
-        const Scalar dEps = TESTING_EPS;
-        for(int ii = 0; ii < 6 ; ii++){
-            Eigen::Matrix<Scalar,6,1> biasVec;
-            biasVec.template head<3>() = bg;
-            biasVec.template tail<3>() = ba;
+    // integrate forward in time, and retain all the poses
+    for (const ImuMeasurement& meas : measurements) {
+      if (prev_meas != 0) {
+        // std::cout << "Integrating from time " << pPrevMeas->Time <<
+        // " to " << meas.Time << std::endl;
+        if ( dpose_db != 0 ) {
+          //double dt = meas.Time - pPrevMeas->Time;
+          Eigen::Matrix<Scalar,10,6> dy_db;
+          Eigen::Matrix<Scalar,10,10> dy_dy;
+          const ImuPose y0 = pose;
+          pose = IntegrateImu(pose,*prev_meas,meas,bg,ba,g,&dy_db,&dy_dy);
 
-            Eigen::Matrix<Scalar,6,1> eps = Eigen::Matrix<Scalar,6,1>::Zero();
-            eps[ii] += dEps;
-            biasVec += eps;
-            ImuPose posePlus = IntegrateImu(y0,pPrevMeas,meas,biasVec.template head<3>(),biasVec.template tail<3>(),g);
+          assert( _Test_IntegrateImu_BiasJacobian( y0,*prev_meas,meas,
+                                                   bg,ba,g,dy_db ) );
+          assert( _Test_IntegrateImu_StateJacobian( y0,*prev_meas,meas,bg,
+                                                    ba,g,dy_dy ) );
 
-            Eigen::Matrix<Scalar,10,1> yPlus;
-            yPlus.template head<3>() = posePlus.Twp.translation();
-            yPlus.template segment<4>(3) = posePlus.Twp.so3().unit_quaternion().coeffs();
-            // do euler integration for now
-            yPlus.template tail<3>() = posePlus.V;
+          // now push forward the jacobian. This calculates the total derivative
+          // Jb = dG/dB + dG/dX * dX/dB where dG/dB is the jacobian of the
+          // return values of IntegrateImu with respect to the bias values
+          // (which is returned in dq_dBg and dv_dBa, as the other values are
+          // 0). dG/dX is the jacobian of the IntegrateImu function with respect
+          // to its inputs (a 10x10 matrix, but only dq2_dq1 is complex, and is
+          // returned by IntegrateImu). dX/dB yis the jacobian from the previous
+          // step, which is stored in Jb. The following is the addition and
+          // multiplication unrolled into sparse operations.
+          if (dpose_db != 0) {
+            (*dpose_db) = dy_db + dy_dy*(*dpose_db);
+          }
 
-            biasVec.template head<3>() = bg;
-            biasVec.template tail<3>() = ba;
-
-            eps[ii] -= 2*dEps;
-            biasVec += eps;
-            ImuPose poseMinus = IntegrateImu(y0,pPrevMeas,meas,biasVec.template head<3>(),biasVec.template tail<3>(),g);
-
-            Eigen::Matrix<Scalar,10,1> yMinus;
-            yMinus.template head<3>() = poseMinus.Twp.translation();
-            yMinus.template segment<4>(3) = poseMinus.Twp.so3().unit_quaternion().coeffs();
-            // do euler integration for now
-            yMinus.template tail<3>() = poseMinus.V;
-
-            J_fd.col(ii) = (yPlus-yMinus)/(2*dEps);
+          if (dpose_dpose != 0) {
+            *dpose_dpose = dy_dy*(*dpose_dpose);
+          }
+        } else {
+          pose = IntegrateImu(pose,*prev_meas,meas,bg,ba,g);
         }
-        std::cout << "dInt_db = " << std::endl << dy_db.format(cleanFmt) << std::endl;
-        std::cout << "dInt_db_fd = " << std::endl << J_fd.format(cleanFmt) << std::endl;
-        std::cout << "dInt_db-dInt_db_fd = " << std::endl << (dy_db-J_fd).format(cleanFmt) << " norm: " << (dy_db-J_fd).norm() <<  std::endl;
-        return (dy_db-J_fd).norm() < NORM_THRESHOLD;
+        poses.push_back(pose);
+      }
+      prev_meas = &meas;
     }
 
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    static bool _Test_IntegrateImu_StateJacobian(const ImuPose& y0,
-                                                const ImuMeasurement& prevMeas,
-                                                const ImuMeasurement& meas,
-                                                const Eigen::Matrix<Scalar,3,1>& bg,
-                                                const Eigen::Matrix<Scalar,3,1>& ba,
-                                                const Eigen::Matrix<Scalar,3,1>& g,
-                                                const Eigen::Matrix<Scalar,10,10>& dy_dy)
-    {
-        const Scalar dEps = TESTING_EPS;
-        Eigen::Matrix<Scalar,10,10>  dy_dy_fd;
-        for(int ii = 0; ii < 10 ; ii++){
-            Eigen::Matrix<Scalar,10,1> epsVec = Eigen::Matrix<Scalar,10,1>::Zero();
-            epsVec[ii] += dEps;
-            ImuPose y0_eps = y0;
-            y0_eps.Twp.translation() += epsVec.template head<3>();
-            Eigen::Quaternion<Scalar> qPlus = y0_eps.Twp.so3().unit_quaternion();
-            qPlus.coeffs() += epsVec.template segment<4>(3);
-            memcpy(y0_eps.Twp.so3().data(),qPlus.coeffs().data(),sizeof(Scalar)*4);
-            y0_eps.V += epsVec.template tail<3>();
-
-            ImuPose posePlus = IntegrateImu(y0_eps,prevMeas,meas,bg,ba,g);
-
-            Eigen::Matrix<Scalar,10,1> yPlus;
-            yPlus.template head<3>() = posePlus.Twp.translation();
-            yPlus.template segment<4>(3) = posePlus.Twp.so3().unit_quaternion().coeffs();
-            // do euler integration for now
-            yPlus.template tail<3>() = posePlus.V;
-
-            epsVec[ii] -= 2*dEps;
-            y0_eps = y0;
-            y0_eps.Twp.translation() += epsVec.template head<3>();
-            Eigen::Quaternion<Scalar> qMinus = y0_eps.Twp.so3().unit_quaternion();
-            qMinus.coeffs() += epsVec.template segment<4>(3);
-            y0_eps.Twp.so3() = Sophus::SO3Group<Scalar>(qMinus);
-            memcpy(y0_eps.Twp.so3().data(),qMinus.coeffs().data(),sizeof(Scalar)*4);
-            y0_eps.V += epsVec.template tail<3>();
-
-            ImuPose poseMinus = IntegrateImu(y0_eps,prevMeas,meas,bg,ba,g);
-
-            Eigen::Matrix<Scalar,10,1> yMinus;
-            yMinus.template head<3>()= poseMinus.Twp.translation();
-            yMinus.template segment<4>(3) = poseMinus.Twp.so3().unit_quaternion().coeffs();
-            // do euler integration for now
-            yMinus.template tail<3>() = poseMinus.V;
-
-            dy_dy_fd.col(ii) = (yPlus-yMinus)/(2*dEps);
-        }
-        std::cout << "dInt_dy= " << std::endl << dy_dy.format(cleanFmt) << std::endl;
-        std::cout << "dInt_dy_fd = " << std::endl << dy_dy_fd.format(cleanFmt) << std::endl;
-        std::cout << "dInt_dy-dInt_dy_fd = " << std::endl << (dy_dy-dy_dy_fd).format(cleanFmt) << " norm: " << (dy_dy-dy_dy_fd).norm() << std::endl;
-
-        return (dy_dy-dy_dy_fd).norm() < NORM_THRESHOLD;
+    if (dpose_db != 0) {
+      assert(_Test_IntegrateResidual_BiasJacobian(orig_pose, measurements, bg,
+                                                  ba, g, *dpose_db ) );
     }
 
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    static bool _Test_IntegrateResidual_BiasJacobian(const ImuPose& y0,
-                                                     const std::vector<ImuMeasurement>& vMeasurements,
-                                                     const Eigen::Matrix<Scalar,3,1>& bg,
-                                                     const Eigen::Matrix<Scalar,3,1>& ba,
-                                                     const Eigen::Matrix<Scalar,3,1>& g,
-                                                     const Eigen::Matrix<Scalar,10,6>& dy_db)
-    {
-        const ImuMeasurement* pPrevMeas = 0;
-        Eigen::Matrix<Scalar,10,6> Jb_fd;
-        const Scalar dEps = TESTING_EPS;
-        Eigen::Matrix<Scalar,6,1> biasVec;
-        biasVec.template head<3>() = bg;
-        biasVec.template tail<3>() = ba;
-        for(int ii = 0 ; ii < 6 ; ii++){
-            Eigen::Matrix<Scalar,6,1> eps = Eigen::Matrix<Scalar,6,1>::Zero();
-            eps[ii] += dEps;
-            std::vector<ImuPose> poses;
-            const Eigen::Matrix<Scalar,6,1> plusBiases = biasVec + eps;
-            ImuPose imuPosePlus = y0;
-            pPrevMeas = 0;
-            for(const ImuMeasurement& meas : vMeasurements){
-                if(pPrevMeas != 0){
-                    imuPosePlus = IntegrateImu(imuPosePlus,*pPrevMeas,meas,plusBiases.template head<3>(),plusBiases.template tail<3>(),g);
-                }
-                pPrevMeas = &meas;
-            }
-            Eigen::Matrix<Scalar,10,1> plusVec;
-            plusVec.template head<3>() = imuPosePlus.Twp.translation();
-            plusVec.template segment<4>(3) = imuPosePlus.Twp.so3().unit_quaternion().coeffs();
-            plusVec.template tail<3>() = imuPosePlus.V;
-
-            eps[ii] -= 2*dEps;
-            const Eigen::Matrix<Scalar,6,1> minusBiases = biasVec + eps;
-            poses.clear();
-            ImuPose imuPoseMinus = y0;
-            pPrevMeas = 0;
-            for(const ImuMeasurement& meas : vMeasurements){
-                if(pPrevMeas != 0){
-                    imuPoseMinus = IntegrateImu(imuPoseMinus,*pPrevMeas,meas,minusBiases.template head<3>(),minusBiases.template tail<3>(),g);
-                }
-                pPrevMeas = &meas;
-            }
-            Eigen::Matrix<Scalar,10,1> minusVec;
-            minusVec.template head<3>() = imuPoseMinus.Twp.translation();
-            minusVec.template segment<4>(3) = imuPoseMinus.Twp.so3().unit_quaternion().coeffs();
-            minusVec.template tail<3>() = imuPoseMinus.V;
-
-            Jb_fd.col(ii) = (plusVec-minusVec)/(2*dEps);
-        }
-        std::cout << "Jres = " << std::endl << (dy_db).format(cleanFmt) << std::endl;
-        std::cout << "Jres_fd = " << std::endl << Jb_fd.format(cleanFmt) << std::endl;
-        std::cout << "Jres-Jres_fd = " << std::endl << (dy_db-Jb_fd).format(cleanFmt) << " norm: " << (dy_db-Jb_fd).norm() <<  std::endl;
-        return (dy_db-Jb_fd).norm() < NORM_THRESHOLD;
-    }
-
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    static bool _Test_IntegrateResidual_StateJacobian(const ImuPose& y0,
-                                                      const std::vector<ImuMeasurement>& vMeasurements,
-                                                      const Eigen::Matrix<Scalar,3,1>& bg,
-                                                      const Eigen::Matrix<Scalar,3,1>& ba,
-                                                      const Eigen::Matrix<Scalar,3,1>& g,
-                                                      const Eigen::Matrix<Scalar,10,10>& dy_dy)
-    {
-        const ImuMeasurement* pPrevMeas = 0;
-        Eigen::Matrix<Scalar,10,10> Jy_fd;
-        const Scalar dEps = TESTING_EPS;
-        for(int ii = 0; ii < 10 ; ii++){
-            Eigen::Matrix<Scalar,10,1> epsVec = Eigen::Matrix<Scalar,10,1>::Zero();
-            epsVec[ii] += dEps;
-            ImuPose posePlus = y0;
-            posePlus.Twp.translation() += epsVec.template head<3>();
-            Eigen::Quaternion<Scalar> qPlus = posePlus.Twp.so3().unit_quaternion();
-            qPlus.coeffs() += epsVec.template segment<4>(3);
-            memcpy(posePlus.Twp.so3().data(),qPlus.coeffs().data(),sizeof(Scalar)*4);
-            posePlus.V += epsVec.template tail<3>();
-
-            pPrevMeas = 0;
-            for(const ImuMeasurement& meas : vMeasurements){
-                if(pPrevMeas != 0){
-                    posePlus = IntegrateImu(posePlus,*pPrevMeas,meas,bg,ba,g);
-                }
-                pPrevMeas = &meas;
-            }
-
-            Eigen::Matrix<Scalar,10,1> yPlus;
-            yPlus.template head<3>() = posePlus.Twp.translation();
-            yPlus.template segment<4>(3) = posePlus.Twp.so3().unit_quaternion().coeffs();
-            // do euler integration for now
-            yPlus.template tail<3>() = posePlus.V;
-
-            epsVec[ii] -= 2*dEps;
-            ImuPose poseMinus = y0;
-            poseMinus.Twp.translation() += epsVec.template head<3>();
-            Eigen::Quaternion<Scalar> qMinus = poseMinus.Twp.so3().unit_quaternion();
-            qMinus.coeffs() += epsVec.template segment<4>(3);
-            poseMinus.Twp.so3() = Sophus::SO3Group<Scalar>(qMinus);
-            memcpy(poseMinus.Twp.so3().data(),qMinus.coeffs().data(),sizeof(Scalar)*4);
-            poseMinus.V += epsVec.template tail<3>();
-
-            pPrevMeas = 0;
-            for(const ImuMeasurement& meas : vMeasurements){
-                if(pPrevMeas != 0){
-                    poseMinus = IntegrateImu(poseMinus,*pPrevMeas,meas,bg,ba,g);
-                }
-                pPrevMeas = &meas;
-            }
-
-            Eigen::Matrix<Scalar,10,1> yMinus;
-            yMinus.template head<3>()= poseMinus.Twp.translation();
-            yMinus.template segment<4>(3) = poseMinus.Twp.so3().unit_quaternion().coeffs();
-            // do euler integration for now
-            yMinus.template tail<3>() = poseMinus.V;
-
-            Jy_fd.col(ii) = (yPlus-yMinus)/(2*dEps);
-        }
-        std::cout << "dRes_dy = " << std::endl << (dy_dy).format(cleanFmt) << std::endl;
-        std::cout << "dRes_dy_fd = " << std::endl << Jy_fd.format(cleanFmt) << std::endl;
-        std::cout << "dRes_dy-dRes_dy_fd = " << std::endl << (dy_dy-Jy_fd).format(cleanFmt) << " norm: " << (dy_dy-Jy_fd).norm() <<  std::endl;
-
-        return (dy_dy-Jy_fd).norm() < NORM_THRESHOLD;
-    }
-
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    static bool _Test_IntegrateImu_KBiasJacobian(const ImuPose&           y0,
-                                                 const ImuMeasurement&    zStart,
-                                                 const ImuMeasurement&    zEnd,
-                                                 const Eigen::Matrix<Scalar,3,1>&  bg,
-                                                 const Eigen::Matrix<Scalar,3,1>&  ba,
-                                                 const Eigen::Matrix<Scalar,3,1>&  g,
-                                                 const Eigen::Matrix<Scalar,9,6>&  dk_db)
-    {
-        const Scalar dEps = TESTING_EPS;
-        Eigen::Matrix<Scalar,9,6>  dk_db_fd;
-        for(int ii = 0; ii < 6 ; ii++){
-            Eigen::Matrix<Scalar,6,1> biasVec;
-            biasVec.template head<3>() = bg;
-            biasVec.template tail<3>() = ba;
-
-            Eigen::Matrix<Scalar,6,1> eps = Eigen::Matrix<Scalar,6,1>::Zero();
-            eps[ii] += dEps;
-            biasVec += eps;
-            Eigen::Matrix<Scalar,9,1> k1_plus = GetPoseDerivative(y0,g,zStart,zEnd,biasVec.template head<3>(),biasVec.template tail<3>(),0);
-
-            biasVec.template head<3>() = bg;
-            biasVec.template tail<3>() = ba;
-
-            eps[ii] -= 2*dEps;
-            biasVec += eps;
-            Eigen::Matrix<Scalar,9,1> k1_minus = GetPoseDerivative(y0,g,zStart,zEnd,biasVec.template head<3>(),biasVec.template tail<3>(),0);
-            dk_db_fd.col(ii) = (k1_plus-k1_minus)/(2*dEps);
-        }
-        std::cout << "dk_db= " << std::endl << dk_db.format(cleanFmt) << std::endl;
-        std::cout << "dk_db_fd = " << std::endl << dk_db_fd.format(cleanFmt) << std::endl;
-        std::cout << "dk_db-dk_db_fd = " << std::endl << (dk_db-dk_db_fd).format(cleanFmt) << "norm: " << (dk_db-dk_db_fd).norm() << std::endl;
-
-        return (dk_db-dk_db_fd).norm() < NORM_THRESHOLD;
-    }
-
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    static bool _Test_IntegrateImu_KStateJacobian(const ImuPose&           y0,
-                                                  const ImuMeasurement&    zStart,
-                                                  const ImuMeasurement&    zEnd,
-                                                  const Eigen::Matrix<Scalar,3,1>&  bg,
-                                                  const Eigen::Matrix<Scalar,3,1>&  ba,
-                                                  const Eigen::Matrix<Scalar,3,1>&  g,
-                                                  const Eigen::Matrix<Scalar,9,10>&  dk_dy)
-    {
-        const Scalar dEps = TESTING_EPS;
-        Eigen::Matrix<Scalar,9,10>  dk_dy_fd;
-        for(int ii = 0; ii < 10 ; ii++){
-            Eigen::Matrix<Scalar,10,1> epsVec = Eigen::Matrix<Scalar,10,1>::Zero();
-            epsVec[ii] += dEps;
-            ImuPose y0_eps = y0;
-            y0_eps.Twp.translation() += epsVec.template head<3>();
-            Eigen::Quaternion<Scalar> qPlus = y0_eps.Twp.so3().unit_quaternion();
-            qPlus.coeffs() += epsVec.template segment<4>(3);
-            memcpy(y0_eps.Twp.so3().data(),qPlus.coeffs().data(),sizeof(Scalar)*4);
-            y0_eps.V += epsVec.template tail<3>();
-            Eigen::Matrix<Scalar,9,1> k1_plus = GetPoseDerivative(y0_eps,g,zStart,zEnd,bg,ba,0);
-
-            epsVec[ii] -= 2*dEps;
-            y0_eps = y0;
-            y0_eps.Twp.translation() += epsVec.template head<3>();
-            Eigen::Quaternion<Scalar> qMinus = y0_eps.Twp.so3().unit_quaternion();
-            qMinus.coeffs() += epsVec.template segment<4>(3);
-            y0_eps.Twp.so3() = Sophus::SO3Group<Scalar>(qMinus);
-            memcpy(y0_eps.Twp.so3().data(),qMinus.coeffs().data(),sizeof(Scalar)*4);
-            y0_eps.V += epsVec.template tail<3>();
-            Eigen::Matrix<Scalar,9,1> k1_minus = GetPoseDerivative(y0_eps,g,zStart,zEnd,bg,ba,0);
-
-            dk_dy_fd.col(ii) = (k1_plus-k1_minus)/(2*dEps);
-        }
-        std::cout << "dk_dy= " << std::endl << dk_dy.format(cleanFmt) << std::endl;
-        std::cout << "dk_dy_fd = " << std::endl << dk_dy_fd.format(cleanFmt) << std::endl;
-        std::cout << "dk_dy-dk_dy_fd = " << std::endl << (dk_dy-dk_dy_fd).format(cleanFmt) << "norm: " << (dk_dy-dk_dy_fd).norm() <<  std::endl;
-
-        return (dk_dy-dk_dy_fd).norm() < NORM_THRESHOLD;
-    }
-
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    static bool _Test_IntegrateImu_StateStateJacobian(const ImuPose&           y0,
-                                                      const Eigen::Matrix<Scalar,9,1>&  k,
-                                                      const Eigen::Matrix<Scalar,10,10>&  dy_dy,
-                                                      const Scalar dt)
-    {
-        const Scalar dEps = TESTING_EPS;
-        Eigen::Matrix<Scalar,10,10>  dy_dy_fd;
-        for(int ii = 0; ii < 10 ; ii++){
-            Eigen::Matrix<Scalar,10,1> epsVec = Eigen::Matrix<Scalar,10,1>::Zero();
-            epsVec[ii] += dEps;
-            ImuPose y0_eps = y0;
-            y0_eps.Twp.translation() += epsVec.template head<3>();
-            Eigen::Quaternion<Scalar> qPlus = y0_eps.Twp.so3().unit_quaternion();
-            qPlus.coeffs() += epsVec.template segment<4>(3);
-            memcpy(y0_eps.Twp.so3().data(),qPlus.coeffs().data(),sizeof(Scalar)*4);
-            y0_eps.V += epsVec.template tail<3>();
-
-            Eigen::Matrix<Scalar,10,1> yPlus;
-            ImuPose posePlus = IntegratePose(y0_eps,k,dt*0.5);
-            yPlus.template head<3>() = posePlus.Twp.translation();
-            yPlus.template segment<4>(3) = posePlus.Twp.so3().unit_quaternion().coeffs();
-            yPlus.template tail<3>() = posePlus.V;
-
-            epsVec[ii] -= 2*dEps;
-            y0_eps = y0;
-            y0_eps.Twp.translation() += epsVec.template head<3>();
-            Eigen::Quaternion<Scalar> qMinus = y0_eps.Twp.so3().unit_quaternion();
-            qMinus.coeffs() += epsVec.template segment<4>(3);
-            y0_eps.Twp.so3() = Sophus::SO3Group<Scalar>(qMinus);
-            memcpy(y0_eps.Twp.so3().data(),qMinus.coeffs().data(),sizeof(Scalar)*4);
-            y0_eps.V += epsVec.template tail<3>();
-
-            Eigen::Matrix<Scalar,10,1> yMinus;
-            ImuPose poseMinus = IntegratePose(y0_eps,k,dt*0.5);
-            yMinus.template head<3>() = poseMinus.Twp.translation();
-            yMinus.template segment<4>(3) = poseMinus.Twp.so3().unit_quaternion().coeffs();
-            yMinus.template tail<3>() = poseMinus.V;
-
-            dy_dy_fd.col(ii) = (yPlus-yMinus)/(2*dEps);
-        }
-        std::cout << "dy_dy= " << std::endl << dy_dy.format(cleanFmt) << std::endl;
-        std::cout << "dy_dy_fd = " << std::endl << dy_dy_fd.format(cleanFmt) << std::endl;
-        std::cout << "dy_dy-dy_dy_fd = " << std::endl << (dy_dy-dy_dy_fd).format(cleanFmt) << "norm: " << (dy_dy-dy_dy_fd).norm() << std::endl;
-
-        return (dy_dy-dy_dy_fd).norm() < NORM_THRESHOLD;
+    if (dpose_dpose != 0) {
+      assert(_Test_IntegrateResidual_StateJacobian( orig_pose, measurements, bg,
+                                                    ba, g, *dpose_dpose ) );
     }
 
 
+    return pose;
+  }
 
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    static bool _Test_IntegratePose_ExpJacobian(const Eigen::Matrix<Scalar,9,1>&    k,
-                                                const Scalar                        dt)
-    {
-        const Scalar dEps = TESTING_EPS;
-        Eigen::Matrix<Scalar,4,3> Jexp_fd;
-        for(int ii = 0; ii < 3 ; ii++){
-            Eigen::Matrix<Scalar,3,1> eps = Eigen::Matrix<Scalar,3,1>::Zero();
-            eps[ii] += dEps;
-            Eigen::Matrix<Scalar,3,1> kPlus = k.template segment<3>(3)*dt;
-            kPlus += eps;
-            Eigen::Matrix<Scalar,4,1> res_Plus = Sophus::SO3Group<Scalar>::exp(kPlus).unit_quaternion().coeffs();
+  //////////////////////////////////////////////////////////////////////////////
+  static bool _Test_IntegrateImu_BiasJacobian(
+      const ImuPose&                    pose,
+      const ImuMeasurement&             prev_meas,
+      const ImuMeasurement&             meas,
+      const Eigen::Matrix<Scalar,3,1>&  bg,
+      const Eigen::Matrix<Scalar,3,1>&  ba,
+      const Eigen::Matrix<Scalar,3,1>&  g,
+      const Eigen::Matrix<Scalar,10,6>& dpose_db)
+  {
+    Eigen::Matrix<Scalar, 10,6> dpose_db_fd;
+    const Scalar eps = TESTING_EPS;
+    for (int ii = 0; ii < 6 ; ii++) {
+      Eigen::Matrix<Scalar,6,1> bias;
+      bias.template head<3>() = bg;
+      bias.template tail<3>() = ba;
 
-            eps[ii] -= 2*dEps;
-            Eigen::Matrix<Scalar,3,1> kMinus = k.template segment<3>(3)*dt;
-            kMinus += eps;
-            Eigen::Matrix<Scalar,4,1> res_Minus = Sophus::SO3Group<Scalar>::exp(kMinus).unit_quaternion().coeffs();
+      Eigen::Matrix<Scalar,6,1> eps_vec = Eigen::Matrix<Scalar,6,1>::Zero();
+      eps_vec[ii] = eps;
+      bias += eps_vec;
+      ImuPose pose_plus = IntegrateImu(pose,prev_meas,meas,
+                                       bias.template head<3>(),
+                                       bias.template tail<3>(),
+                                       g);
 
-            Jexp_fd.col(ii) = (res_Plus - res_Minus)/(2*dEps);
+      Eigen::Matrix<Scalar,10,1> pose_vec_plus;
+      pose_vec_plus.template head<3>() = pose_plus.t_wp.translation();
+      pose_vec_plus.template segment<4>(3) =
+          pose_plus.t_wp.so3().unit_quaternion().coeffs();
+      // do euler integration for now
+      pose_vec_plus.template tail<3>() = pose_plus.v_w;
+
+      bias.template head<3>() = bg;
+      bias.template tail<3>() = ba;
+
+      eps_vec[ii] = -eps;
+      bias += eps_vec;
+      ImuPose pose_minus = IntegrateImu(pose,prev_meas,meas,
+                                        bias.template head<3>(),
+                                        bias.template tail<3>(),
+                                        g);
+
+      Eigen::Matrix<Scalar,10,1> pose_vec_minus;
+      pose_vec_minus.template head<3>() = pose_minus.t_wp.translation();
+      pose_vec_minus.template segment<4>(3) =
+          pose_minus.t_wp.so3().unit_quaternion().coeffs();
+      // do euler integration for now
+      pose_vec_minus.template tail<3>() = pose_minus.v_w;
+
+      dpose_db_fd.col(ii) = (pose_vec_plus-pose_vec_minus)/(2*eps);
+    }
+    std::cout << "dpose_db = " << std::endl <<
+                 dpose_db.format(kCleanFmt) << std::endl;
+    std::cout << "dpose_db_fd = " << std::endl <<
+                 dpose_db_fd.format(kCleanFmt) << std::endl;
+    std::cout << "diff = " << std::endl <<
+                 (dpose_db-dpose_db_fd).format(kCleanFmt) <<
+                 " norm: " << (dpose_db-dpose_db_fd).norm() <<  std::endl;
+    return (dpose_db-dpose_db_fd).norm() < NORM_THRESHOLD;
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
+  static bool _Test_IntegrateImu_StateJacobian(
+       const ImuPose&                     pose,
+       const ImuMeasurement&              prev_meas,
+       const ImuMeasurement&              meas,
+       const Eigen::Matrix<Scalar,3,1>&   bg,
+       const Eigen::Matrix<Scalar,3,1>&   ba,
+       const Eigen::Matrix<Scalar,3,1>&   g,
+       const Eigen::Matrix<Scalar,10,10>& dpose_dpose)
+  {
+    const Scalar eps = TESTING_EPS;
+    Eigen::Matrix<Scalar,10,10>  dpose_dpose_df;
+    for (int ii = 0; ii < 10 ; ii++) {
+      Eigen::Matrix<Scalar,10,1> eps_vec = Eigen::Matrix<Scalar,10,1>::Zero();
+      eps_vec[ii] = eps;
+      ImuPose pos_eps = pose;
+      pos_eps.t_wp.translation() += eps_vec.template head<3>();
+      Eigen::Quaternion<Scalar> q_p = pos_eps.t_wp.so3().unit_quaternion();
+      q_p.coeffs() += eps_vec.template segment<4>(3);
+      memcpy(pos_eps.t_wp.so3().data(),q_p.coeffs().data(),sizeof(Scalar)*4);
+      pos_eps.v_w += eps_vec.template tail<3>();
+
+      ImuPose pose_plus = IntegrateImu(pos_eps,prev_meas,meas,bg,ba,g);
+
+      Eigen::Matrix<Scalar,10,1> pose_vec_plus;
+      pose_vec_plus.template head<3>() = pose_plus.t_wp.translation();
+      pose_vec_plus.template segment<4>(3) =
+          pose_plus.t_wp.so3().unit_quaternion().coeffs();
+      // do euler integration for now
+      pose_vec_plus.template tail<3>() = pose_plus.v_w;
+
+      eps_vec[ii] = -eps;
+      pos_eps = pose;
+      pos_eps.t_wp.translation() += eps_vec.template head<3>();
+      Eigen::Quaternion<Scalar> q_m = pos_eps.t_wp.so3().unit_quaternion();
+      q_m.coeffs() += eps_vec.template segment<4>(3);
+      pos_eps.t_wp.so3() = Sophus::SO3Group<Scalar>(q_m);
+      memcpy(pos_eps.t_wp.so3().data(),q_m.coeffs().data(),sizeof(Scalar)*4);
+      pos_eps.v_w += eps_vec.template tail<3>();
+
+      ImuPose pose_minus = IntegrateImu(pos_eps,prev_meas,meas,bg,ba,g);
+
+      Eigen::Matrix<Scalar,10,1> pose_vec_minus;
+      pose_vec_minus.template head<3>()= pose_minus.t_wp.translation();
+      pose_vec_minus.template segment<4>(3) =
+          pose_minus.t_wp.so3().unit_quaternion().coeffs();
+      // do euler integration for now
+      pose_vec_minus.template tail<3>() = pose_minus.v_w;
+
+      dpose_dpose_df.col(ii) = (pose_vec_plus-pose_vec_minus)/(2*eps);
+    }
+    std::cout << "dpose_dpose= " << std::endl <<
+                 dpose_dpose.format(kCleanFmt) << std::endl;
+    std::cout << "dpose_dpose_df = " << std::endl <<
+                 dpose_dpose_df.format(kCleanFmt) << std::endl;
+    std::cout << "diff = " << std::endl <<
+                 (dpose_dpose-dpose_dpose_df).format(kCleanFmt) <<
+                 " norm: " << (dpose_dpose-dpose_dpose_df).norm() << std::endl;
+
+    return (dpose_dpose-dpose_dpose_df).norm() < NORM_THRESHOLD;
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
+  static bool _Test_IntegrateResidual_BiasJacobian(
+       const ImuPose&                     pose,
+       const std::vector<ImuMeasurement>& measurements,
+       const Eigen::Matrix<Scalar,3,1>&   bg,
+       const Eigen::Matrix<Scalar,3,1>&   ba,
+       const Eigen::Matrix<Scalar,3,1>&   g,
+       const Eigen::Matrix<Scalar,10,6>&  dpose_db)
+  {
+    const ImuMeasurement* prev_meas = 0;
+    Eigen::Matrix<Scalar,10,6> dpose_db_fd;
+    const Scalar eps = TESTING_EPS;
+    Eigen::Matrix<Scalar,6,1> bias_vec;
+    bias_vec.template head<3>() = bg;
+    bias_vec.template tail<3>() = ba;
+    for (int ii = 0 ; ii < 6 ; ii++) {
+      Eigen::Matrix<Scalar,6,1> eps_vec = Eigen::Matrix<Scalar,6,1>::Zero();
+      eps_vec[ii] = eps;
+      std::vector<ImuPose> poses;
+      const Eigen::Matrix<Scalar,6,1> b_plus = bias_vec + eps_vec;
+      ImuPose pose_plus = pose;
+      prev_meas = 0;
+      for(const ImuMeasurement& meas : measurements){
+        if(prev_meas != 0){
+          pose_plus  = IntegrateImu(pose_plus ,*prev_meas,meas,
+                                    b_plus.template head<3>(),
+                                    b_plus.template tail<3>(),
+                                    g);
         }
+        prev_meas = &meas;
+      }
+      Eigen::Matrix<Scalar,10,1> pose_vec_plus;
+      pose_vec_plus.template head<3>() = pose_plus .t_wp.translation();
+      pose_vec_plus.template segment<4>(3) =
+          pose_plus .t_wp.so3().unit_quaternion().coeffs();
+      pose_vec_plus.template tail<3>() = pose_plus .v_w;
 
-        std::cout << "dExp_dw= " << std::endl << dqExp_dw<Scalar>(k.template segment<3>(3)*dt).format(cleanFmt) <<  std::endl;
-        std::cout << "dExp_dw_fd=" << std::endl << Jexp_fd.format(cleanFmt) << std::endl;
-        std::cout << "dExp_dw-dExp_dw_fd=" << std::endl << (dqExp_dw<Scalar>(k.template segment<3>(3)*dt)-Jexp_fd).format(cleanFmt) <<
-                     "norm: " << (dqExp_dw<Scalar>(k.template segment<3>(3)*dt)-Jexp_fd).norm() << std::endl;
+      eps_vec[ii] = -eps;
+      const Eigen::Matrix<Scalar,6,1> b_minus = bias_vec + eps_vec;
+      poses.clear();
+      ImuPose pose_minus = pose;
+      prev_meas = 0;
+      for(const ImuMeasurement& meas : measurements){
+        if(prev_meas != 0){
+          pose_minus = IntegrateImu(pose_minus,*prev_meas,meas,
+                                    b_minus.template head<3>(),
+                                    b_minus.template tail<3>(),
+                                    g);
+        }
+        prev_meas = &meas;
+      }
+      Eigen::Matrix<Scalar,10,1> pos_minus_vec;
+      pos_minus_vec.template head<3>() = pose_minus.t_wp.translation();
+      pos_minus_vec.template segment<4>(3) =
+          pose_minus.t_wp.so3().unit_quaternion().coeffs();
+      pos_minus_vec.template tail<3>() = pose_minus.v_w;
 
-        return (dqExp_dw<Scalar>(k.template segment<3>(3)*dt)-Jexp_fd).norm() < NORM_THRESHOLD;
+      dpose_db_fd.col(ii) = (pose_vec_plus-pos_minus_vec)/(2*eps);
+    }
+    std::cout << "dpose_db = " << std::endl <<
+                 (dpose_db).format(kCleanFmt) << std::endl;
+    std::cout << "dpose_db_fd = " << std::endl <<
+                 dpose_db_fd.format(kCleanFmt) << std::endl;
+    std::cout << "diff = " << std::endl <<
+                 (dpose_db-dpose_db_fd).format(kCleanFmt) << " norm: " <<
+                 (dpose_db-dpose_db_fd).norm() <<  std::endl;
+    return (dpose_db-dpose_db_fd).norm() < NORM_THRESHOLD;
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
+  static bool _Test_IntegrateResidual_StateJacobian(
+      const ImuPose&                      pose,
+      const std::vector<ImuMeasurement>&  measurements,
+      const Eigen::Matrix<Scalar,3,1>&    bg,
+      const Eigen::Matrix<Scalar,3,1>&    ba,
+      const Eigen::Matrix<Scalar,3,1>&    g,
+      const Eigen::Matrix<Scalar,10,10>&  dpose_dpose)
+  {
+    const ImuMeasurement* prev_meas = 0;
+    Eigen::Matrix<Scalar,10,10> dpose_dpose_fd;
+    const Scalar eps = TESTING_EPS;
+    for (int ii = 0; ii < 10 ; ii++) {
+      Eigen::Matrix<Scalar,10,1> eps_vec = Eigen::Matrix<Scalar,10,1>::Zero();
+      eps_vec[ii] += eps;
+      ImuPose pose_plus = pose;
+      pose_plus.t_wp.translation() += eps_vec.template head<3>();
+      Eigen::Quaternion<Scalar> q_p = pose_plus.t_wp.so3().unit_quaternion();
+      q_p.coeffs() += eps_vec.template segment<4>(3);
+      memcpy(pose_plus.t_wp.so3().data(),q_p.coeffs().data(),sizeof(Scalar)*4);
+      pose_plus.v_w += eps_vec.template tail<3>();
+
+      prev_meas = 0;
+      for (const ImuMeasurement& meas : measurements) {
+        if(prev_meas != 0){
+          pose_plus = IntegrateImu(pose_plus,*prev_meas,meas,bg,ba,g);
+        }
+        prev_meas = &meas;
+      }
+
+      Eigen::Matrix<Scalar,10,1> pose_vec_plus;
+      pose_vec_plus.template head<3>() = pose_plus.t_wp.translation();
+      pose_vec_plus.template segment<4>(3) =
+          pose_plus.t_wp.so3().unit_quaternion().coeffs();
+      // do euler integration for now
+      pose_vec_plus.template tail<3>() = pose_plus.v_w;
+
+      eps_vec[ii] -= 2*eps;
+      ImuPose pose_minus = pose;
+      pose_minus.t_wp.translation() += eps_vec.template head<3>();
+      Eigen::Quaternion<Scalar> q_m = pose_minus.t_wp.so3().unit_quaternion();
+      q_m.coeffs() += eps_vec.template segment<4>(3);
+      pose_minus.t_wp.so3() = Sophus::SO3Group<Scalar>(q_m);
+      memcpy(pose_minus.t_wp.so3().data(),q_m.coeffs().data(),sizeof(Scalar)*4);
+      pose_minus.v_w += eps_vec.template tail<3>();
+
+      prev_meas = 0;
+      for (const ImuMeasurement& meas : measurements) {
+        if(prev_meas != 0){
+          pose_minus = IntegrateImu(pose_minus,*prev_meas,meas,bg,ba,g);
+        }
+        prev_meas = &meas;
+      }
+
+      Eigen::Matrix<Scalar,10,1> pose_vec_minus;
+      pose_vec_minus.template head<3>()= pose_minus.t_wp.translation();
+      pose_vec_minus.template segment<4>(3) =
+          pose_minus.t_wp.so3().unit_quaternion().coeffs();
+      // do euler integration for now
+      pose_vec_minus.template tail<3>() = pose_minus.v_w;
+
+      dpose_dpose_fd.col(ii) = (pose_vec_plus-pose_vec_minus)/(2*eps);
+    }
+    std::cout << "dpose_dpose = " << std::endl <<
+                 (dpose_dpose).format(kCleanFmt) << std::endl;
+    std::cout << "dpose_dpose_fd = " << std::endl <<
+                 dpose_dpose_fd.format(kCleanFmt) << std::endl;
+    std::cout << "diff = " << std::endl <<
+                 (dpose_dpose-dpose_dpose_fd).format(kCleanFmt) << " norm: " <<
+                 (dpose_dpose-dpose_dpose_fd).norm() <<  std::endl;
+
+    return (dpose_dpose-dpose_dpose_fd).norm() < NORM_THRESHOLD;
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
+  static bool _Test_IntegrateImu_KBiasJacobian(
+       const ImuPose&                    pose,
+       const ImuMeasurement&             z_start,
+       const ImuMeasurement&             z_end,
+       const Eigen::Matrix<Scalar,3,1>&  bg,
+       const Eigen::Matrix<Scalar,3,1>&  ba,
+       const Eigen::Matrix<Scalar,3,1>&  g,
+       const Eigen::Matrix<Scalar,9,6>&  dk_db)
+  {
+    const Scalar eps = TESTING_EPS;
+    Eigen::Matrix<Scalar,9,6>  dk_db_fd;
+    for (int ii = 0; ii < 6 ; ii++) {
+      Eigen::Matrix<Scalar,6,1> bias_vec;
+      bias_vec.template head<3>() = bg;
+      bias_vec.template tail<3>() = ba;
+
+      Eigen::Matrix<Scalar,6,1> eps_vec = Eigen::Matrix<Scalar,6,1>::Zero();
+      eps_vec[ii] += eps;
+      bias_vec += eps_vec;
+      Eigen::Matrix<Scalar,9,1> k1_plus =
+          GetPoseDerivative(pose,g,z_start,z_end,
+                            bias_vec.template head<3>(),
+                            bias_vec.template tail<3>(),
+                            0);
+
+      bias_vec.template head<3>() = bg;
+      bias_vec.template tail<3>() = ba;
+
+      eps_vec[ii] -= 2*eps;
+      bias_vec += eps_vec;
+      Eigen::Matrix<Scalar,9,1> k1_minus =
+          GetPoseDerivative(pose,g,z_start,z_end,
+                            bias_vec.template head<3>(),
+                            bias_vec.template tail<3>(),
+                            0);
+      dk_db_fd.col(ii) = (k1_plus-k1_minus)/(2*eps);
+    }
+    std::cout << "dk_db = " << std::endl <<
+                 dk_db.format(kCleanFmt) << std::endl;
+    std::cout << "dk_db_fd = " << std::endl <<
+                 dk_db_fd.format(kCleanFmt) << std::endl;
+    std::cout << "dk_db-diff = " << std::endl <<
+                 (dk_db-dk_db_fd).format(kCleanFmt) << "norm: " <<
+                 (dk_db-dk_db_fd).norm() << std::endl;
+
+    return (dk_db-dk_db_fd).norm() < NORM_THRESHOLD;
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
+  static bool _Test_IntegrateImu_KStateJacobian(
+      const ImuPose&                    pose,
+      const ImuMeasurement&             z_start,
+      const ImuMeasurement&             z_end,
+      const Eigen::Matrix<Scalar,3,1>&  bg,
+      const Eigen::Matrix<Scalar,3,1>&  ba,
+      const Eigen::Matrix<Scalar,3,1>&  g,
+      const Eigen::Matrix<Scalar,9,10>&  dk_dy)
+  {
+    const Scalar eps = TESTING_EPS;
+    Eigen::Matrix<Scalar,9,10>  dk_dy_fd;
+    for (int ii = 0; ii < 10 ; ii++) {
+      Eigen::Matrix<Scalar,10,1> eps_vec = Eigen::Matrix<Scalar,10,1>::Zero();
+      eps_vec[ii] += eps;
+      ImuPose pose_eps = pose;
+      pose_eps.t_wp.translation() += eps_vec.template head<3>();
+      Eigen::Quaternion<Scalar> q_p = pose_eps.t_wp.so3().unit_quaternion();
+      q_p.coeffs() += eps_vec.template segment<4>(3);
+      memcpy(pose_eps.t_wp.so3().data(),q_p.coeffs().data(),sizeof(Scalar)*4);
+      pose_eps.v_w += eps_vec.template tail<3>();
+      Eigen::Matrix<Scalar,9,1> k1_plus =
+          GetPoseDerivative(pose_eps,g,z_start,z_end,bg,ba,0);
+
+      eps_vec[ii] -= 2*eps;
+      pose_eps = pose;
+      pose_eps.t_wp.translation() += eps_vec.template head<3>();
+      Eigen::Quaternion<Scalar> q_m = pose_eps.t_wp.so3().unit_quaternion();
+      q_m.coeffs() += eps_vec.template segment<4>(3);
+      pose_eps.t_wp.so3() = Sophus::SO3Group<Scalar>(q_m);
+      memcpy(pose_eps.t_wp.so3().data(),q_m.coeffs().data(),sizeof(Scalar)*4);
+      pose_eps.v_w += eps_vec.template tail<3>();
+      Eigen::Matrix<Scalar,9,1> k1_minus =
+          GetPoseDerivative(pose_eps,g,z_start,z_end,bg,ba,0);
+
+      dk_dy_fd.col(ii) = (k1_plus-k1_minus)/(2*eps);
+    }
+    std::cout << "dk_dy= " << std::endl <<
+                 dk_dy.format(kCleanFmt) << std::endl;
+    std::cout << "dk_dy_fd = " << std::endl <<
+                 dk_dy_fd.format(kCleanFmt) << std::endl;
+    std::cout << "diff = " << std::endl << (dk_dy-dk_dy_fd).format(kCleanFmt) <<
+                 "norm: " << (dk_dy-dk_dy_fd).norm() <<  std::endl;
+
+    return (dk_dy-dk_dy_fd).norm() < NORM_THRESHOLD;
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
+  static bool _Test_IntegrateImu_StateStateJacobian(
+      const ImuPose&                      pose,
+      const Eigen::Matrix<Scalar,9,1>&    k,
+      const Eigen::Matrix<Scalar,10,10>&  dy_dy,
+      const Scalar                        dt)
+  {
+    const Scalar eps = TESTING_EPS;
+    Eigen::Matrix<Scalar,10,10>  dy_dy_fd;
+    for (int ii = 0; ii < 10 ; ii++) {
+      Eigen::Matrix<Scalar,10,1> eps_vec = Eigen::Matrix<Scalar,10,1>::Zero();
+      eps_vec[ii] += eps;
+      ImuPose pose_eps = pose;
+      pose_eps.t_wp.translation() += eps_vec.template head<3>();
+      Eigen::Quaternion<Scalar> q_p = pose_eps.t_wp.so3().unit_quaternion();
+      q_p.coeffs() += eps_vec.template segment<4>(3);
+      memcpy(pose_eps.t_wp.so3().data(),q_p.coeffs().data(),sizeof(Scalar)*4);
+      pose_eps.v_w += eps_vec.template tail<3>();
+
+      Eigen::Matrix<Scalar,10,1> pose_vec_plus;
+      ImuPose posePlus = IntegratePose(pose_eps,k,dt*0.5);
+      pose_vec_plus.template head<3>() = posePlus.t_wp.translation();
+      pose_vec_plus.template segment<4>(3) =
+          posePlus.t_wp.so3().unit_quaternion().coeffs();
+      pose_vec_plus.template tail<3>() = posePlus.v_w;
+
+      eps_vec[ii] -= 2*eps;
+      pose_eps = pose;
+      pose_eps.t_wp.translation() += eps_vec.template head<3>();
+      Eigen::Quaternion<Scalar> q_m = pose_eps.t_wp.so3().unit_quaternion();
+      q_m.coeffs() += eps_vec.template segment<4>(3);
+      pose_eps.t_wp.so3() = Sophus::SO3Group<Scalar>(q_m);
+      memcpy(pose_eps.t_wp.so3().data(),q_m.coeffs().data(),sizeof(Scalar)*4);
+      pose_eps.v_w += eps_vec.template tail<3>();
+
+      Eigen::Matrix<Scalar,10,1> pose_vec_minus;
+      ImuPose pose_minus = IntegratePose(pose_eps,k,dt*0.5);
+      pose_vec_minus.template head<3>() = pose_minus.t_wp.translation();
+      pose_vec_minus.template segment<4>(3) =
+          pose_minus.t_wp.so3().unit_quaternion().coeffs();
+      pose_vec_minus.template tail<3>() = pose_minus.v_w;
+
+      dy_dy_fd.col(ii) = (pose_vec_plus-pose_vec_minus)/(2*eps);
+    }
+    std::cout << "dy_dy= " << std::endl <<
+                 dy_dy.format(kCleanFmt) << std::endl;
+    std::cout << "dy_dy_fd = " << std::endl <<
+                 dy_dy_fd.format(kCleanFmt) << std::endl;
+    std::cout << "diff = " << std::endl << (dy_dy-dy_dy_fd).format(kCleanFmt) <<
+                 "norm: " << (dy_dy-dy_dy_fd).norm() << std::endl;
+
+    return (dy_dy-dy_dy_fd).norm() < NORM_THRESHOLD;
+  }
+
+
+
+  //////////////////////////////////////////////////////////////////////////////
+  static bool _Test_IntegratePose_ExpJacobian(
+      const Eigen::Matrix<Scalar,9,1>&    k,
+      const Scalar                        dt)
+  {
+    const Scalar eps = TESTING_EPS;
+    Eigen::Matrix<Scalar,4,3> dexp_dw_fd;
+    for (int ii = 0; ii < 3 ; ii++) {
+      Eigen::Matrix<Scalar,3,1> eps_vec = Eigen::Matrix<Scalar,3,1>::Zero();
+      eps_vec[ii] += eps;
+      Eigen::Matrix<Scalar,3,1> k_plus = k.template segment<3>(3)*dt;
+      k_plus += eps_vec;
+      Eigen::Matrix<Scalar,4,1> res_Plus =
+          Sophus::SO3Group<Scalar>::exp(k_plus).unit_quaternion().coeffs();
+
+      eps_vec[ii] -= 2*eps;
+      Eigen::Matrix<Scalar,3,1> k_minus = k.template segment<3>(3)*dt;
+      k_minus += eps_vec;
+      Eigen::Matrix<Scalar,4,1> res_Minus =
+          Sophus::SO3Group<Scalar>::exp(k_minus).unit_quaternion().coeffs();
+
+      dexp_dw_fd.col(ii) = (res_Plus - res_Minus)/(2*eps);
     }
 
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    static bool _Test_IntegratePose_StateKJacobian(const ImuPose&             pose,
-                                                   const Eigen::Matrix<Scalar,9,1>&    k,
-                                                   const Scalar                        dt,
-                                                   const Eigen::Matrix<Scalar,10,9>&   dy_dk)
-    {
-        const Scalar dEps = TESTING_EPS;
-        Eigen::Matrix<Scalar,10,9> Jfd;
-        for(int ii = 0; ii < 9 ; ii++){
-            Eigen::Matrix<Scalar,9,1> eps = Eigen::Matrix<Scalar,9,1>::Zero();
-            eps[ii] += dEps;
-            Eigen::Matrix<Scalar,9,1> kPlus = k;
-            kPlus += eps;
-            Eigen::Matrix<Scalar,10,1> res_Plus;
-            res_Plus.template head<3>() = pose.Twp.translation() + kPlus.template head<3>()*dt;
-            res_Plus.template segment<4>(3) = (Sophus::SO3Group<Scalar>::exp(kPlus.template segment<3>(3)*dt).unit_quaternion() * pose.Twp.so3().unit_quaternion()).coeffs();
-            res_Plus.template tail<3>() = pose.V + kPlus.template tail<3>()*dt;
+    const auto k_segment = k.template segment<3>(3);
+    std::cout << "dexp_dw_fd= " << std::endl <<
+                 dqExp_dw<Scalar>(k_segment*dt).format(kCleanFmt) <<  std::endl;
+    std::cout << "dexp_dw_fd=" << std::endl <<
+                 dexp_dw_fd.format(kCleanFmt) << std::endl;
+    std::cout << "diff= " << std::endl <<
+                 (dqExp_dw<Scalar>(k_segment*dt)-dexp_dw_fd).format(kCleanFmt) <<
+                 "norm: " <<
+                 (dqExp_dw<Scalar>(k_segment*dt)-dexp_dw_fd).norm() <<
+                 std::endl;
 
-            eps[ii] -= 2*dEps;
-            Eigen::Matrix<Scalar,9,1> kMinus = k;
-            kMinus += eps;
-            Eigen::Matrix<Scalar,10,1> res_Minus;
-            res_Minus.template head<3>() = pose.Twp.translation() + kMinus.template head<3>()*dt;
-            res_Minus.template segment<4>(3) = (Sophus::SO3Group<Scalar>::exp(kMinus.template segment<3>(3)*dt) * pose.Twp.so3()).unit_quaternion().coeffs();
-            res_Minus.template tail<3>() = pose.V + kMinus.template tail<3>()*dt;
+    return (dqExp_dw<Scalar>(k.template segment<3>(3)*dt)-dexp_dw_fd).norm() <
+            NORM_THRESHOLD;
+  }
 
-            Jfd.col(ii) = (res_Plus - res_Minus)/(2*dEps);
-        }
+  //////////////////////////////////////////////////////////////////////////////
+  static bool _Test_IntegratePose_StateKJacobian(
+       const ImuPose&             pose,
+       const Eigen::Matrix<Scalar,9,1>&    k,
+       const Scalar                        dt,
+       const Eigen::Matrix<Scalar,10,9>&   dpose_dk)
+  {
+    const Scalar eps = TESTING_EPS;
+    Eigen::Matrix<Scalar,10,9> dpose_dk_d;
+    for(int ii = 0; ii < 9 ; ii++){
+      Eigen::Matrix<Scalar,9,1> eps_vec = Eigen::Matrix<Scalar,9,1>::Zero();
+      eps_vec[ii] += eps;
+      Eigen::Matrix<Scalar,9,1> k_plus = k;
+      k_plus += eps_vec;
+      Eigen::Matrix<Scalar,10,1> res_plus;
+      res_plus.template head<3>() =
+          pose.t_wp.translation() + k_plus.template head<3>()*dt;
 
-        std::cout << "dy_dk=" << std::endl << dy_dk.format(cleanFmt) <<  std::endl;
-        std::cout << "dy_dk_fd=" << std::endl << Jfd.format(cleanFmt) << std::endl;
-        std::cout << "dy_dk-dy_dk_fd=" << std::endl << (dy_dk-Jfd).format(cleanFmt) << "norm: " << (dy_dk-Jfd).norm() << std::endl;
+      res_plus.template segment<4>(3) =
+          (Sophus::SO3Group<Scalar>::exp(
+             k_plus.template segment<3>(3)*dt).unit_quaternion() *
+             pose.t_wp.so3().unit_quaternion()).coeffs();
 
-        return (dy_dk-Jfd).norm() < NORM_THRESHOLD;
+      res_plus.template tail<3>() = pose.v_w + k_plus.template tail<3>()*dt;
+
+      eps_vec[ii] -= 2*eps;
+      Eigen::Matrix<Scalar,9,1> kMinus = k;
+      kMinus += eps_vec;
+      Eigen::Matrix<Scalar,10,1> res_Minus;
+      res_Minus.template head<3>() = pose.t_wp.translation() +
+                                     kMinus.template head<3>()*dt;
+      res_Minus.template segment<4>(3) =
+          (Sophus::SO3Group<Scalar>::exp(kMinus.template segment<3>(3)*dt) *
+           pose.t_wp.so3()).unit_quaternion().coeffs();
+
+      res_Minus.template tail<3>() = pose.v_w + kMinus.template tail<3>()*dt;
+
+      dpose_dk_d.col(ii) = (res_plus - res_Minus)/(2*eps);
     }
+
+    std::cout << "dpose_dk=" << std::endl <<
+                 dpose_dk.format(kCleanFmt) <<  std::endl;
+    std::cout << "dpose_dk_d=" << std::endl <<
+                 dpose_dk_d.format(kCleanFmt) << std::endl;
+    std::cout << "diff =" << std::endl <<
+                 (dpose_dk-dpose_dk_d).format(kCleanFmt) << "norm: " <<
+                 (dpose_dk-dpose_dk_d).norm() << std::endl;
+
+    return (dpose_dk-dpose_dk_d).norm() < NORM_THRESHOLD;
+  }
 
 };
-
-
-
 }

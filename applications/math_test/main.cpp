@@ -10,11 +10,11 @@ int main( int argc, char** argv )
     Eigen::IOFormat cleanFmt(4, 0, ", ", ";\n" , "" , "");
     // test imu data
     ImuMeasurementT<double> meas(Eigen::Vector3d::Random(),Eigen::Vector3d::Random(),0);
-    std::cout << "Measurement w:" << meas.W.transpose() << " a " << meas.A.transpose() << std::endl;
+    std::cout << "Measurement w:" << meas.w_i.transpose() << " a " << meas.w_a.transpose() << std::endl;
     ImuMeasurementT<double> meas2 = meas*2;
-    std::cout << "Measurement*2 w:" << meas2.W.transpose() << " a " << meas2.A.transpose() << std::endl;
+    std::cout << "Measurement*2 w:" << meas2.w_i.transpose() << " a " << meas2.w_a.transpose() << std::endl;
     ImuMeasurementT<double> measAdd = meas + meas2;
-    std::cout << "Measurement sum w:" << measAdd.W.transpose() << " a " << measAdd.A.transpose() << std::endl;
+    std::cout << "Measurement sum w:" << measAdd.w_i.transpose() << " a " << measAdd.w_a.transpose() << std::endl;
 
     srand(time(NULL));
 

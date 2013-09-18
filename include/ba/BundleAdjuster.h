@@ -278,7 +278,7 @@ public:
 private:
     void _ApplyUpdate(const VectorXt &delta_p, const VectorXt &delta_l, const VectorXt &deltaCalib, const bool bRollback);
     void _EvaluateResiduals();
-    void _BuildProblem();
+    void BuildProblem();
 
     // reprojection jacobians and residual
     Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,ProjectionResidual::kResSize,PoseSize> > m_Jpr;

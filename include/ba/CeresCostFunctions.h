@@ -11,11 +11,11 @@ static ImuPoseT<T> IntegratePoseJet(const ImuPoseT<T>& pose, const Eigen::Matrix
     const Sophus::SO3Group<T> Rv2v1(Sophus::SO3Group<T>::exp(k.template segment<3>(3)*(T)dt));
 
     ImuPoseT<T> y = pose;
-    y.Twp.translation() += k.template head<3>()*(T)dt;
+    y.t_wp.translation() += k.template head<3>()*(T)dt;
 //        y.Twp.so3() = Rv2v1*pose.Twp.so3();
-    memcpy(y.Twp.so3().data(),(Rv2v1.unit_quaternion()*pose.Twp.so3().unit_quaternion()).coeffs().data(),sizeof(T)*4);
+    memcpy(y.t_wp.so3().data(),(Rv2v1.unit_quaternion()*pose.t_wp.so3().unit_quaternion()).coeffs().data(),sizeof(T)*4);
     // do euler integration for now
-    y.V += k.template tail<3>()*(T)dt;
+    y.v_w += k.template tail<3>()*(T)dt;
 
     return y;
 }
@@ -26,16 +26,16 @@ static Eigen::Matrix<T,9,1> GetPoseDerivativeJet(const ImuPoseT<T>& pose, const 
                                                    const ImuMeasurementT<Scalar>& zEnd, const Eigen::Matrix<T,3,1>& vBg,
                                                    const Eigen::Matrix<T,3,1>& vBa, const Scalar dt)
 {
-    double alpha = (zEnd.Time - (zStart.Time+dt))/(zEnd.Time - zStart.Time);
-    Eigen::Matrix<Scalar,3,1> zg = zStart.W*alpha + zEnd.W*(1.0-alpha);
-    Eigen::Matrix<Scalar,3,1> za = zStart.A*alpha + zEnd.A*(1.0-alpha);
+    double alpha = (zEnd.time - (zStart.time+dt))/(zEnd.time - zStart.time);
+    Eigen::Matrix<Scalar,3,1> zg = zStart.w_i*alpha + zEnd.w_i*(1.0-alpha);
+    Eigen::Matrix<Scalar,3,1> za = zStart.w_a*alpha + zEnd.w_a*(1.0-alpha);
 
     Eigen::Matrix<T,9,1> deriv;
     //derivative of position is velocity
-    deriv.template head<3>() = pose.V;                               // v (velocity)
+    deriv.template head<3>() = pose.v_w;                               // v (velocity)
     //deriv.template segment<3>(3) = Sophus::SO3Group<T>::vee(tTwb.so3().matrix()*Sophus::SO3Group<T>::hat(zb));
-    deriv.template segment<3>(3) = pose.Twp.so3().Adj()*(zg.template cast<T>()+vBg);    // w (angular rates)
-    deriv.template segment<3>(6) = pose.Twp.so3()*(za.template cast<T>()+vBa) - tG_w;   // a (acceleration)
+    deriv.template segment<3>(3) = pose.t_wp.so3().Adj()*(zg.template cast<T>()+vBg);    // w (angular rates)
+    deriv.template segment<3>(6) = pose.t_wp.so3()*(za.template cast<T>()+vBa) - tG_w;   // a (acceleration)
 
     return deriv;
 }
@@ -49,7 +49,7 @@ static ImuPoseT<T> IntegrateImuJet(const ImuPoseT<T>& y0, const ImuMeasurementT<
                  Eigen::Matrix<Scalar,10,10>* pDy_dy0 = 0)
 {
     //construct the state matrix
-    Scalar dt = zEnd.Time - zStart.Time;
+    Scalar dt = zEnd.time - zStart.time;
     if(dt == 0){
         return y0;
     }
@@ -66,8 +66,8 @@ static ImuPoseT<T> IntegrateImuJet(const ImuPoseT<T>& y0, const ImuMeasurementT<
     k = (k1+(T)2*k2+(T)2*k3+k4);
     res = IntegratePoseJet<T,Scalar>(y0,k, dt/6.0);
 
-    res.W = k.template segment<3>(3);
-    res.Time = zEnd.Time;
+    res.w_w = k.template segment<3>(3);
+    res.time = zEnd.time;
 //        pose.m_dW = currentPose.m_dW;
     return res;
 }
@@ -81,7 +81,7 @@ static ImuPoseT<T> IntegrateResidualJet(const PoseT<T>& pose,
                                  const Eigen::Matrix<T,3,1>& g,
                                  std::vector<ImuPoseT<T>>& vPoses)
 {
-    ImuPoseT<T> imuPose(pose.Twp,pose.V,Eigen::Matrix<T,3,1>::Zero(),pose.Time);
+    ImuPoseT<T> imuPose(pose.t_wp,pose.v_w,Eigen::Matrix<T,3,1>::Zero(),pose.time);
     const ImuMeasurementT<Scalar>* pPrevMeas = 0;
     vPoses.clear();
     vPoses.reserve(vMeasurements.size()+1);
@@ -167,18 +167,18 @@ struct FullImuCostFunction
         const Eigen::Matrix<T,3,1> g_vector = GetGravityVector<T>(g);
 
         PoseT<T> startPose;
-        startPose.Twp = T_w_x1;
-        startPose.V = v_v1;
-        startPose.Time = m_vMeas.front().Time;
+        startPose.t_wp = T_w_x1;
+        startPose.v_w = v_v1;
+        startPose.time = m_vMeas.front().Time;
         std::vector<ImuPoseT<T>> vPoses;
         ImuPoseT<T> endPose = IntegrateResidualJet<T,Scalar>(startPose,m_vMeas,v_Bg,v_Ba,g_vector,vPoses);
 
         //and now calculate the error with this pose
-        pose_residuals = (endPose.Twp * T_w_x2.inverse()).log()*(T)m_dWeight;
+        pose_residuals = (endPose.t_wp * T_w_x2.inverse()).log()*(T)m_dWeight;
         //pose_residuals = log_decoupled(endPose.Twp,T_w_x2);
 
         //to calculate the velocity error, first augment the IMU integration velocity with gravity and initial velocity
-        vel_residuals = (endPose.V - v_v2)*(T)m_dWeight*(T)0.1;
+        vel_residuals = (endPose.v_w - v_v2)*(T)m_dWeight*(T)0.1;
         return true;
     }
 

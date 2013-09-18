@@ -18,9 +18,9 @@ namespace ba {
 template< typename Scalar=double,int LmSize=1, int PoseSize=6, int CalibSize=8 >
 class BundleAdjuster
 {
-    static const unsigned int LmDim = LmSize;
-    static const unsigned int PoseDim = PoseSize;
-    static const unsigned int CalibDim = CalibSize;
+    static const unsigned int kLmDim = LmSize;
+    static const unsigned int kPoseDim = PoseSize;
+    static const unsigned int kCalibDim = CalibSize;
 
     typedef PoseT<Scalar> Pose;
     typedef LandmarkT<Scalar,LmSize> Landmark;
@@ -66,8 +66,8 @@ public:
         m_uImuResidualOffset = 0;
         if(pRig != 0){
             m_Rig = *pRig;
-            m_Imu.Tvs = m_Rig.cameras[0].T_wc;
-            m_dLastTvs = m_Imu.Tvs;
+            m_Imu.t_vs = m_Rig.cameras[0].T_wc;
+            m_dLastTvs = m_Imu.t_vs;
         }
         m_vLandmarks.reserve(uNumLandmarks);
         m_vProjResiduals.reserve(uNumMeasurements);
@@ -92,30 +92,30 @@ public:
     unsigned int AddPose(const SE3t& Twp, const SE3t& Tvs, const VectorXt camParams, const Vector3t& V, const Vector6t& B, const bool bIsActive = true, const double dTime = -1)
     {
         Pose pose;
-        pose.Time = dTime;
-        pose.Twp = Twp;
-        pose.Tvs = Tvs;
-        pose.V = V;
-        pose.B = B;
-        pose.CamParams = camParams;
-        pose.IsActive = bIsActive;
-        pose.Tsw.reserve(m_Rig.cameras.size());
+        pose.time = dTime;
+        pose.t_wp = Twp;
+        pose.t_vs = Tvs;
+        pose.v_w = V;
+        pose.b = B;
+        pose.cam_params = camParams;
+        pose.is_active = bIsActive;
+        pose.t_sw.reserve(m_Rig.cameras.size());
         // assume equal distribution of measurements amongst poses
-        pose.ProjResiduals.reserve(m_vProjResiduals.capacity()/m_vPoses.capacity());
-        pose.Id = m_vPoses.size();
+        pose.proj_residuals.reserve(m_vProjResiduals.capacity()/m_vPoses.capacity());
+        pose.id = m_vPoses.size();
         if(bIsActive){
-            pose.OptId = m_uNumActivePoses;
+            pose.opt_id = m_uNumActivePoses;
             m_uNumActivePoses++;
         }else{
             // the is active flag should be checked before reading this value, to see if the pose
             // is part of the optimization or not
-            pose.OptId = UINT_MAX;
+            pose.opt_id = UINT_MAX;
         }
 
         m_vPoses.push_back(pose);        
         // std::cout << "Addeded pose with IsActive= " << pose.IsActive << ", Id = " << pose.Id << " and OptId = " << pose.OptId << std::endl;
 
-        return pose.Id;
+        return pose.id;
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -123,25 +123,25 @@ public:
     {
         assert(uRefPoseId < m_vPoses.size());
         Landmark landmark;
-        landmark.Xw = Xw;
+        landmark.x_w = Xw;
         // assume equal distribution of measurements amongst landmarks
-        landmark.ProjResiduals.reserve(m_vProjResiduals.capacity()/m_vLandmarks.capacity());
-        landmark.RefPoseId = uRefPoseId;
-        landmark.RefCamId = uRefCamId;
-        landmark.IsActive = bIsActive;
-        landmark.Id = m_vLandmarks.size();
+        landmark.proj_residuals.reserve(m_vProjResiduals.capacity()/m_vLandmarks.capacity());
+        landmark.ref_pose_id = uRefPoseId;
+        landmark.ref_cam_id = uRefCamId;
+        landmark.is_active = bIsActive;
+        landmark.id = m_vLandmarks.size();
         if(bIsActive){
-            landmark.OptId = m_uNumActiveLandmakrs;
+            landmark.opt_id = m_uNumActiveLandmakrs;
             m_uNumActiveLandmakrs++;
         }else{
             // the is active flag should be checked before reading this value, to see if the pose
             // is part of the optimization or not
-            landmark.OptId = UINT_MAX;
+            landmark.opt_id = UINT_MAX;
         }
 
         m_vLandmarks.push_back(landmark);
          //std::cout << "Adding landmark with Xw = [" << Xw.transpose() << "], refPoseId " << uRefPoseId << ", uRefCamId " << uRefCamId << ", OptId " << landmark.OptId << std::endl;
-        return landmark.Id;
+        return landmark.id;
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -152,18 +152,18 @@ public:
 
         //now add this constraint to pose A
         UnaryResidual residual;
-        residual.W = 1.0;
-        residual.PoseId = uPoseId;
-        residual.ResidualId = m_vUnaryResiduals.size();
-        residual.ResidualOffset = m_uUnaryResidualOffset;
-        residual.Twp = Twp;
+        residual.weight = 1.0;
+        residual.pose_id = uPoseId;
+        residual.residual_id = m_vUnaryResiduals.size();
+        residual.residual_offset = m_uUnaryResidualOffset;
+        residual.t_wp = Twp;
 
         m_vUnaryResiduals.push_back(residual);
-        m_uUnaryResidualOffset += UnaryResidual::ResSize;
+        m_uUnaryResidualOffset += UnaryResidual::kResSize;
 
         // we add this to both poses, as each one has a jacobian cell associated
-        m_vPoses[uPoseId].UnaryResiduals.push_back(residual.ResidualId);
-        return residual.ResidualId;
+        m_vPoses[uPoseId].unary_residuals.push_back(residual.residual_id);
+        return residual.residual_id;
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -176,20 +176,20 @@ public:
 
         //now add this constraint to pose A
         BinaryResidual residual;
-        residual.W = 1.0;
-        residual.PoseAId = uPoseAId;
-        residual.PoseBId = uPoseBId;
-        residual.ResidualId = m_vBinaryResiduals.size();
-        residual.ResidualOffset = m_uBinaryResidualOffset;
-        residual.Tab = Tab;
+        residual.weight = 1.0;
+        residual.x1_id = uPoseAId;
+        residual.x2_id = uPoseBId;
+        residual.residual_id = m_vBinaryResiduals.size();
+        residual.residual_offset = m_uBinaryResidualOffset;
+        residual.t_ab = Tab;
 
         m_vBinaryResiduals.push_back(residual);
-        m_uBinaryResidualOffset += BinaryResidual::ResSize;
+        m_uBinaryResidualOffset += BinaryResidual::kResSize;
 
         // we add this to both poses, as each one has a jacobian cell associated
-        m_vPoses[uPoseAId].BinaryResiduals.push_back(residual.ResidualId);
-        m_vPoses[uPoseBId].BinaryResiduals.push_back(residual.ResidualId);
-        return residual.ResidualId;
+        m_vPoses[uPoseAId].binary_residuals.push_back(residual.residual_id);
+        m_vPoses[uPoseBId].binary_residuals.push_back(residual.residual_id);
+        return residual.residual_id;
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -203,29 +203,29 @@ public:
         assert(uMeasPoseId < m_vPoses.size());
 
         ProjectionResidual residual;
-        residual.W = dWeight;
-        residual.LandmarkId = uLandmarkId;
-        residual.MeasPoseId = uMeasPoseId;
-        residual.RefPoseId = m_vLandmarks[uLandmarkId].RefPoseId;
-        residual.Z = z;
-        residual.CameraId = uCameraId;
-        residual.ResidualId = m_vProjResiduals.size();
-        residual.ResidualOffset = m_uProjResidualOffset;
+        residual.weight = dWeight;
+        residual.landmark_id = uLandmarkId;
+        residual.x_meas_id = uMeasPoseId;
+        residual.x_ref_id = m_vLandmarks[uLandmarkId].ref_pose_id;
+        residual.z = z;
+        residual.cam_id = uCameraId;
+        residual.residual_id = m_vProjResiduals.size();
+        residual.residual_offset = m_uProjResidualOffset;
 
         Landmark& lm = m_vLandmarks[uLandmarkId];
         // set the reference measurement
-        if(uMeasPoseId == residual.RefPoseId && uCameraId == lm.RefCamId){
-            lm.Zref = z;
+        if(uMeasPoseId == residual.x_ref_id && uCameraId == lm.ref_cam_id){
+            lm.z_ref = z;
         }
 
         // this prevents adding measurements of the landmark in the privileged frame in which
         // it was first seen, as with inverse depth, the error would always be zero.
         // however, if 3dof parametrization of landmarks is used, we add all measurements
-        if(uMeasPoseId != residual.RefPoseId || uCameraId != lm.RefCamId || LmSize != 1){
-            m_vPoses[uMeasPoseId].ProjResiduals.push_back(residual.ResidualId);
-            m_vLandmarks[uLandmarkId].ProjResiduals.push_back(residual.ResidualId);
+        if(uMeasPoseId != residual.x_ref_id || uCameraId != lm.ref_cam_id || LmSize != 1){
+            m_vPoses[uMeasPoseId].proj_residuals.push_back(residual.residual_id);
+            m_vLandmarks[uLandmarkId].proj_residuals.push_back(residual.residual_id);
             if(LmSize == 1){
-                m_vPoses[residual.RefPoseId].ProjResiduals.push_back(residual.ResidualId);
+                m_vPoses[residual.x_ref_id].proj_residuals.push_back(residual.residual_id);
             }
         }else{
             // we should not add this residual
@@ -233,9 +233,9 @@ public:
         }
 
         m_vProjResiduals.push_back(residual);
-        m_uProjResidualOffset += ProjectionResidual::ResSize;
+        m_uProjResidualOffset += ProjectionResidual::kResSize;
 
-        return residual.ResidualId;
+        return residual.residual_id;
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -250,19 +250,19 @@ public:
         //assert(PoseSize == 9);
 
         ImuResidual residual;
-        residual.W = dWeight;
-        residual.PoseAId = uPoseAId;
-        residual.PoseBId = uPoseBId;
-        residual.Measurements = vImuMeas;
-        residual.ResidualId = m_vImuResiduals.size();
-        residual.ResidualOffset = m_uImuResidualOffset;
+        residual.weight = dWeight;
+        residual.pose1_id = uPoseAId;
+        residual.pose2_id = uPoseBId;
+        residual.measurements = vImuMeas;
+        residual.residual_id = m_vImuResiduals.size();
+        residual.residual_offset = m_uImuResidualOffset;
 
         m_vImuResiduals.push_back(residual);
-        m_uImuResidualOffset += ImuResidual::ResSize;
+        m_uImuResidualOffset += ImuResidual::kResSize;
 
-        m_vPoses[uPoseAId].ImuResiduals.push_back(residual.ResidualId);
-        m_vPoses[uPoseBId].ImuResiduals.push_back(residual.ResidualId);
-        return residual.ResidualId;
+        m_vPoses[uPoseAId].inertial_residuals.push_back(residual.residual_id);
+        m_vPoses[uPoseBId].inertial_residuals.push_back(residual.residual_id);
+        return residual.residual_id;
     }
     void Solve(const unsigned int uMaxIter);
 
@@ -273,7 +273,7 @@ public:
     void SetImuCalibration(const ImuCalibration& calib) { m_Imu = calib; }
     const Pose& GetPose(const unsigned int id) const  { return m_vPoses[id]; }
     // return the landmark in the world frame
-    const Vector4t& GetLandmark(const unsigned int id) const { return m_vLandmarks[id].Xw; }
+    const Vector4t& GetLandmark(const unsigned int id) const { return m_vLandmarks[id].x_w; }
 
 private:
     void _ApplyUpdate(const VectorXt &delta_p, const VectorXt &delta_l, const VectorXt &deltaCalib, const bool bRollback);
@@ -281,32 +281,32 @@ private:
     void _BuildProblem();
 
     // reprojection jacobians and residual
-    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,ProjectionResidual::ResSize,PoseSize> > m_Jpr;
-    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,ProjectionResidual::ResSize> > m_Jprt;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,ProjectionResidual::kResSize,PoseSize> > m_Jpr;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,ProjectionResidual::kResSize> > m_Jprt;
     // landmark jacobians
-    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,ProjectionResidual::ResSize,LmSize> > m_Jl;
-    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,LmSize,ProjectionResidual::ResSize> > m_Jlt;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,ProjectionResidual::kResSize,LmSize> > m_Jl;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,LmSize,ProjectionResidual::kResSize> > m_Jlt;
     VectorXt m_Rpr;
 
     // pose/pose jacobian for binary constraints
-    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,BinaryResidual::ResSize,PoseSize> > m_Jpp;
-    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,BinaryResidual::ResSize> > m_Jppt;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,BinaryResidual::kResSize,PoseSize> > m_Jpp;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,BinaryResidual::kResSize> > m_Jppt;
     VectorXt m_Rpp;
 
     // pose/pose jacobian for unary constraints
-    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,UnaryResidual::ResSize,PoseSize> > m_Ju;
-    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,UnaryResidual::ResSize> > m_Jut;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,UnaryResidual::kResSize,PoseSize> > m_Ju;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,UnaryResidual::kResSize> > m_Jut;
     VectorXt m_Ru;
 
     // imu jacobian
-    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,ImuResidual::ResSize,PoseSize> > m_Ji;
-    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,ImuResidual::ResSize> > m_Jit;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,ImuResidual::kResSize,PoseSize> > m_Ji;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,PoseSize,ImuResidual::kResSize> > m_Jit;
 
-    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,ImuResidual::ResSize,CalibSize> > m_Jki;
-    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,CalibSize,ImuResidual::ResSize> > m_Jkit;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,ImuResidual::kResSize,CalibSize> > m_Jki;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,CalibSize,ImuResidual::kResSize> > m_Jkit;
 
-    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,ProjectionResidual::ResSize,CalibSize> > m_Jkpr;
-    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,CalibSize,ProjectionResidual::ResSize> > m_Jkprt;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,ProjectionResidual::kResSize,CalibSize> > m_Jkpr;
+    Eigen::SparseBlockMatrix< Eigen::Matrix<Scalar,CalibSize,ProjectionResidual::kResSize> > m_Jkprt;
 
 
     VectorXt m_Ri;

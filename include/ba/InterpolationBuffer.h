@@ -28,15 +28,15 @@ struct InterpolationBufferT
     ///
     void AddElement(const ElementType& element)
     {
-        assert(element.Time > EndTime);
+        assert(element.time > EndTime);
         const size_t nElems = Elements.size();
-        const ScalarType dt = nElems == 0 ? 0 : element.Time - Elements.back().Time;
+        const ScalarType dt = nElems == 0 ? 0 : element.time - Elements.back().time;
         // update the average dt
         AverageDt = (AverageDt*nElems + dt)/(nElems+1);
         // add the element and update the end time
         Elements.push_back(element);
-        EndTime = element.Time;
-        StartTime = Elements.front().Time;
+        EndTime = element.time;
+        StartTime = Elements.front().time;
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -53,7 +53,7 @@ struct InterpolationBufferT
         if(indexOut + 1 >= Elements.size()){
             output = GetElement(dMaxTime,&indexOut);
             return false;
-        }else if( Elements[indexOut+1].Time > dMaxTime ){
+        }else if( Elements[indexOut+1].time > dMaxTime ){
             output = GetElement(dMaxTime,&indexOut);
             return false;
         }else{
@@ -100,21 +100,21 @@ struct InterpolationBufferT
         guessIdx = std::min(std::max((unsigned int)guessIdx,0u),(unsigned int)Elements.size()-1u);
         // now using the guess, find a direction to go
 
-        if( Elements[guessIdx].Time > dTime ){
+        if( Elements[guessIdx].time > dTime ){
             // we need to go backwards
             if(guessIdx == 0){
                 *pIndex = guessIdx;
                 return Elements.front();
             }
 
-            while((guessIdx-1) > 0 && Elements[guessIdx-1].Time > dTime)
+            while((guessIdx-1) > 0 && Elements[guessIdx-1].time > dTime)
             {
                 guessIdx--;
             }
-            const ScalarType interpolator = (dTime - Elements[guessIdx-1].Time)/(Elements[guessIdx].Time-Elements[guessIdx-1].Time);
+            const ScalarType interpolator = (dTime - Elements[guessIdx-1].time)/(Elements[guessIdx].time-Elements[guessIdx-1].time);
             *pIndex = guessIdx-1;
             ElementType res = Elements[guessIdx-1]*(1-interpolator) + Elements[guessIdx]*interpolator;
-            res.Time = dTime;
+            res.time = dTime;
             return res;
         }else{
             // we need to go forwards
@@ -123,14 +123,14 @@ struct InterpolationBufferT
                 return Elements.back();
             }
 
-            while((guessIdx+1) < nElements && Elements[guessIdx+1].Time < dTime)
+            while((guessIdx+1) < nElements && Elements[guessIdx+1].time < dTime)
             {
                 guessIdx++;
             }
-            const ScalarType interpolator = (dTime - Elements[guessIdx].Time)/(Elements[guessIdx+1].Time-Elements[guessIdx].Time);
+            const ScalarType interpolator = (dTime - Elements[guessIdx].time)/(Elements[guessIdx+1].time-Elements[guessIdx].time);
             *pIndex = guessIdx;
             ElementType res = Elements[guessIdx]*(1-interpolator) + Elements[guessIdx+1]*interpolator;
-            res.Time = dTime;
+            res.time = dTime;
             return res;
         }        
     }

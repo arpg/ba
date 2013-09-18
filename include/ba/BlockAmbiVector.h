@@ -19,7 +19,8 @@ class BlockAmbiVector
     typedef typename NumTraits<Scalar>::Real RealScalar;
 
     BlockAmbiVector(Index size,Scalar zero)
-      : m_buffer(0), m_zero(zero), m_size(0), m_allocatedSize(0), m_allocatedElements(0), m_mode(-1)
+      : m_buffer(0), m_zero(zero), m_size(0),
+        m_allocatedSize(0), m_allocatedElements(0), m_mode(-1)
     {
       resize(size);
     }

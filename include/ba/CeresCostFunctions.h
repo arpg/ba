@@ -4,11 +4,14 @@
 namespace ba
 {
 
-///////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 template<typename T, typename Scalar>
-static ImuPoseT<T> IntegratePoseJet(const ImuPoseT<T>& pose, const Eigen::Matrix<T,9,1>& k, const Scalar dt)
+static ImuPoseT<T> IntegratePoseJet(const ImuPoseT<T>& pose,
+                                    const Eigen::Matrix<T,9,1>& k,
+                                    const Scalar dt)
 {
-    const Sophus::SO3Group<T> Rv2v1(Sophus::SO3Group<T>::exp(k.template segment<3>(3)*(T)dt));
+    const Sophus::SO3Group<T> Rv2v1(
+          Sophus::SO3Group<T>::exp(k.template segment<3>(3)*(T)dt));
 
     ImuPoseT<T> y = pose;
     y.t_wp.translation() += k.template head<3>()*(T)dt;

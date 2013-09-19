@@ -67,7 +67,8 @@ struct ImuCalibrationT
                   const Eigen::Matrix<Scalar,3,1>& b_a,
                   const Eigen::Matrix<Scalar,2,1>& g):
     t_vs(t_vs),b_g(b_g),b_a(b_a),g(g),
-    r((Eigen::Vector6d() << IMU_GYRO_UNCERTAINTY,
+    r((Eigen::Matrix<Scalar, 6, 1>() <<
+       IMU_GYRO_UNCERTAINTY,
        IMU_GYRO_UNCERTAINTY,
        IMU_GYRO_UNCERTAINTY,
        IMU_ACCEL_UNCERTAINTY,

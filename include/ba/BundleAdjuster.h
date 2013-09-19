@@ -41,6 +41,7 @@ class BundleAdjuster
     typedef Eigen::Matrix<Scalar,6,1> Vector6t;
     typedef Eigen::Matrix<Scalar,7,1> Vector7t;
     typedef Eigen::Matrix<Scalar,Eigen::Dynamic,1> VectorXt;
+    typedef Eigen::Matrix<Scalar,Eigen::Dynamic,Eigen::Dynamic> MatrixXt;
     typedef Eigen::Matrix<Scalar,3,3> Matrix3t;
     typedef Sophus::SE3Group<Scalar> SE3t;
 
@@ -94,7 +95,7 @@ public:
                          const bool is_active = true,
                          const double time = -1)
     {
-        return AddPose(t_wp, Sophus::SE3d(), VectorXt(5).setZero(),
+        return AddPose(t_wp, Sophus::SE3t(), VectorXt(5).setZero(),
                        Vector3t::Zero(), Vector6t::Zero(), is_active, time);
     }
 
@@ -314,6 +315,8 @@ private:
     void EvaluateResiduals();
     void BuildProblem();
 
+    ImuCalibration imu_;
+
     // reprojection jacobians and residual
     BlockMat<Eigen::Matrix<Scalar, ProjectionResidual::kResSize, PoseSize>>
         j_pr_;
@@ -372,9 +375,6 @@ private:
     std::vector<UnaryResidual> unary_residuals_;
     std::vector<ImuResidual> inertial_residuals_;
     std::vector<Scalar> errors_;
-
-    ImuCalibration imu_;
-
 };
 
 static const int NOT_USED = 0;

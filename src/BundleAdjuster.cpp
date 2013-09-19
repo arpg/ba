@@ -175,6 +175,14 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::EvaluateResiduals()
     proj_error_ += res.residual.norm() * res.weight;
   }
 
+  binary_error_ = 0;
+  for (BinaryResidual& res : binary_residuals_) {
+    const Pose& pose1 = poses_[res.x1_id];
+    const Pose& pose2 = poses_[res.x2_id];
+    res.residual = SE3t::log(pose1.t_wp*res.t_ab*pose2.t_wp.inverse());;
+    binary_error_ += res.residual.norm() * res.weight;
+  }
+
   inertial_error_ = 0;
   double total_tvs_change = 0;
   for (ImuResidual& res : inertial_residuals_) {
@@ -254,18 +262,18 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
     const unsigned int uMaxIter)
 {
   for (unsigned int kk = 0 ; kk < uMaxIter ; ++kk) {
-    Scalar time = Tic();
+    // Scalar time = Tic();
     BuildProblem();
     // std::cout << "Build problem took " << Toc(dTime) <<
     // " seconds." << std::endl;
-    time = Tic();
+    // time = Tic();
 
     const unsigned int num_poses = num_active_poses_;
     const unsigned int num_pose_params = num_poses*PoseSize;
     const unsigned int num_lm = num_active_landmarks_;
     //        const unsigned int uNumMeas = m_vMeasurements.size();
     // calculate bp and bl
-    Scalar mat_time = Tic();
+    // Scalar mat_time = Tic();
     VectorXt bp(num_pose_params);
     VectorXt bk;
     VectorXt bl;
@@ -284,7 +292,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
     // std::cout << "  Rhs vector mult took " << Toc(dMatTime) <<
     // " seconds." << std::endl;
 
-    mat_time = Tic();
+    // mat_time = Tic();
 
     // TODO: suboptimal, the matrices are symmetric. We should only
     // multipl one half
@@ -350,18 +358,18 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
 
     if (LmSize > 0 && num_lm > 0) {
       bl.resize(num_lm*LmSize);
-      double schur_time = Tic();
+      // double schur_time = Tic();
       Eigen::SparseBlockVectorProductDenseResult(jt_l_, r_pr_, bl);
       // std::cout << "VectorProductDenseResult(m_Jlt, m_Rpr, bl); took  " <<
       // Toc(dSchurTime) << " seconds."  << std::endl;
 
-      schur_time = Tic();
+      // schur_time = Tic();
       BlockMat< Eigen::Matrix<Scalar, LmSize, LmSize> > v(num_lm, num_lm);
       Eigen::SparseBlockProduct(jt_l_,j_l_,v);
       // std::cout << "Eigen::SparseBlockProduct(m_Jlt,m_Jl,V);; took  " <<
       // Toc(dSchurTime) << " seconds."  << std::endl;
 
-      schur_time = Tic();
+      // schur_time = Tic();
       BlockMat< Eigen::Matrix<Scalar, PoseSize, LmSize> > jt_pr_j_l(
             num_poses, num_lm);
 
@@ -373,7 +381,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
       // " seconds."  << std::endl;
 
 
-      schur_time = Tic();
+      // schur_time = Tic();
       // calculate the inverse of the map hessian (it should be diagonal,
       // unless a measurement is of more than one landmark,
       // which doesn't make sense)
@@ -391,7 +399,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
       // std::cout << "  Inversion of V took " <<
       // Toc(dSchurTime) << " seconds." << std::endl;
 
-      schur_time = Tic();
+      // schur_time = Tic();
       // attempt to solve for the poses. W_V_inv is used later on,
       // so we cache it
       Eigen::SparseBlockProduct(jt_pr_j_l, vi, jt_pr_j_l_vi);
@@ -399,7 +407,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
       // Toc(dSchurTime) << " seconds."  << std::endl;
 
 
-      schur_time = Tic();
+      // schur_time = Tic();
       BlockMat< Eigen::Matrix<Scalar, PoseSize, PoseSize>>
             jt_pr_j_l_vi_djt_l_j_pr(num_poses, num_poses);
 
@@ -408,22 +416,22 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
       //std::cout << "SparseBlockProduct(Wp_V_inv, Wpt, WV_invWt) took  " <<
       // Toc(dSchurTime) << " seconds."  << std::endl;
 
-      schur_time = Tic();
-      Eigen::MatrixXd djt_pr_j_l_vi(
+      // schur_time = Tic();
+      MatrixXt djt_pr_j_l_vi(
             jt_pr_j_l_vi.rows()*PoseSize,jt_pr_j_l_vi.cols()*LmSize);
       Eigen::LoadDenseFromSparse(jt_pr_j_l_vi,djt_pr_j_l_vi);
 
-      Eigen::MatrixXd djt_l_j_pr(
+      MatrixXt djt_l_j_pr(
             jt_l_j_pr.rows()*LmSize,jt_l_j_pr.cols()*PoseSize);
       Eigen::LoadDenseFromSparse(jt_l_j_pr,djt_l_j_pr);
 
-      Eigen::MatrixXd djt_pr_j_l_vi_djt_l_j_pr = djt_pr_j_l_vi * djt_l_j_pr;
+      MatrixXt djt_pr_j_l_vi_djt_l_j_pr = djt_pr_j_l_vi * djt_l_j_pr;
       // std::cout << "Same with dense took " << Toc(dSchurTime) <<
       // " seconds."  << std::endl;
 
       // this in-place operation should be fine for subtraction
-      schur_time = Tic();
-      Eigen::MatrixXd du(u.rows()*PoseSize,u.cols()*PoseSize);
+      // schur_time = Tic();
+      MatrixXt du(u.rows()*PoseSize,u.cols()*PoseSize);
       Eigen::LoadDenseFromSparse(u,du);
 
       /*std::cout << "Jp sparsity structure: " << std::endl <<
@@ -449,7 +457,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
       // Toc(dSchurTime) << " seconds."  << std::endl;
 
       // now form the rhs for the pose equations
-      schur_time = Tic();
+      // schur_time = Tic();
       VectorXt jt_pr_j_l_vi_bll(num_pose_params);
       Eigen::SparseBlockVectorProductDenseResult(
             jt_pr_j_l_vi, bl, jt_pr_j_l_vi_bll);
@@ -500,7 +508,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
     if( CalibSize > 8){
       BlockMat< Eigen::Matrix<Scalar, CalibSize, CalibSize>> jt_kpr_j_kpr(1, 1);
       Eigen::SparseBlockProduct(jt_kpr_, j_kpr_, jt_kpr_j_kpr);
-      Eigen::MatrixXd djt_kpr_j_kpr(CalibSize, CalibSize);
+      MatrixXt djt_kpr_j_kpr(CalibSize, CalibSize);
       Eigen::LoadDenseFromSparse(jt_kpr_j_kpr, djt_kpr_j_kpr);
       s.template block<CalibSize, CalibSize>(num_pose_params, num_pose_params)
           += djt_kpr_j_kpr;
@@ -510,7 +518,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
           jt_or_j_kpr(num_poses, 1);
 
       Eigen::SparseBlockProduct(jt_pr, j_kpr_, jt_or_j_kpr);
-      Eigen::MatrixXd djt_or_j_kpr(PoseSize*num_poses, CalibSize);
+      MatrixXt djt_or_j_kpr(PoseSize*num_poses, CalibSize);
       Eigen::LoadDenseFromSparse(jt_or_j_kpr, djt_or_j_kpr);
       std::cout << "djt_or_j_kpr: " << djt_or_j_kpr << std::endl;
       s.template block(0, num_pose_params, num_pose_params, CalibSize) +=
@@ -529,7 +537,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
       Eigen::SparseBlockProduct(jt_l_,j_kpr_,jt_l_j_kpr);
       //Jlt_Jkpr = Jkprt_Jl.transpose();
 
-      Eigen::MatrixXd djt_pr_j_l_vi_jt_l_j_kpr(PoseSize*num_poses, CalibSize);
+      MatrixXt djt_pr_j_l_vi_jt_l_j_kpr(PoseSize*num_poses, CalibSize);
       BlockMat<Eigen::Matrix<Scalar, PoseSize, CalibSize>>
           jt_pr_j_l_vi_jt_l_j_kpr(num_poses, 1);
 
@@ -557,7 +565,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
             jt_l_j_kpr,
             jt_kpr_j_l_vi_jt_l_j_kpr);
 
-      Eigen::MatrixXd djt_kpr_j_l_vi_jt_l_j_kpr(CalibSize, CalibSize);
+      MatrixXt djt_kpr_j_l_vi_jt_l_j_kpr(CalibSize, CalibSize);
       Eigen::LoadDenseFromSparse(
             jt_kpr_j_l_vi_jt_l_j_kpr,
             djt_kpr_j_l_vi_jt_l_j_kpr);
@@ -589,7 +597,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
     // std::cout << "Setup took " << Toc(dTime) << " seconds." << std::endl;
 
     // now we have to solve for the pose constraints
-    time = Tic();
+    // time = Tic();
     VectorXt delta_p = num_poses == 0 ? VectorXt() : s.ldlt().solve(rhs_p);
     // VectorXt delta_p = uNumPoses == 0 ? VectorXt() : S.inverse() * rhs_p;
     // std::cout << "Cholesky solve of " << uNumPoses << " by " <<
@@ -623,17 +631,19 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
 
     ApplyUpdate(delta_p, delta_l, deltaCalib, false);
 
-    const double dPrevError = proj_error_ + inertial_error_;
-    // std::cout << "Pre-solve norm: " << dPrevError << " with Epr:" <<
-    // m_dProjError << " and Ei:" << m_dImuError << std::endl;
+    const double dPrevError = proj_error_ + inertial_error_ + binary_error_;
+    std::cout << "Pre-solve norm: " << dPrevError << " with Epr:" <<
+                 proj_error_ << " and Ei:" << inertial_error_ <<
+                 " and Epp: " << binary_error_ << std::endl;
     EvaluateResiduals();
-    const double dPostError = proj_error_ + inertial_error_;
-    // std::cout << "Pose-solve norm: " << dPostError << " with Epr:" <<
-    // m_dProjError << " and Ei:" << m_dImuError << std::endl;
+    const double dPostError = proj_error_ + inertial_error_ + binary_error_;
+    std::cout << "Pose-solve norm: " << dPostError << " with Epr:" <<
+                  proj_error_ << " and Ei:" << m_dImuError <<
+                 " and Epp: " << binary_error_ << std::endl;
 
     if (dPostError > dPrevError) {
-      // std::cout << "Error increasing during optimization, rolling back .."<<
-      // " std::endl;
+     std::cout << "Error increasing during optimization, rolling back .."<<
+                  " std::endl";
       ApplyUpdate(delta_p, delta_l, deltaCalib, true);
       break;
     }
@@ -725,7 +735,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
   errors_.clear();
 
   // set all jacobians
-  Scalar dTime = Tic();
+  // Scalar time = Tic();
 
   proj_error_ = 0;
   for (ProjectionResidual& res : proj_residuals_) {
@@ -903,12 +913,13 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
 
   // build binary residual jacobians
   for( BinaryResidual& res : binary_residuals_ ){
-    const SE3t& Twa = poses_[res.x1_id].t_wp;
-    const SE3t& Twb = poses_[res.x2_id].t_wp;
-    res.dz_dx1 = dLog_dX(Twa, res.t_ab * Twb.inverse());
+    const SE3t& t_w1 = poses_[res.x1_id].t_wp;
+    const SE3t& t_w2 = poses_[res.x2_id].t_wp;
+    const SE3t t_2w = t_w2.inverse();
+    res.dz_dx1 = dLog_dX(t_w1, res.t_ab * t_2w);
     // the negative sign here is because exp(x) is inside the inverse
     // when we invert (Twb*exp(x)).inverse
-    res.dZ_dX2 = -dLog_dX(Twa * res.t_ab, Twb.inverse());
+    res.dZ_dX2 = -dLog_dX(t_w1 * res.t_ab, t_2w);
 
     // finite difference checking
     //Eigen::Matrix<Scalar,6,6> J_fd;
@@ -928,7 +939,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
     //std::cout << "Jbinary_fd:" << J_fd << std::endl;
 
     r_pp_.template segment<BinaryResidual::kResSize>(res.residual_offset) =
-        log_decoupled(Twa*res.t_ab, Twb);
+        SE3t::log(t_w1*res.t_ab*t_2w);
   }
 
   for( UnaryResidual& res : unary_residuals_ ){
@@ -1403,15 +1414,15 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
   if (errors_.size() > 0) {
     auto it = errors_.begin()+std::floor(errors_.size()/2);
     std::nth_element(errors_.begin(),it,errors_.end());
-    const Scalar dSigma = sqrt(*it);
+    // const Scalar sigma = sqrt(*it);
     // See "Parameter Estimation Techniques: A Tutorial with Application to Conic
     // Fitting" by Zhengyou Zhang. PP 26 defines this magic number:
-    const Scalar c_huber = 1.2107*dSigma;
+    // const Scalar c_huber = 1.2107*dSigma;
 
     // now go through the measurements and assign weights
     for (ImuResidual& res : inertial_residuals_) {
       // calculate the huber norm weight for this measurement
-      const Scalar e = res.residual.norm();
+      // const Scalar e = res.residual.norm();
       //res.W *= e > c_huber ? c_huber/e : 1.0;
       inertial_error_ += res.residual.norm() * res.weight;
     }
@@ -1426,7 +1437,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
 
   // here we sort the measurements and insert them per pose and per landmark,
   // this will mean each insert operation is O(1)
-  dTime = Tic();
+  //  dtime = Tic();
   for (Pose& pose : poses_) {
     if (pose.is_active) {
       // sort the measurements by id so the sparse insert is O(1)

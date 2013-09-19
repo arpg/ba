@@ -638,7 +638,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
     EvaluateResiduals();
     const double dPostError = proj_error_ + inertial_error_ + binary_error_;
     std::cout << "Pose-solve norm: " << dPostError << " with Epr:" <<
-                  proj_error_ << " and Ei:" << m_dImuError <<
+                  proj_error_ << " and Ei:" << inertial_error_ <<
                  " and Epp: " << binary_error_ << std::endl;
 
     if (dPostError > dPrevError) {

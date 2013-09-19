@@ -95,7 +95,7 @@ public:
                          const bool is_active = true,
                          const double time = -1)
     {
-        return AddPose(t_wp, Sophus::SE3t(), VectorXt(5).setZero(),
+        return AddPose(t_wp, SE3t(), VectorXt(5).setZero(),
                        Vector3t::Zero(), Vector6t::Zero(), is_active, time);
     }
 

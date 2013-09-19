@@ -167,7 +167,7 @@ struct FullImuCostFunction
         const Eigen::Map<const Eigen::Matrix<T,2,1> > g(_tG); //the 2d gravity vector (angles)
 
         //get the gravity components in 3d based on the 2 angles of the gravity vector
-        const Eigen::Matrix<T,3,1> g_vector = GetGravityVector<T>(g);
+        const Eigen::Matrix<T,3,1> g_vector;// = GetGravityVector<T>(g);
 
         PoseT<T> startPose;
         startPose.t_wp = T_w_x1;
@@ -188,4 +188,101 @@ struct FullImuCostFunction
     const std::vector<ImuMeasurementT<Scalar>> m_vMeas;
     const double m_dWeight;
 };
+
+// Parameter block 0: T_wk // keyframe
+// Parameter block 1: T_ck // keyframe to cam
+// Parameter block 2: fu,fv,u0,v0,w
+template<typename ProjModel>
+struct ImuReprojectionCostFunctor
+{
+  ImuReprojectionCostFunctor(Eigen::Vector3d Pw, Eigen::Vector2d pc)
+    : m_Pw(Pw), m_pc(pc)
+  {
+    m_R_vr = (calibu::RdfVision * calibu::RdfRobotics.inverse());
+  }
+
+  template<typename T>
+  bool operator()(
+      const T* const pT_wk, const T* const pR_ck, const T* const pt_ck, const T* const camparam,
+      T* residuals
+      ) const
+  {
+    Eigen::Map<Eigen::Matrix<T,2,1> > r(residuals);
+    const Eigen::Map<const Sophus::SE3Group<T> > T_wk(pT_wk);
+    const Sophus::SE3Group<T> T_kw = T_wk.inverse();
+    const Eigen::Map<const Sophus::SO3Group<T> > R_ck(pR_ck);
+    const Eigen::Map<const Eigen::Matrix<T,3,1> > t_ck(pt_ck);
+    const Sophus::SE3Group<T> T_ck(R_ck,t_ck);
+
+    const Eigen::Matrix<T,3,1> Pcv = /*m_R_vr.template cast<T>() **/ (T_ck * (T_kw * m_Pw.cast<T>()));
+    const Eigen::Matrix<T,2,1> pcv = ProjModel::template Project<T>(Pcv, camparam);
+    r = pcv - m_pc.cast<T>();
+    return true;
+  }
+
+  Eigen::Vector3d m_Pw;
+  Eigen::Vector2d m_pc;
+  Sophus::SO3d m_R_vr;
+};
+
+template< typename Scalar=double >
+struct SwitchedFullImuCostFunction
+{
+  SwitchedFullImuCostFunction(const std::vector<ImuMeasurementT<Scalar>>& vMeas, const double dWeight, const bool* pResidualSwitch)    :
+    m_vMeas(vMeas),
+    m_dWeight(dWeight),
+    m_pResidualSwitch(pResidualSwitch)
+  {
+  }
+
+  template <typename T>
+  bool operator()(const T* const _tx2,const T* const _tx1,
+                  const T* const _tVx2,const T* const _tVx1,
+                  const T* const _tG,const T* const _tBg,
+                  const T* const _tBa, T* residuals) const
+  {
+    //the residual vector consists of a 6d pose and a 3d velocity residual
+    Eigen::Map<Eigen::Matrix<T,6,1> > pose_residuals(residuals); //the pose residuals
+    Eigen::Map<Eigen::Matrix<T,3,1> > vel_residuals(&residuals[6]); //the velocity residuals
+    //Eigen::Map<Eigen::Matrix<T,3,1> > vel_prior(&residuals[9]); //the velocity residuals
+
+    //parameter vector consists of a 6d pose delta plus starting velocity and 2d gravity angles
+    const Eigen::Map<const Sophus::SE3Group<T> > T_w_x2(_tx2);
+    const Eigen::Map<const Sophus::SE3Group<T> > T_w_x1(_tx1);
+    const Eigen::Map<const Sophus::SO3Group<T> > R_w_x1(&_tx1[0]);
+    const Eigen::Map<const Eigen::Matrix<T,3,1> > v_v1(_tVx1); //the velocity at the starting point
+    const Eigen::Map<const Eigen::Matrix<T,3,1> > v_v2(_tVx2); //the velocity at the end point
+    const Eigen::Map<const Eigen::Matrix<T,3,1> > v_Bg(_tBg); //gyro bias
+    const Eigen::Map<const Eigen::Matrix<T,3,1> > v_Ba(_tBa); //accelerometer bias
+    const Eigen::Map<const Eigen::Matrix<T,2,1> > g(_tG); //the 2d gravity vector (angles)
+
+    //get the gravity components in 3d based on the 2 angles of the gravity vector
+    const Eigen::Matrix<T,3,1> g_vector = GetGravityVector<T>(g);
+
+    PoseT<T> startPose;
+    startPose.t_wp = T_w_x1;
+    startPose.v_w = v_v1;
+    startPose.time = m_vMeas.front().time;
+     std::vector<ImuPoseT<T>> vPoses;
+     ImuPoseT<T> endPose = IntegrateResidualJet<T,Scalar>(startPose,m_vMeas,v_Bg,v_Ba,g_vector,vPoses);
+
+    //and now calculate the error with this pose
+    pose_residuals = (endPose.t_wp * T_w_x2.inverse()).log()*(T)m_dWeight;
+    //pose_residuals = log_decoupled(endPose.Twp,T_w_x2);
+
+    //to calculate the velocity error, first augment the IMU integration velocity with gravity and initial velocity
+    vel_residuals = (endPose.v_w - v_v2)*(T)m_dWeight*(T)0.5;
+
+    if(*m_pResidualSwitch == true){
+      pose_residuals.template head<3>().setZero();
+      vel_residuals.setZero();
+    }
+    return true;
+  }
+
+  const std::vector<ImuMeasurementT<Scalar>> m_vMeas;
+  const double m_dWeight;
+  const bool* m_pResidualSwitch;
+};
+
 }

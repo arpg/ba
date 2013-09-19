@@ -102,13 +102,13 @@ template <typename T>
 /// \return The 3d gravity vecto
 ///
 static Eigen::Matrix<T,3,1> GetGravityVector(const Eigen::Matrix<T,2,1>& dir,
-                                             const T g = ba::Gravity)
+                                             const T g = (T)ba::Gravity)
 {
   T sp = sin(dir[0]);
   T cp = cos(dir[0]);
   T sq = sin(dir[1]);
   T cq = cos(dir[1]);
-  Eigen::Matrix<T,3,1> vec(cp*sq,-sp,cp*cq);
+  Eigen::Matrix<T,3,1> vec(cp*sq,-sp,cp*cq); 
   vec *= -g;
   return vec;
 }

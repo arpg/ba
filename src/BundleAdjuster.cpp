@@ -95,8 +95,8 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::ApplyUpdate(
                      poses_[ii].t_vs.matrix() << std::endl;
       }
 
-      // std::cout << "Pose delta for " << ii << " is " <<
-      //             p_update.transpose() << std::endl;
+      //std::cout << "Pose delta for " << ii << " is " <<
+      //           p_update.transpose() << std::endl;
     } else {
       // std::cout << " Pose " << ii << " is inactive." << std::endl;
       if (CalibSize > 2 && inertial_residuals_.size() > 0) {
@@ -180,9 +180,6 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::EvaluateResiduals()
     const Pose& pose1 = poses_[res.x1_id];
     const Pose& pose2 = poses_[res.x2_id];
     res.residual = SE3t::log(pose1.t_wp*res.t_ab*pose2.t_wp.inverse());
-    //std::cout << "post solve error between ids " << res.x1_id << " and " <<
-    //             res.x2_id << " has error " << res.residual.transpose() <<
-    //             " and norm " << res.residual.norm() <<  std::endl;
     binary_error_ += res.residual.norm() * res.weight;
   }
 
@@ -352,9 +349,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
 
       VectorXt jt_i_r_i(num_pose_params);
       Eigen::SparseBlockVectorProductDenseResult(jt_i_, r_i_, jt_i_r_i);
-      bp += jt_i_r_i;
-      // Eigen::LoadDenseFromSparse(U,S);
-      // std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
+      bp += jt_i_r_i;      
     }
     PrintTimer(_jtj_);
 
@@ -623,18 +618,18 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
     ApplyUpdate(delta_p, delta_l, deltaCalib, false);
 
     const double dPrevError = proj_error_ + inertial_error_ + binary_error_;
-    std::cout << "Pre-solve norm: " << dPrevError << " with Epr:" <<
-                 proj_error_ << " and Ei:" << inertial_error_ <<
-                 " and Epp: " << binary_error_ << std::endl;
+    //std::cout << "Pre-solve norm: " << dPrevError << " with Epr:" <<
+    //             proj_error_ << " and Ei:" << inertial_error_ <<
+    //             " and Epp: " << binary_error_ << std::endl;
     EvaluateResiduals();
     const double dPostError = proj_error_ + inertial_error_ + binary_error_;
-    std::cout << "Post-solve norm: " << dPostError << " with Epr:" <<
-                  proj_error_ << " and Ei:" << inertial_error_ <<
-                 " and Epp: " << binary_error_ << std::endl;
+    //std::cout << "Post-solve norm: " << dPostError << " with Epr:" <<
+    //              proj_error_ << " and Ei:" << inertial_error_ <<
+    //             " and Epp: " << binary_error_ << std::endl;
 
     if (dPostError > dPrevError) {
-      std::cout << "Error increasing during optimization, rolling back .."<<
-                  std::endl;
+      //std::cout << "Error increasing during optimization, rolling back .."<<
+      //            std::endl;
       ApplyUpdate(delta_p, delta_l, deltaCalib, true);
       break;
     }
@@ -751,9 +746,6 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
           t_sw_m*t_ws_r, lm.x_s.template head<3>(),lm.x_s(3));
 
     res.residual = res.z - p;
-    // std::cout << "Residual for meas " << res.ResidualId <<
-    // " and landmark " << res.LandmarkId << " with camera " <<
-    // res.CameraId << " is " << res.Residual.transpose() << std::endl;
 
     // this array is used to calculate the robust norm
     errors_.push_back(res.residual.squaredNorm());
@@ -931,10 +923,6 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
     res.dz_dx2 = -dLog_dX(t_w1 * res.t_ab, t_2w);
 
     res.residual = SE3t::log(t_w1*res.t_ab*t_2w);
-
-    //std::cout << "pre solve error between ids " << res.x1_id << " and " <<
-    //             res.x2_id << " has error " << res.residual.transpose() <<
-    //             " and norm " << res.residual.norm() <<  std::endl;
 
     // finite difference checking
     //Eigen::Matrix<Scalar,6,6> dz_dx2_fd;

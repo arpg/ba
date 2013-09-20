@@ -192,7 +192,7 @@ public:
     ////////////////////////////////////////////////////////////////////////////
     unsigned int AddBinaryConstraint(const unsigned int pose1_id,
                                      const unsigned int pose2_id,
-                                     const SE3t& Tab)
+                                     const SE3t& t_ab)
     {
         assert(pose1_id < poses_.size());
         assert(pose2_id < poses_.size());
@@ -204,7 +204,7 @@ public:
         residual.x2_id = pose2_id;
         residual.residual_id = binary_residuals_.size();
         residual.residual_offset = binary_residual_offset_;
-        residual.t_ab = Tab;
+        residual.t_ab = t_ab;
 
         binary_residuals_.push_back(residual);
         binary_residual_offset_ += BinaryResidual::kResSize;
@@ -212,6 +212,10 @@ public:
         // we add this to both poses, as each one has a jacobian cell associated
         poses_[pose1_id].binary_residuals.push_back(residual.residual_id);
         poses_[pose2_id].binary_residuals.push_back(residual.residual_id);
+
+        const Pose& pose1 = poses_[pose1_id];
+        const Pose& pose2 = poses_[pose2_id];
+
         return residual.residual_id;
     }
 

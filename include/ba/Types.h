@@ -217,7 +217,7 @@ struct BinaryResidualT
   Scalar       weight;
   Sophus::SE3Group<Scalar> t_ab;
   Eigen::Matrix<Scalar,kResSize,6> dz_dx1;
-  Eigen::Matrix<Scalar,kResSize,6> dZ_dX2;
+  Eigen::Matrix<Scalar,kResSize,6> dz_dx2;
   Eigen::Matrix<Scalar,6,1> residual;
 };
 

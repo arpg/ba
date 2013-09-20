@@ -179,7 +179,10 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::EvaluateResiduals()
   for (BinaryResidual& res : binary_residuals_) {
     const Pose& pose1 = poses_[res.x1_id];
     const Pose& pose2 = poses_[res.x2_id];
-    res.residual = SE3t::log(pose1.t_wp*res.t_ab*pose2.t_wp.inverse());;
+    res.residual = SE3t::log(pose1.t_wp*res.t_ab*pose2.t_wp.inverse());
+    //std::cout << "post solve error between ids " << res.x1_id << " and " <<
+    //             res.x2_id << " has error " << res.residual.transpose() <<
+    //             " and norm " << res.residual.norm() <<  std::endl;
     binary_error_ += res.residual.norm() * res.weight;
   }
 
@@ -632,29 +635,27 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
     ApplyUpdate(delta_p, delta_l, deltaCalib, false);
 
     const double dPrevError = proj_error_ + inertial_error_ + binary_error_;
-    std::cout << "Pre-solve norm: " << dPrevError << " with Epr:" <<
-                 proj_error_ << " and Ei:" << inertial_error_ <<
-                 " and Epp: " << binary_error_ << std::endl;
+    //std::cout << "Pre-solve norm: " << dPrevError << " with Epr:" <<
+    //             proj_error_ << " and Ei:" << inertial_error_ <<
+    //             " and Epp: " << binary_error_ << std::endl;
     EvaluateResiduals();
     const double dPostError = proj_error_ + inertial_error_ + binary_error_;
-    std::cout << "Pose-solve norm: " << dPostError << " with Epr:" <<
-                  proj_error_ << " and Ei:" << inertial_error_ <<
-                 " and Epp: " << binary_error_ << std::endl;
+    //std::cout << "Post-solve norm: " << dPostError << " with Epr:" <<
+    //              proj_error_ << " and Ei:" << inertial_error_ <<
+    //             " and Epp: " << binary_error_ << std::endl;
 
     if (dPostError > dPrevError) {
-     std::cout << "Error increasing during optimization, rolling back .."<<
-                  " std::endl";
+      //std::cout << "Error increasing during optimization, rolling back .."<<
+      //            " std::endl";
       ApplyUpdate(delta_p, delta_l, deltaCalib, true);
       break;
     }
     else if ((dPrevError - dPostError)/dPrevError < 0.01) {
-      // std::cout << "Error decrease less than 1%, aborting." << std::endl;
-      break;
+      //std::cout << "Error decrease less than 1%, aborting." << std::endl;
+      //break;
     }
-    // std::cout << "BA iteration " << kk <<  " error: " <<
-    // m_Rpr.norm() + m_Ru.norm() + m_Rpp.norm() + m_Ri.norm() << std::endl;
-    // std::cout << "Iteration " << kk << " took " << Toc(dItTime) <<
-    // " seconds. " << std::endl;
+      //std::cout << "BA iteration " << kk <<  " error: " << dPostError <<
+      //            std::endl;
   }
 
 
@@ -911,6 +912,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
   }
   errors_.clear();
 
+  binary_error_ = 0;
   // build binary residual jacobians
   for( BinaryResidual& res : binary_residuals_ ){
     const SE3t& t_w1 = poses_[res.x1_id].t_wp;
@@ -919,27 +921,35 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
     res.dz_dx1 = dLog_dX(t_w1, res.t_ab * t_2w);
     // the negative sign here is because exp(x) is inside the inverse
     // when we invert (Twb*exp(x)).inverse
-    res.dZ_dX2 = -dLog_dX(t_w1 * res.t_ab, t_2w);
+    res.dz_dx2 = -dLog_dX(t_w1 * res.t_ab, t_2w);
+
+    res.residual = SE3t::log(t_w1*res.t_ab*t_2w);
+
+    //std::cout << "pre solve error between ids " << res.x1_id << " and " <<
+    //             res.x2_id << " has error " << res.residual.transpose() <<
+    //             " and norm " << res.residual.norm() <<  std::endl;
 
     // finite difference checking
-    //Eigen::Matrix<Scalar,6,6> J_fd;
+    //Eigen::Matrix<Scalar,6,6> dz_dx2_fd;
     //Scalar dEps = 1e-10;
     //for (int ii = 0; ii < 6 ; ii++) {
     //  Eigen::Matrix<Scalar,6,1> delta;
     //  delta.setZero();
     //  delta[ii] = dEps;
     //  const Vector6t pPlus =
-    //      log_decoupled(exp_decoupled(Twa,delta) * res.Tab, Twb);
+    //      SE3t::log(t_w1 * res.t_ab * (t_w2*SE3t::exp(delta)).inverse());
     //  delta[ii] = -dEps;
     //  const Vector6t pMinus =
-    //      log_decoupled(exp_decoupled(Twa,delta) * res.Tab, Twb);
-    //  J_fd.col(ii) = (pPlus-pMinus)/(2*dEps);
+    //      SE3t::log(t_w1 * res.t_ab * (t_w2*SE3t::exp(delta)).inverse());
+    //  dz_dx2_fd.col(ii) = (pPlus-pMinus)/(2*dEps);
     //}
-    //std::cout << "Jbinary:" << res.dZ_dX1 << std::endl;
-    //std::cout << "Jbinary_fd:" << J_fd << std::endl;
+    //std::cout << "dz_dx2:" << res.dz_dx2 << std::endl;
+    //std::cout << "dz_dx2_fd:" << dz_dx2_fd << std::endl;
 
     r_pp_.template segment<BinaryResidual::kResSize>(res.residual_offset) =
-        SE3t::log(t_w1*res.t_ab*t_2w);
+        res.residual;
+
+    binary_error_ += res.residual.norm() * res.weight;
   }
 
   for( UnaryResidual& res : unary_residuals_ ){
@@ -1464,7 +1474,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
       for (const int id: pose.binary_residuals) {
         const BinaryResidual& res = binary_residuals_[id];
         const Eigen::Matrix<Scalar,6,6>& dz_dz =
-            res.x1_id == pose.id ? res.dz_dx1 : res.dZ_dX2;
+            res.x1_id == pose.id ? res.dz_dx1 : res.dz_dx2;
 
         j_pp_.insert(
           res.residual_id, pose.opt_id ).setZero().template block<6,6>(0,0) =

@@ -65,8 +65,11 @@ class BlockCompressedStorage
     void reserve(size_t size)
     {
       size_t newAllocatedSize = m_size + size;
-      if (newAllocatedSize > m_allocatedSize)
+      if (newAllocatedSize > m_allocatedSize){
+        //std::cout << "New size of " << newAllocatedSize << " > " <<
+        //             m_allocatedSize << " .. reallocating." << std::endl;
         reallocate(newAllocatedSize);
+      }
     }
 
     void squeeze()

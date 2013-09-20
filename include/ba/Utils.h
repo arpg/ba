@@ -4,6 +4,16 @@
 #include <sys/time.h>
 #include <time.h>
 
+#define ENABLE_TIMING
+
+#ifdef ENABLE_TIMING
+#define StartTimer(x) double x = Tic()
+#define PrintTimer(x) std::cout << Toc(x) << " seconds -> " << #x << std::endl
+#else
+#define StartTimer(x)
+#define PrintTimer(x)
+#endif
+
 namespace Eigen
 {
   typedef Matrix<double,6,1> Vector6d;

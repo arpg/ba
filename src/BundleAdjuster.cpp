@@ -265,18 +265,17 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
     const unsigned int uMaxIter)
 {
   for (unsigned int kk = 0 ; kk < uMaxIter ; ++kk) {
-    // Scalar time = Tic();
+    StartTimer(_BuildProblem_);
     BuildProblem();
-    // std::cout << "Build problem took " << Toc(dTime) <<
-    // " seconds." << std::endl;
-    // time = Tic();
+    PrintTimer(_BuildProblem_);    ;
 
     const unsigned int num_poses = num_active_poses_;
     const unsigned int num_pose_params = num_poses*PoseSize;
-    const unsigned int num_lm = num_active_landmarks_;
-    //        const unsigned int uNumMeas = m_vMeasurements.size();
+    const unsigned int num_lm = num_active_landmarks_;   
+
+    StartTimer(_steup_problem_);
+    StartTimer(_rhs_mult_);
     // calculate bp and bl
-    // Scalar mat_time = Tic();
     VectorXt bp(num_pose_params);
     VectorXt bk;
     VectorXt bl;
@@ -292,11 +291,10 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
     Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic> s(
           num_pose_params+CalibSize, num_pose_params+CalibSize);
 
-    // std::cout << "  Rhs vector mult took " << Toc(dMatTime) <<
-    // " seconds." << std::endl;
+    PrintTimer(_rhs_mult_);
 
-    // mat_time = Tic();
 
+    StartTimer(_jtj_);
     // TODO: suboptimal, the matrices are symmetric. We should only
     // multipl one half
     BlockMat<Eigen::Matrix<Scalar, PoseSize, PoseSize>> u(
@@ -358,32 +356,31 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
       // Eigen::LoadDenseFromSparse(U,S);
       // std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
     }
+    PrintTimer(_jtj_);
 
+    StartTimer(_schur_complement_);
     if (LmSize > 0 && num_lm > 0) {
       bl.resize(num_lm*LmSize);
-      // double schur_time = Tic();
+      StartTimer(_schur_complement_jtl_rpr_);
       Eigen::SparseBlockVectorProductDenseResult(jt_l_, r_pr_, bl);
-      // std::cout << "VectorProductDenseResult(m_Jlt, m_Rpr, bl); took  " <<
-      // Toc(dSchurTime) << " seconds."  << std::endl;
+      PrintTimer(_schur_complement_jtl_rpr_);
 
-      // schur_time = Tic();
+      StartTimer(_schur_complement_v);
       BlockMat< Eigen::Matrix<Scalar, LmSize, LmSize> > v(num_lm, num_lm);
       Eigen::SparseBlockProduct(jt_l_,j_l_,v);
-      // std::cout << "Eigen::SparseBlockProduct(m_Jlt,m_Jl,V);; took  " <<
-      // Toc(dSchurTime) << " seconds."  << std::endl;
+      PrintTimer(_schur_complement_v);
 
-      // schur_time = Tic();
+      StartTimer(_schur_complement_jtpr_jl);
       BlockMat< Eigen::Matrix<Scalar, PoseSize, LmSize> > jt_pr_j_l(
             num_poses, num_lm);
 
       Eigen::SparseBlockProduct(jt_pr,j_l_,jt_pr_j_l);
       Eigen::SparseBlockProduct(jt_l_,j_pr_,jt_l_j_pr);
       // Jlt_Jpr = Jprt_Jl.transpose();
-      // std::cout << "Eigen::SparseBlockProduct(m_Jprt,m_Jl,Wp) and Wpt = "
-      // "Wp.transpose(); took  " << Toc(dSchurTime) <<
-      // " seconds."  << std::endl;
+      PrintTimer(_schur_complement_jtpr_jl);
 
 
+      StartTimer(_schur_complement_vi);
       // schur_time = Tic();
       // calculate the inverse of the map hessian (it should be diagonal,
       // unless a measurement is of more than one landmark,
@@ -398,28 +395,24 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
         }
         vi.coeffRef(ii,ii) = v.coeffRef(ii,ii).inverse();
       }
+      PrintTimer(_schur_complement_vi);
 
-      // std::cout << "  Inversion of V took " <<
-      // Toc(dSchurTime) << " seconds." << std::endl;
-
-      // schur_time = Tic();
+      StartTimer(_schur_complement_jtpr_jl_vi);
       // attempt to solve for the poses. W_V_inv is used later on,
       // so we cache it
       Eigen::SparseBlockProduct(jt_pr_j_l, vi, jt_pr_j_l_vi);
-      // std::cout << "Eigen::SparseBlockProduct(Wp, V_inv, Wp_V_inv) took  "<<
-      // Toc(dSchurTime) << " seconds."  << std::endl;
+      PrintTimer(_schur_complement_jtpr_jl_vi);
 
 
-      // schur_time = Tic();
-      BlockMat< Eigen::Matrix<Scalar, PoseSize, PoseSize>>
-            jt_pr_j_l_vi_djt_l_j_pr(num_poses, num_poses);
+      //StartTimer(_schur_complement_jtpr_jl_vi_jtl_jpr);
+      //BlockMat< Eigen::Matrix<Scalar, PoseSize, PoseSize>>
+      //      jt_pr_j_l_vi_jt_l_j_pr(num_poses, num_poses);
 
-      Eigen::SparseBlockProduct(jt_pr_j_l_vi, jt_l_j_pr,
-                                jt_pr_j_l_vi_djt_l_j_pr);
-      //std::cout << "SparseBlockProduct(Wp_V_inv, Wpt, WV_invWt) took  " <<
-      // Toc(dSchurTime) << " seconds."  << std::endl;
+      //Eigen::SparseBlockProduct(jt_pr_j_l_vi, jt_l_j_pr,
+      //                          jt_pr_j_l_vi_jt_l_j_pr);
+      //PrintTimer(_schur_complement_jtpr_jl_vi_jtl_jpr);
 
-      // schur_time = Tic();
+      StartTimer(_schur_complement_jtpr_jl_vi_jtl_jpr_d);
       MatrixXt djt_pr_j_l_vi(
             jt_pr_j_l_vi.rows()*PoseSize,jt_pr_j_l_vi.cols()*LmSize);
       Eigen::LoadDenseFromSparse(jt_pr_j_l_vi,djt_pr_j_l_vi);
@@ -428,9 +421,8 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
             jt_l_j_pr.rows()*LmSize,jt_l_j_pr.cols()*PoseSize);
       Eigen::LoadDenseFromSparse(jt_l_j_pr,djt_l_j_pr);
 
-      MatrixXt djt_pr_j_l_vi_djt_l_j_pr = djt_pr_j_l_vi * djt_l_j_pr;
-      // std::cout << "Same with dense took " << Toc(dSchurTime) <<
-      // " seconds."  << std::endl;
+      MatrixXt djt_pr_j_l_vi_jt_l_j_pr = djt_pr_j_l_vi * djt_l_j_pr;
+      PrintTimer(_schur_complement_jtpr_jl_vi_jtl_jpr_d);
 
       // this in-place operation should be fine for subtraction
       // schur_time = Tic();
@@ -453,7 +445,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
 
       // std::cout << "dU matrix is " << dU.format(cleanFmt) << std::endl;
       s.template block(0, 0, num_pose_params, num_pose_params ) =
-          du - djt_pr_j_l_vi_djt_l_j_pr;
+          du - djt_pr_j_l_vi_jt_l_j_pr;
 
       // std::cout << "Eigen::SparseBlockSubtractDenseResult(U, WV_invWt, "
       // "S.template block(0, 0, uNumPoseParams, uNumPoseParams )) took  " <<
@@ -478,6 +470,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
             u, s.template block(0, 0, num_pose_params, num_pose_params));
       rhs_p.template head(num_pose_params) = bp;
     }
+    PrintTimer(_schur_complement_);
 
     // std::cout << "  Rhs calculation and schur complement took " <<
     // Toc(dMatTime) << " seconds." << std::endl;
@@ -592,20 +585,14 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
                    rhs_p.template tail<CalibSize>().transpose() << std::endl;
       rhs_p.template tail<CalibSize>() -= jt_kpr_j_l_vi_bl;
     }
-
-    // std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
-    // std::cout << "Dense rhs matrix is " <<
-    // rhs_p.transpose().format(cleanFmt) << std::endl;
-
-    // std::cout << "Setup took " << Toc(dTime) << " seconds." << std::endl;
+    PrintTimer(_steup_problem_);
 
     // now we have to solve for the pose constraints
-    // time = Tic();
+    StartTimer(_solve_);
     VectorXt delta_p = num_poses == 0 ? VectorXt() : s.ldlt().solve(rhs_p);
-    // VectorXt delta_p = uNumPoses == 0 ? VectorXt() : S.inverse() * rhs_p;
-    // std::cout << "Cholesky solve of " << uNumPoses << " by " <<
-    // uNumPoses << "matrix took " << Toc(dTime) << " seconds." << std::endl;
+    PrintTimer(_solve_);
 
+    StartTimer(_back_substitution_);
     VectorXt delta_l;
     if (num_lm > 0) {
       delta_l.resize(num_lm*LmSize);
@@ -625,6 +612,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
             vi.coeff(ii,ii)*rhs_l.template block<LmSize,1>(ii*LmSize,0);
       }
     }
+    PrintTimer(_back_substitution_);
 
     VectorXt deltaCalib;
     if (CalibSize > 0 && num_pose_params > 0) {
@@ -635,18 +623,18 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
     ApplyUpdate(delta_p, delta_l, deltaCalib, false);
 
     const double dPrevError = proj_error_ + inertial_error_ + binary_error_;
-    //std::cout << "Pre-solve norm: " << dPrevError << " with Epr:" <<
-    //             proj_error_ << " and Ei:" << inertial_error_ <<
-    //             " and Epp: " << binary_error_ << std::endl;
+    std::cout << "Pre-solve norm: " << dPrevError << " with Epr:" <<
+                 proj_error_ << " and Ei:" << inertial_error_ <<
+                 " and Epp: " << binary_error_ << std::endl;
     EvaluateResiduals();
     const double dPostError = proj_error_ + inertial_error_ + binary_error_;
-    //std::cout << "Post-solve norm: " << dPostError << " with Epr:" <<
-    //              proj_error_ << " and Ei:" << inertial_error_ <<
-    //             " and Epp: " << binary_error_ << std::endl;
+    std::cout << "Post-solve norm: " << dPostError << " with Epr:" <<
+                  proj_error_ << " and Ei:" << inertial_error_ <<
+                 " and Epp: " << binary_error_ << std::endl;
 
     if (dPostError > dPrevError) {
-      //std::cout << "Error increasing during optimization, rolling back .."<<
-      //            " std::endl";
+      std::cout << "Error increasing during optimization, rolling back .."<<
+                  std::endl;
       ApplyUpdate(delta_p, delta_l, deltaCalib, true);
       break;
     }
@@ -735,9 +723,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
   errors_.reserve(num_proj_res);
   errors_.clear();
 
-  // set all jacobians
-  // Scalar time = Tic();
-
+  StartTimer(_j_evaluation_);
+  StartTimer(_j_evaluation_proj_);
   proj_error_ = 0;
   for (ProjectionResidual& res : proj_residuals_) {
     // calculate measurement jacobians
@@ -790,12 +777,20 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
       const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsv_m =
           dt_dp_m * t_vs_m.inverse().matrix();
 
-      for (unsigned int ii=0; ii<6; ++ii) {
+      const auto x_p = pose.t_wp.inverse().matrix() * lm.x_w;
+      // this is the multiplication by the lie generators unrolled
+      for (unsigned int ii=0; ii<3; ++ii) {
         res.dz_dx_meas.template block<2,1>(0,ii) =
-            -dt_dp_m_tsv_m * -Sophus::SE3Group<Scalar>::generator(ii) *
-            pose.t_wp.inverse().matrix() * lm.x_w; // rotation
+            dt_dp_m_tsv_m.col(ii) * x_p[3];
       }
-      // res.dZ_dK = m_Rig.cameras[res.CameraId].camera
+      res.dz_dx_meas.template block<2,1>(0,3) =
+          (dt_dp_m_tsv_m.col(2)*x_p[1] - dt_dp_m_tsv_m.col(1)*x_p[2]);
+
+      res.dz_dx_meas.template block<2,1>(0,4) =
+          (-dt_dp_m_tsv_m.col(2)*x_p[0] + dt_dp_m_tsv_m.col(0)*x_p[2]);
+
+      res.dz_dx_meas.template block<2,1>(0,5) =
+          (dt_dp_m_tsv_m.col(1)*x_p[0] - dt_dp_m_tsv_m.col(0)*x_p[1]);
 
       // only need this if we are in inverse depth mode
       if (LmSize == 1) {
@@ -803,11 +798,21 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
         const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsw_m =
             dt_dp_m * (pose.t_wp * t_vs_m).inverse().matrix();
 
-        for (unsigned int ii=0; ii<6; ++ii) {
+        const auto x_v = t_vs_r.matrix() * lm.x_s;
+        const auto dt_dp_m_tsw_m_twp = -dt_dp_m_tsw_m * ref_pose.t_wp.matrix();
+        // this is the multiplication by the lie generators unrolled
+        for (unsigned int ii=0; ii<3; ++ii) {
           res.dz_dx_ref.template block<2,1>(0,ii) =
-             -dt_dp_m_tsw_m * ref_pose.t_wp.matrix() *
-             Sophus::SE3Group<Scalar>::generator(ii) * t_vs_r.matrix() * lm.x_s;
+              dt_dp_m_tsw_m_twp.col(ii) * x_v[3];
         }
+        res.dz_dx_ref.template block<2,1>(0,3) =
+            -(dt_dp_m_tsw_m_twp.col(2)*x_p[1] - dt_dp_m_tsv_m.col(1)*x_v[2]);
+
+        res.dz_dx_ref.template block<2,1>(0,4) =
+            -(-dt_dp_m_tsw_m_twp.col(2)*x_p[0] + dt_dp_m_tsv_m.col(0)*x_v[2]);
+
+        res.dz_dx_ref.template block<2,1>(0,5) =
+            -(dt_dp_m_tsw_m_twp.col(1)*x_p[0] - dt_dp_m_tsv_m.col(0)*x_v[1]);
 
         //Eigen::Matrix<Scalar,2,6> dZ_dPr_fd;
         //for(int ii = 0; ii < 6 ; ii++) {
@@ -911,7 +916,9 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
     }
   }
   errors_.clear();
+  PrintTimer(_j_evaluation_proj_);
 
+  StartTimer(_j_evaluation_binary_);
   binary_error_ = 0;
   // build binary residual jacobians
   for( BinaryResidual& res : binary_residuals_ ){
@@ -951,7 +958,9 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
 
     binary_error_ += res.residual.norm() * res.weight;
   }
+  PrintTimer(_j_evaluation_binary_);
 
+  StartTimer(_j_evaluation_unary_);
   for( UnaryResidual& res : unary_residuals_ ){
     const SE3t& Twp = poses_[res.pose_id].t_wp;
     // res.dZ_dX = dLog_dX(Twp, res.Twp.inverse());
@@ -976,7 +985,9 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
     r_u_.template segment<UnaryResidual::kResSize>(res.residual_offset) =
         log_decoupled(Twp, res.t_wp);
   }
+  PrintTimer(_j_evaluation_unary_);
 
+  StartTimer(_j_evaluation_inertial_);
   inertial_error_ = 0;
   for (ImuResidual& res : inertial_residuals_) {
     // set up the initial pose for the integration
@@ -1438,16 +1449,16 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
     }
   }
   errors_.clear();
-
-  // std::cout << "Jacobian evaluation took " << Toc(dTime) <<
-  // " seconds. " << std::endl;
-
+  PrintTimer(_j_evaluation_inertial_);
+  PrintTimer(_j_evaluation_);
   //TODO : The transpose insertions here are hideously expensive as they are
   // not in order. find a way around this.
 
   // here we sort the measurements and insert them per pose and per landmark,
   // this will mean each insert operation is O(1)
   //  dtime = Tic();
+  StartTimer(_j_insertion_);
+  StartTimer(_j_insertion_poses);
   for (Pose& pose : poses_) {
     if (pose.is_active) {
       // sort the measurements by id so the sparse insert is O(1)
@@ -1522,8 +1533,10 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
       }
     }
   }
+  PrintTimer(_j_insertion_poses);
 
   // fill in calibration jacobians
+  StartTimer(_j_insertion_calib);
   if (CalibSize > 0) {
     for (const ImuResidual& res : inertial_residuals_) {
       // include gravity terms (t total)
@@ -1565,7 +1578,9 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
       }
     }
   }
+  PrintTimer(_j_insertion_calib);
 
+  StartTimer(_j_insertion_landmarks);
   for (Landmark& lm : landmarks_) {
     if (lm.is_active) {
       // sort the measurements by id so the sparse insert is O(1)
@@ -1579,9 +1594,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
       }
     }
   }
-
-  // std::cout << "Jacobian insertion took " << Toc(dTime) <<
-  // " seconds. " << std::endl;
+  PrintTimer  (_j_insertion_landmarks);
+  PrintTimer(_j_insertion_);
 }
 
 // specializations

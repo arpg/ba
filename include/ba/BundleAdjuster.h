@@ -213,9 +213,6 @@ public:
         poses_[pose1_id].binary_residuals.push_back(residual.residual_id);
         poses_[pose2_id].binary_residuals.push_back(residual.residual_id);
 
-        const Pose& pose1 = poses_[pose1_id];
-        const Pose& pose2 = poses_[pose2_id];
-
         return residual.residual_id;
     }
 

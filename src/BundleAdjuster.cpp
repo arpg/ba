@@ -758,7 +758,11 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
       res.dz_dlm = -dTdP_s.template block<2,LmSize>( 0, LmSize == 3 ? 0 : 3 );
     }
 
-    if (pose.is_active || ref_pose.is_active) {
+    // if the measurement and reference poses are the same, the jacobian is zero
+    if (res.x_ref_id == res.x_meas_id) {
+      res.dz_dx_meas.setZero();
+      res.dz_dx_ref.setZero();
+    } else if (pose.is_active || ref_pose.is_active) {
       // std::cout << "Calculating j for residual with poseid " << pose.Id <<
       // " and refPoseId " << refPose.Id << std::endl;
       // derivative for the measurement pose
@@ -784,7 +788,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
       res.dz_dx_meas.template block<2,1>(0,5) =
           (dt_dp_m_tsv_m.col(1)*x_p[0] - dt_dp_m_tsv_m.col(0)*x_p[1]);
 
-      // only need this if we are in inverse depth mode
+      // only need this if we are in inverse depth mode and the poses aren't
+      // the same
       if (LmSize == 1) {
         // derivative for the reference pose
         const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsw_m =
@@ -1457,7 +1462,6 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
         // The weight is only multiplied by the transpose matrix, this is
         // so we can perform Jt*W*J*dx = Jt*W*r
         auto dz_dx = res.x_meas_id == pose.id ? res.dz_dx_meas : res.dz_dx_ref;
-
         j_pr_.insert(
           res.residual_id, pose.opt_id).setZero().template block<2,6>(0,0) =
             dz_dx;

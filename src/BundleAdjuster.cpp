@@ -773,7 +773,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
       const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsv_m =
           dt_dp_m * t_vs_m.inverse().matrix();
 
-      const auto x_p = pose.t_wp.inverse().matrix() * lm.x_w;
+      const Vector4t x_p = pose.t_wp.inverse().matrix() * lm.x_w;
       // this is the multiplication by the lie generators unrolled
       for (unsigned int ii=0; ii<3; ++ii) {
         res.dz_dx_meas.template block<2,1>(0,ii) =
@@ -787,6 +787,11 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
 
       res.dz_dx_meas.template block<2,1>(0,5) =
           (dt_dp_m_tsv_m.col(1)*x_p[0] - dt_dp_m_tsv_m.col(0)*x_p[1]);
+//      for (unsigned int ii=0; ii<6; ++ii) {
+//        res.dz_dx_meas.template block<2,1>(0,ii) =
+//            -dt_dp_m_tsv_m * -Sophus::SE3Group<Scalar>::generator(ii) *
+//            pose.t_wp.inverse().matrix() * lm.x_w; // rotation
+//      }
 
       // only need this if we are in inverse depth mode and the poses aren't
       // the same
@@ -795,21 +800,27 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
         const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsw_m =
             dt_dp_m * (pose.t_wp * t_vs_m).inverse().matrix();
 
-        const auto x_v = t_vs_r.matrix() * lm.x_s;
-        const auto dt_dp_m_tsw_m_twp = -dt_dp_m_tsw_m * ref_pose.t_wp.matrix();
+        const Vector4t x_v = t_vs_r.matrix() * lm.x_s;
+        const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsw_m_twp =
+            -dt_dp_m_tsw_m * ref_pose.t_wp.matrix();
         // this is the multiplication by the lie generators unrolled
         for (unsigned int ii=0; ii<3; ++ii) {
           res.dz_dx_ref.template block<2,1>(0,ii) =
               dt_dp_m_tsw_m_twp.col(ii) * x_v[3];
         }
         res.dz_dx_ref.template block<2,1>(0,3) =
-            -(dt_dp_m_tsw_m_twp.col(2)*x_p[1] - dt_dp_m_tsv_m.col(1)*x_v[2]);
+            (dt_dp_m_tsw_m_twp.col(2)*x_p[1] - dt_dp_m_tsv_m.col(1)*x_v[2]);
 
         res.dz_dx_ref.template block<2,1>(0,4) =
-            -(-dt_dp_m_tsw_m_twp.col(2)*x_p[0] + dt_dp_m_tsv_m.col(0)*x_v[2]);
+            (-dt_dp_m_tsw_m_twp.col(2)*x_p[0] + dt_dp_m_tsv_m.col(0)*x_v[2]);
 
         res.dz_dx_ref.template block<2,1>(0,5) =
-            -(dt_dp_m_tsw_m_twp.col(1)*x_p[0] - dt_dp_m_tsv_m.col(0)*x_v[1]);
+            (dt_dp_m_tsw_m_twp.col(1)*x_p[0] - dt_dp_m_tsv_m.col(0)*x_v[1]);
+
+        for (unsigned int ii=3; ii<6; ++ii) {
+          res.dz_dx_ref.template block<2,1>(0,ii) =
+             dt_dp_m_tsw_m_twp * Sophus::SE3Group<Scalar>::generator(ii) * x_v;
+        }
 
         //Eigen::Matrix<Scalar,2,6> dZ_dPr_fd;
         //for(int ii = 0; ii < 6 ; ii++) {

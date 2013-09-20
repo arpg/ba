@@ -787,11 +787,6 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
 
       res.dz_dx_meas.template block<2,1>(0,5) =
           (dt_dp_m_tsv_m.col(1)*x_p[0] - dt_dp_m_tsv_m.col(0)*x_p[1]);
-//      for (unsigned int ii=0; ii<6; ++ii) {
-//        res.dz_dx_meas.template block<2,1>(0,ii) =
-//            -dt_dp_m_tsv_m * -Sophus::SE3Group<Scalar>::generator(ii) *
-//            pose.t_wp.inverse().matrix() * lm.x_w; // rotation
-//      }
 
       // only need this if we are in inverse depth mode and the poses aren't
       // the same

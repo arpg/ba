@@ -399,25 +399,25 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
       PrintTimer(_schur_complement_jtpr_jl_vi);
 
 
-      //StartTimer(_schur_complement_jtpr_jl_vi_jtl_jpr);
-      //BlockMat< Eigen::Matrix<Scalar, PoseSize, PoseSize>>
-      //      jt_pr_j_l_vi_jt_l_j_pr(num_poses, num_poses);
+      StartTimer(_schur_complement_jtpr_jl_vi_jtl_jpr);
+      BlockMat< Eigen::Matrix<Scalar, PoseSize, PoseSize>>
+            jt_pr_j_l_vi_jt_l_j_pr(num_poses, num_poses);
 
-      //Eigen::SparseBlockProduct(jt_pr_j_l_vi, jt_l_j_pr,
-      //                          jt_pr_j_l_vi_jt_l_j_pr);
-      //PrintTimer(_schur_complement_jtpr_jl_vi_jtl_jpr);
+      Eigen::SparseBlockProduct(jt_pr_j_l_vi, jt_l_j_pr,
+                                jt_pr_j_l_vi_jt_l_j_pr);
+      PrintTimer(_schur_complement_jtpr_jl_vi_jtl_jpr);
 
-      StartTimer(_schur_complement_jtpr_jl_vi_jtl_jpr_d);
-      MatrixXt djt_pr_j_l_vi(
-            jt_pr_j_l_vi.rows()*PoseSize,jt_pr_j_l_vi.cols()*LmSize);
-      Eigen::LoadDenseFromSparse(jt_pr_j_l_vi,djt_pr_j_l_vi);
+      //StartTimer(_schur_complement_jtpr_jl_vi_jtl_jpr_d);
+      //MatrixXt djt_pr_j_l_vi(
+      //      jt_pr_j_l_vi.rows()*PoseSize,jt_pr_j_l_vi.cols()*LmSize);
+      //Eigen::LoadDenseFromSparse(jt_pr_j_l_vi,djt_pr_j_l_vi);
 
-      MatrixXt djt_l_j_pr(
-            jt_l_j_pr.rows()*LmSize,jt_l_j_pr.cols()*PoseSize);
-      Eigen::LoadDenseFromSparse(jt_l_j_pr,djt_l_j_pr);
+      //MatrixXt djt_l_j_pr(
+      //      jt_l_j_pr.rows()*LmSize,jt_l_j_pr.cols()*PoseSize);
+      //Eigen::LoadDenseFromSparse(jt_l_j_pr,djt_l_j_pr);
 
-      MatrixXt djt_pr_j_l_vi_jt_l_j_pr = djt_pr_j_l_vi * djt_l_j_pr;
-      PrintTimer(_schur_complement_jtpr_jl_vi_jtl_jpr_d);
+      //MatrixXt djt_pr_j_l_vi_jt_l_j_pr = djt_pr_j_l_vi * djt_l_j_pr;
+      //PrintTimer(_schur_complement_jtpr_jl_vi_jtl_jpr_d);
 
       // this in-place operation should be fine for subtraction
       // schur_time = Tic();
@@ -434,13 +434,14 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
                     dU << std::endl;
       */
 
-      // Eigen::SparseBlockSubtractDenseResult(U, WV_invWt, S.template block(0,
-      //                                       0, uNumPoseParams,
-      //                                       uNumPoseParams ));
+       Eigen::SparseBlockSubtractDenseResult(u, jt_pr_j_l_vi_jt_l_j_pr,
+                                             s.template block(
+                                               0, 0, num_pose_params,
+                                             num_pose_params ));
 
       // std::cout << "dU matrix is " << dU.format(cleanFmt) << std::endl;
-      s.template block(0, 0, num_pose_params, num_pose_params ) =
-          du - djt_pr_j_l_vi_jt_l_j_pr;
+      //s.template block(0, 0, num_pose_params, num_pose_params ) =
+      //    du - djt_pr_j_l_vi_jt_l_j_pr;
 
       // std::cout << "Eigen::SparseBlockSubtractDenseResult(U, WV_invWt, "
       // "S.template block(0, 0, uNumPoseParams, uNumPoseParams )) took  " <<

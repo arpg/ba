@@ -585,7 +585,11 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
 
     // now we have to solve for the pose constraints
     StartTimer(_solve_);
-    VectorXt delta_p = num_poses == 0 ? VectorXt() : s.ldlt().solve(rhs_p);
+    Eigen::SimplicialLDLT<Eigen::SparseMatrix<Scalar>, Eigen::Upper> solver;
+    Eigen::SparseMatrix<Scalar> s_sparse = s.sparseView();
+    solver.compute(s_sparse);
+    // VectorXt delta_p = num_poses == 0 ? VectorXt() : s.ldlt().solve(rhs_p);
+    VectorXt delta_p = num_poses == 0 ? VectorXt() : solver.solve(rhs_p);
     PrintTimer(_solve_);
 
     StartTimer(_back_substitution_);

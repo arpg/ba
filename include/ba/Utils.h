@@ -4,6 +4,8 @@
 #include <sys/time.h>
 #include <time.h>
 
+
+
 namespace Eigen
 {
   typedef Matrix<double,6,1> Vector6d;
@@ -13,6 +15,21 @@ namespace Eigen
 ///////////////////////////////////////////////////////////////////////////////
 namespace ba
 {
+#ifdef ENABLE_TESTING
+#define TEST(x)  assert(x)
+#else
+#define TEST(x)
+#endif
+
+#ifdef ENABLE_TIMING
+#define StartTimer(x) double x = ba::Tic()
+#define PrintTimer(x) std::cout << ba::Toc(x) << " seconds -> " <<  \
+  #x << std::endl
+#else
+#define StartTimer(x)
+#define PrintTimer(x)
+#endif
+
 static Eigen::IOFormat kCleanFmt(4, 0, ", ", ";\n" , "" , "");
 #define NORM_THRESHOLD 1e-3
 #define TESTING_EPS 1e-9

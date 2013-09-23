@@ -950,6 +950,7 @@ protected:
         Index p = startId + m_innerNonZeros[outer];
         while ( (p > startId) && (m_data.index(p-1) > inner) )
         {
+            std::cout << "shifting values on insert" << std::endl;
             m_data.index(p) = m_data.index(p-1);
             m_data.value(p) = m_data.value(p-1);
             --p;

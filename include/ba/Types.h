@@ -67,7 +67,8 @@ struct ImuCalibrationT
                   const Eigen::Matrix<Scalar,3,1>& b_a,
                   const Eigen::Matrix<Scalar,2,1>& g):
     t_vs(t_vs),b_g(b_g),b_a(b_a),g(g),
-    r((Eigen::Vector6d() << IMU_GYRO_UNCERTAINTY,
+    r((Eigen::Matrix<Scalar, 6, 1>() <<
+       IMU_GYRO_UNCERTAINTY,
        IMU_GYRO_UNCERTAINTY,
        IMU_GYRO_UNCERTAINTY,
        IMU_ACCEL_UNCERTAINTY,
@@ -102,13 +103,13 @@ template <typename T>
 /// \return The 3d gravity vecto
 ///
 static Eigen::Matrix<T,3,1> GetGravityVector(const Eigen::Matrix<T,2,1>& dir,
-                                             const T g = ba::Gravity)
+                                             const T g = (T)ba::Gravity)
 {
   T sp = sin(dir[0]);
   T cp = cos(dir[0]);
   T sq = sin(dir[1]);
   T cq = cos(dir[1]);
-  Eigen::Matrix<T,3,1> vec(cp*sq,-sp,cp*cq);
+  Eigen::Matrix<T,3,1> vec(cp*sq,-sp,cp*cq); 
   vec *= -g;
   return vec;
 }
@@ -216,7 +217,7 @@ struct BinaryResidualT
   Scalar       weight;
   Sophus::SE3Group<Scalar> t_ab;
   Eigen::Matrix<Scalar,kResSize,6> dz_dx1;
-  Eigen::Matrix<Scalar,kResSize,6> dZ_dX2;
+  Eigen::Matrix<Scalar,kResSize,6> dz_dx2;
   Eigen::Matrix<Scalar,6,1> residual;
 };
 
@@ -307,8 +308,8 @@ struct ImuResidualT
       pdy_dy->template block<3,3>(7,7) =
           Eigen::Matrix<Scalar,3,3>::Identity();
 
-      assert( _Test_IntegratePose_ExpJacobian(k,dt) );
-      assert( _Test_IntegratePose_StateKJacobian(pose, k, dt, *pdy_dk));
+      TEST( _Test_IntegratePose_ExpJacobian(k,dt) );
+      TEST( _Test_IntegratePose_StateKJacobian(pose, k, dt, *pdy_dk));
     }
     return y;
   }
@@ -394,9 +395,9 @@ struct ImuResidualT
       const Eigen::Matrix<Scalar,9,1> k1 =
           GetPoseDerivative(pose,g,z_start,z_end,bg,ba,0,&dk_db,&dk_dy);
 
-      assert( _Test_IntegrateImu_KBiasJacobian( pose, z_start, z_end,
+      TEST( _Test_IntegrateImu_KBiasJacobian( pose, z_start, z_end,
                                                 bg, ba, g, dk_db ) );
-      assert( _Test_IntegrateImu_KStateJacobian( pose, z_start, z_end, bg,
+      TEST( _Test_IntegrateImu_KStateJacobian( pose, z_start, z_end, bg,
                                                  ba, g, dk_dy ) );
 
       // total derivative of k1 wrt b: dk1/db = dG/db + dG/dy*dy/db
@@ -410,7 +411,7 @@ struct ImuResidualT
       dy_db = dy_dk*dk1_db;
       dy_dy0 = dy_dy + dy_dk*dk1_dy; // this is dy1_dy0
 
-      assert( _Test_IntegrateImu_StateStateJacobian( pose, k1, dy_dy, dt ) );
+      TEST( _Test_IntegrateImu_StateStateJacobian( pose, k1, dy_dy, dt ) );
 
       const Eigen::Matrix<Scalar,9,1> k2 =
           GetPoseDerivative(y1,g,z_start,z_end,bg,ba,dt/2,&dk_db,&dk_dy);
@@ -519,9 +520,9 @@ struct ImuResidualT
           const ImuPose y0 = pose;
           pose = IntegrateImu(pose,*prev_meas,meas,bg,ba,g,&dy_db,&dy_dy);
 
-          assert( _Test_IntegrateImu_BiasJacobian( y0,*prev_meas,meas,
+          TEST( _Test_IntegrateImu_BiasJacobian( y0,*prev_meas,meas,
                                                    bg,ba,g,dy_db ) );
-          assert( _Test_IntegrateImu_StateJacobian( y0,*prev_meas,meas,bg,
+          TEST( _Test_IntegrateImu_StateJacobian( y0,*prev_meas,meas,bg,
                                                     ba,g,dy_dy ) );
 
           // now push forward the jacobian. This calculates the total derivative
@@ -549,12 +550,12 @@ struct ImuResidualT
     }
 
     if (dpose_db != 0) {
-      assert(_Test_IntegrateResidual_BiasJacobian(orig_pose, measurements, bg,
+      TEST(_Test_IntegrateResidual_BiasJacobian(orig_pose, measurements, bg,
                                                   ba, g, *dpose_db ) );
     }
 
     if (dpose_dpose != 0) {
-      assert(_Test_IntegrateResidual_StateJacobian( orig_pose, measurements, bg,
+      TEST(_Test_IntegrateResidual_StateJacobian( orig_pose, measurements, bg,
                                                     ba, g, *dpose_dpose ) );
     }
 

@@ -11,6 +11,10 @@ else()
 endif()
 add_definitions(-DSOPHUS_DISABLE_ENSURES)
 
+if( TEST_FLOAT )
+    add_definitions(-DREAL_TYPE=float)
+endif()
+
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake_modules/")
 
 option( BUILD_APPLICATIONS "Build Applications" ON )

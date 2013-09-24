@@ -328,7 +328,8 @@ private:
 
     // landmark jacobians
     BlockMat<Eigen::Matrix<Scalar, ProjectionResidual::kResSize, LmSize>> j_l_;
-    BlockMat<Eigen::Matrix<Scalar, LmSize, ProjectionResidual::kResSize>> jt_l_;
+    // BlockMat<Eigen::Matrix<Scalar, LmSize, ProjectionResidual::kResSize>>
+    // jt_l_;
 
     VectorXt r_pr_;
 

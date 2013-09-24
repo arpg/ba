@@ -197,6 +197,16 @@ int main( int argc, char** argv )
         Eigen::LoadDenseFromSparse(testBlockMatRes,sparseDenseRes);
         std::cout << "Error for SparseBlockTransposeProduct (dense matrx): " << (denseRes - sparseDenseRes).norm() << " took " << duration << "s" << std::endl;
 
+        testBlockMat2.setZero();
+        ForceStartTimer(_SparseBlockTranspose_);
+        Eigen::SparseBlockMatrix<Eigen::Matrix<double,3,6>>::forceTranspose(
+              testBlockMat, testBlockMat2);
+        ForcePrintTimer(_SparseBlockTranspose_);
+        sparseDenseTest2.setZero();
+        Eigen::LoadDenseFromSparse(testBlockMat2,sparseDenseTest2);
+        std::cout << "Error for forceTranspose: " <<
+                     (sparseDenseTest2 - testMat.transpose()).norm() << std::endl;
+
         denseRes = testMat * testMat2.col(0);
         sparseDenseRes = Eigen::MatrixXd (denseRes.rows(),1);
         time = Tic();

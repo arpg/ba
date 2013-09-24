@@ -297,16 +297,26 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
     BlockMat<Eigen::Matrix<Scalar, PoseSize, PoseSize>> u(
           num_poses, num_poses);
 
+    vi.setZero();
     u.setZero();
     bp.setZero();
     s.setZero();
     rhs_p.setZero();
 
     if (proj_residuals_.size() > 0) {
-      Eigen::SparseBlockProduct(jt_pr, j_pr_, u);
+      // ForceStartTimer(jtj_1);
+      Eigen::SparseBlockProduct(jt_pr, j_pr_, u, false);
+      // ForcePrintTimer(jtj_1);
+      // ForceStartTimer(jtj_2);
+      //Eigen::SparseBlockTransposeProduct(j_pr_, j_pr_, u);
+      // ForcePrintTimer(jtj_2);
+
 
       VectorXt jt_pr_r_pr(num_pose_params);
       Eigen::SparseBlockVectorProductDenseResult(jt_pr, r_pr_, jt_pr_r_pr);
+      //Eigen::SparseBlockTransposeVectorProductDenseResultAtb(j_pr_,
+      //                                                       r_pr_,
+      //                                                       jt_pr_r_pr);
       bp += jt_pr_r_pr;
     }
 
@@ -356,13 +366,24 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
     StartTimer(_schur_complement_);
     if (LmSize > 0 && num_lm > 0) {
       bl.resize(num_lm*LmSize);
-      StartTimer(_schur_complement_jtl_rpr_);
-      Eigen::SparseBlockVectorProductDenseResult(jt_l_, r_pr_, bl);
-      PrintTimer(_schur_complement_jtl_rpr_);
-
+      bl.setZero();
       StartTimer(_schur_complement_v);
-      BlockMat< Eigen::Matrix<Scalar, LmSize, LmSize> > v(num_lm, num_lm);
-      Eigen::SparseBlockProduct(jt_l_,j_l_,v);
+      for (int ii = 0; ii < landmarks_.size() ; ++ii) {
+        Eigen::Matrix<Scalar,LmSize,LmSize> jtj;
+        Eigen::Matrix<Scalar,LmSize,1> jtr;
+        jtj.setZero();
+        jtr.setZero();
+        for (const int id : landmarks_[ii].proj_residuals) {
+          const ProjectionResidual& res = proj_residuals_[id];
+          jtj += (res.dz_dlm.transpose() * res.dz_dlm) * res.weight;
+          jtr += (res.dz_dlm.transpose() *
+                  r_pr_.template block<ProjectionResidual::kResSize,1>(
+                    res.residual_id*ProjectionResidual::kResSize, 0) *
+                    res.weight);
+        }
+        bl.template block<LmSize,1>(landmarks_[ii].opt_id, 0) = jtr;
+        vi.insert(landmarks_[ii].opt_id, landmarks_[ii].opt_id) = jtj.inverse();
+      }
       PrintTimer(_schur_complement_v);
 
       StartTimer(_schur_complement_jtpr_jl);
@@ -370,32 +391,15 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
             num_poses, num_lm);
 
       Eigen::SparseBlockProduct(jt_pr,j_l_,jt_pr_j_l);
-      Eigen::SparseBlockProduct(jt_l_,j_pr_,jt_l_j_pr);
-      // Jlt_Jpr = Jprt_Jl.transpose();
+      BlockMat< Eigen::Matrix<Scalar, LmSize, PoseSize>>::forceTranspose(
+                                                          jt_pr_j_l,
+                                                          jt_l_j_pr);
       PrintTimer(_schur_complement_jtpr_jl);
 
-
-      StartTimer(_schur_complement_vi);
-      // schur_time = Tic();
-      // calculate the inverse of the map hessian (it should be diagonal,
-      // unless a measurement is of more than one landmark,
-      // which doesn't make sense)
-      for (size_t ii = 0 ; ii < num_lm ; ++ii) {
-        if (LmSize == 1) {
-          if (fabs(v.coeffRef(ii,ii)(0,0)) < 1e-6) {
-            std::cout << "Landmark coeff too small: " <<
-                         v.coeffRef(ii,ii)(0,0) << std::endl;
-            v.coeffRef(ii,ii)(0,0) += 1e-6;
-          }
-        }
-        vi.coeffRef(ii,ii) = v.coeffRef(ii,ii).inverse();
-      }
-      PrintTimer(_schur_complement_vi);
-
-      StartTimer(_schur_complement_jtpr_jl_vi);
       // attempt to solve for the poses. W_V_inv is used later on,
       // so we cache it
-      Eigen::SparseBlockProduct(jt_pr_j_l, vi, jt_pr_j_l_vi);
+      StartTimer(_schur_complement_jtpr_jl_vi);
+      Eigen::SparseBlockDiagonalRhsProduct(jt_pr_j_l, vi, jt_pr_j_l_vi);
       PrintTimer(_schur_complement_jtpr_jl_vi);
 
 
@@ -404,7 +408,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
             jt_pr_j_l_vi_jt_l_j_pr(num_poses, num_poses);
 
       Eigen::SparseBlockProduct(jt_pr_j_l_vi, jt_l_j_pr,
-                                jt_pr_j_l_vi_jt_l_j_pr);
+                                jt_pr_j_l_vi_jt_l_j_pr, true);
       PrintTimer(_schur_complement_jtpr_jl_vi_jtl_jpr);
 
       //StartTimer(_schur_complement_jtpr_jl_vi_jtl_jpr_d);
@@ -498,7 +502,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
     }
 
     if( CalibSize > 8){
-      BlockMat< Eigen::Matrix<Scalar, CalibSize, CalibSize>> jt_kpr_j_kpr(1, 1);
+      /*BlockMat< Eigen::Matrix<Scalar, CalibSize, CalibSize>> jt_kpr_j_kpr(1, 1);
       Eigen::SparseBlockProduct(jt_kpr_, j_kpr_, jt_kpr_j_kpr);
       MatrixXt djt_kpr_j_kpr(CalibSize, CalibSize);
       Eigen::LoadDenseFromSparse(jt_kpr_j_kpr, djt_kpr_j_kpr);
@@ -580,6 +584,7 @@ void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
       std::cout << "rhs_p.template tail<CalibSize>(): " <<
                    rhs_p.template tail<CalibSize>().transpose() << std::endl;
       rhs_p.template tail<CalibSize>() -= jt_kpr_j_l_vi_bl;
+      */
     }
     PrintTimer(_steup_problem_);
 
@@ -675,7 +680,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
   j_kpr_.resize(num_proj_res, 1);
   jt_kpr_.resize(1, num_proj_res);
   j_l_.resize(num_proj_res, num_lm);
-  jt_l_.resize(num_lm, num_proj_res);
+  // jt_l_.resize(num_lm, num_proj_res);
   r_pr_.resize(num_proj_res*ProjectionResidual::kResSize);
 
   j_pp_.resize(num_bin_res, num_poses);
@@ -716,7 +721,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
   r_i_.setZero();
 
   j_l_.setZero();
-  jt_l_.setZero();
+  // jt_l_.setZero();
 
 
   // used to store errors for robust norm calculation
@@ -1463,6 +1468,53 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
   //  dtime = Tic();
   StartTimer(_j_insertion_);
   StartTimer(_j_insertion_poses);
+  // reserve space for j_pr_
+  Eigen::VectorXi j_pr_sizes(num_poses);
+  Eigen::VectorXi j_pp_sizes(num_poses);
+  Eigen::VectorXi j_u_sizes(num_poses);
+  Eigen::VectorXi j_i_sizes(num_poses);
+  Eigen::VectorXi j_l_sizes(num_lm);
+
+  for (Pose& pose : poses_) {
+    if(pose.is_active){
+      j_pr_sizes[pose.opt_id] = pose.proj_residuals.size();
+      j_pp_sizes[pose.opt_id] = pose.binary_residuals.size();
+      j_u_sizes[pose.opt_id] = pose.unary_residuals.size();
+      j_i_sizes[pose.opt_id] = pose.inertial_residuals.size();
+    }
+  }
+
+  for (Landmark& lm : landmarks_) {
+    if (lm.is_active) {
+      j_l_sizes[lm.opt_id] = lm.proj_residuals.size();
+    }
+  }
+
+  if (!proj_residuals_.empty()) {
+    j_pr_.reserve(j_pr_sizes);
+    jt_pr.reserve(Eigen::VectorXi::Constant(jt_pr.cols(),
+                                            LmSize == 1 ? 2 : 1));
+  }
+
+  if (!binary_residuals_.empty()) {
+    j_pp_.reserve(j_pp_sizes);
+    jt_pp_.reserve(Eigen::VectorXi::Constant(jt_pp_.cols(), 2));
+  }
+
+  if (!unary_residuals_.empty()) {
+    j_u_.reserve(j_u_sizes);
+    jt_u_.reserve(Eigen::VectorXi::Constant(jt_u_.cols(), 1));
+  }
+
+  if (!inertial_residuals_.empty()) {
+    j_i_.reserve(j_i_sizes);
+    jt_i_.reserve(Eigen::VectorXi::Constant(jt_i_.cols(), 1));
+  }
+
+  if (num_lm > 0) {
+    j_l_.reserve(j_l_sizes);
+  }
+
   for (Pose& pose : poses_) {
     if (pose.is_active) {
       // sort the measurements by id so the sparse insert is O(1)
@@ -1592,11 +1644,10 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
         const ProjectionResidual& res = proj_residuals_[id];
 
         j_l_.insert( res.residual_id, lm.opt_id ) = res.dz_dlm;
-        jt_l_.insert( lm.opt_id, res.residual_id ) =
-            res.dz_dlm.transpose() * res.weight;
       }
     }
   }
+
   PrintTimer  (_j_insertion_landmarks);
   PrintTimer(_j_insertion_);
 }

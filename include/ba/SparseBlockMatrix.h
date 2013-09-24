@@ -230,6 +230,57 @@ public:
             return false;
     }
 
+    /////////////////////////////////////////////////////////////////////////////
+    template<typename Lhs, typename ResultType>
+    static void forceTranspose(const Lhs& lhs, ResultType& dest)
+    {
+      // two passes algorithm:
+      //  1 - compute the number of coeffs per dest inner vector
+      //  2 - do the actual copy/eval
+      // Since each coeff of the rhs has to be evaluated twice, let's evaluate it if needed
+      typedef typename internal::nested<Lhs,2>::type OtherCopy;
+      typedef typename internal::remove_all<Lhs>::type _OtherCopy;
+      typedef typename ResultType::Index Index;
+      OtherCopy otherCopy(lhs.derived());
+
+      dest.resize(lhs.cols(),lhs.rows());
+      // SparseMatrix dest();
+      Eigen::Map<Eigen::Matrix<Index, Eigen::Dynamic, 1> > (
+            dest.m_outerIndex,dest.outerSize()).setZero();
+
+      // pass 1
+      // FIXME the above copy could be merged with that pass
+      for (Index j=0; j<otherCopy.outerSize(); ++j)
+        for (typename _OtherCopy::InnerIterator it(otherCopy, j); it; ++it)
+          ++dest.m_outerIndex[it.index()];
+
+      // prefix sum
+      Index count = 0;
+      VectorXi positions(dest.outerSize());
+      for (Index j=0; j<dest.outerSize(); ++j)
+      {
+        Index tmp = dest.m_outerIndex[j];
+        dest.m_outerIndex[j] = count;
+        positions[j] = count;
+        count += tmp;
+      }
+      dest.m_outerIndex[dest.outerSize()] = count;
+      // alloc
+      dest.m_data.resize(count);
+      // pass 2
+      for (Index j=0; j<otherCopy.outerSize(); ++j)
+      {
+        for (typename _OtherCopy::InnerIterator it(otherCopy, j); it; ++it)
+        {
+          Index pos = positions[it.index()]++;
+          dest.m_data.index(pos) = j;
+          dest.m_data.value(pos) = it.value().transpose();
+        }
+      }
+      // this->swap(dest);
+    }
+
+
     inline Eigen::MatrixXd GetSparsityStructure()
     {
         Eigen::MatrixXd sparsity(rows(), cols());
@@ -942,6 +993,7 @@ protected:
         std::ptrdiff_t innerNNZ = m_innerNonZeros[outer];
         if(innerNNZ>=room)
         {
+            std::cout << "Reserving memory on insert." << std::endl;
             // this inner vector is full, we need to reallocate the whole buffer :(
             reserve(SingletonVector(outer,std::max<std::ptrdiff_t>(2,innerNNZ)));
         }
@@ -950,7 +1002,7 @@ protected:
         Index p = startId + m_innerNonZeros[outer];
         while ( (p > startId) && (m_data.index(p-1) > inner) )
         {
-            std::cout << "shifting values on insert" << std::endl;
+            std::cout << "shifting values on insert." << std::endl;
             m_data.index(p) = m_data.index(p-1);
             m_data.value(p) = m_data.value(p-1);
             --p;

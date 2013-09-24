@@ -15,12 +15,17 @@ namespace Eigen
 ///////////////////////////////////////////////////////////////////////////////
 namespace ba
 {
+// #define ENABLE_TIMING
+
 #ifdef ENABLE_TESTING
 #define TEST(x)  assert(x)
 #else
 #define TEST(x)
 #endif
 
+#define ForceStartTimer(x) double x = ba::Tic()
+#define ForcePrintTimer(x) std::cout << ba::Toc(x) << " seconds -> " <<  \
+                                        #x << std::endl
 #ifdef ENABLE_TIMING
 #define StartTimer(x) double x = ba::Tic()
 #define PrintTimer(x) std::cout << ba::Toc(x) << " seconds -> " <<  \

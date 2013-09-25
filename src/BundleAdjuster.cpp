@@ -762,12 +762,12 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     // this array is used to calculate the robust norm
     errors_.push_back(res.residual.squaredNorm());
 
-    const Eigen::Matrix<Scalar,2,4> dTdP_s = cam.dTransfer3D_dP(
+    const Eigen::Matrix<Scalar,2,4> dt_dp_s = cam.dTransfer3D_dP(
           t_sw_m*t_ws_r, lm.x_s.template head<3>(),lm.x_s(3));
 
     // Landmark Jacobian
     if (lm.is_active) {
-      res.dz_dlm = -dTdP_s.template block<2,kLmDim>( 0, kLmDim == 3 ? 0 : 3 );
+      res.dz_dlm = -dt_dp_s.template block<2,kLmDim>( 0, kLmDim == 3 ? 0 : 3 );
     }
 
     // if the measurement and reference poses are the same, the jacobian is zero

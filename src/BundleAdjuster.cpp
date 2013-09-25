@@ -261,6 +261,11 @@ template< typename Scalar,int LmSize, int PoseSize, int CalibSize >
 void BundleAdjuster<Scalar,LmSize,PoseSize,CalibSize>::Solve(
     const unsigned int uMaxIter)
 {
+  if( proj_residuals_.empty() && binary_residuals_.empty() &&
+      unary_residuals_.empty() && inertial_residuals_.empty()) {
+    return;
+  }
+
   for (unsigned int kk = 0 ; kk < uMaxIter ; ++kk) {
     StartTimer(_BuildProblem_);
     BuildProblem();

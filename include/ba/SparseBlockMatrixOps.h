@@ -245,112 +245,130 @@ namespace Eigen {
 
 
   //////////////////////////////////////////////////////////////////////////////////////////
-  template<typename Matrix>
-  static void SparseBlockAdd(const Matrix& lhs, const Matrix& rhs, Matrix& res, const int nRhsCoef = 1 )
+  template<typename Lhs, typename Rhs, int block_y = 0, int block_x = 0>
+  static void SparseBlockAdd(const Lhs& lhs, const Rhs& rhs, Lhs& res, const int nRhsCoef = 1 )
   {
-    // cannot add in-place.
-    assert(&lhs!=&res && &rhs != &res);
+      // cannot add in-place.
+      assert(&lhs!=&res && &rhs != &res);
 
-    const typename Matrix::Scalar zero = Matrix::Scalar::Zero();
-    // return sparse_sparse_product_with_pruning_impl2(lhs,rhs,res);
-    typedef typename Matrix::Scalar Scalar;
-    typedef typename Matrix::Index Index;
+      const typename Lhs::Scalar zero = Lhs::Scalar::Zero();
+      // return sparse_sparse_product_with_pruning_impl2(lhs,rhs,res);
+      typedef typename Rhs::Scalar RhsBlockType;
+      typedef typename Lhs::Scalar BlockType;
+      typedef typename Lhs::Index Index;
 
-    // make sure to call innerSize/outerSize since we fake the storage order.
-    Index rows = lhs.innerSize();
-    Index cols = lhs.outerSize();
-    //int size = lhs.outerSize();
-    eigen_assert(lhs.innerSize() == rhs.innerSize() && lhs.outerSize() == rhs.outerSize());
+      // make sure to call innerSize/outerSize since we fake the storage order.
+      Index rows = lhs.innerSize();
+      Index cols = lhs.outerSize();
+      //int size = lhs.outerSize();
+      eigen_assert(lhs.innerSize() == rhs.innerSize() && lhs.outerSize() == rhs.outerSize());
 
-    // allocate a temporary buffer
-    Eigen::internal::BlockAmbiVector<Scalar,Index> tempVector(rows,zero);
+      // allocate a temporary buffer
+      Eigen::internal::BlockAmbiVector<BlockType,Index> tempVector(rows,zero);
 
-    Index estimated_nnz_prod = lhs.nonZeros() + rhs.nonZeros();
+      Index estimated_nnz_prod = lhs.nonZeros() + rhs.nonZeros();
 
-    // mimics a resizeByInnerOuter:
-    res.resize(rows, cols);
+      // mimics a resizeByInnerOuter:
+      res.resize(rows, cols);
 
-    res.reserve(estimated_nnz_prod);
-    double ratioColRes = double(estimated_nnz_prod)/double(lhs.rows()*rhs.cols());
-    for (Index j=0; j<cols; ++j)
-    {
-      tempVector.init(ratioColRes);
-      tempVector.setZero();
-      for (typename Matrix::InnerIterator rhsIt(rhs, j); rhsIt; ++rhsIt)
+      res.reserve(estimated_nnz_prod);
+      double ratioColRes = double(estimated_nnz_prod)/double(lhs.rows()*rhs.cols());
+      for (Index j=0; j<cols; ++j)
       {
-        tempVector.coeffRef(rhsIt.index()).noalias() += rhsIt.value()*nRhsCoef;
+          tempVector.init(ratioColRes);
+          tempVector.setZero();
+          for (typename Rhs::InnerIterator rhsIt(rhs, j); rhsIt; ++rhsIt)
+          {
+              // tempVector.coeffRef(rhsIt.index()).noalias() += rhsIt.value()*nRhsCoef;
+            tempVector.coeffRef(rhsIt.index()).
+                template block<
+                RhsBlockType::RowsAtCompileTime, RhsBlockType::ColsAtCompileTime>(
+                  block_y,block_x).noalias() +=
+                rhsIt.value()*(double)nRhsCoef;
+          }
+
+          tempVector.restart();
+
+          for (typename Lhs::InnerIterator lhsIt(lhs, j); lhsIt; ++lhsIt)
+          {
+              tempVector.coeffRef(lhsIt.index()).noalias() += lhsIt.value();
+          }
+
+          res.startVec(j);
+          for (typename Eigen::internal::BlockAmbiVector<BlockType,Index>::Iterator it(tempVector,zero); it; ++it)
+              res.insertBackByOuterInner(j,it.index()) = it.value();
       }
-
-      tempVector.restart();
-
-      for (typename Matrix::InnerIterator lhsIt(lhs, j); lhsIt; ++lhsIt)
-      {
-        tempVector.coeffRef(lhsIt.index()).noalias() += lhsIt.value();
-      }
-
-      res.startVec(j);
-      for (typename Eigen::internal::BlockAmbiVector<Scalar,Index>::Iterator it(tempVector,zero); it; ++it)
-        res.insertBackByOuterInner(j,it.index()) = it.value();
-    }
-    res.finalize();
+      res.finalize();
   }
 
   //////////////////////////////////////////////////////////////////////////////////////////
-  template<typename Matrix, typename ResultType>
-  static void SparseBlockAddDenseResult(const Matrix& lhs, const Matrix& rhs, ResultType const & resMat, const int nRhsCoef = 1 )
+  template<typename Lhs, typename Rhs, typename Res,
+           int block_y = 0, int block_x = 0>
+  static void SparseBlockAddDenseResult(const Lhs& lhs, const Rhs& rhs,
+                                        Res const & resMat, const int nRhsCoef = 1 )
   {
-    // this is a little hack as per (http://eigen.tuxfamily.org/dox/TopicFunctionTakingEigenTypes.html) to
-    // enable passing in a block expression as res. We pass in a const reference, then cast the const-ness
-    // away to enable writing to it
-    ResultType& res = const_cast< ResultType& >(resMat);
+      // this is a little hack as per (http://eigen.tuxfamily.org/dox/TopicFunctionTakingEigenTypes.html) to
+      // enable passing in a block expression as res. We pass in a const reference, then cast the const-ness
+      // away to enable writing to it
+      Res& res = const_cast<Res&>(resMat);
 
-    const typename Matrix::Scalar zero = Matrix::Scalar::Zero();
-    // return sparse_sparse_product_with_pruning_impl2(lhs,rhs,res);
-    typedef typename Matrix::Scalar BlockType;
-    typedef typename Matrix::Index Index;
+      const typename Lhs::Scalar zero = Lhs::Scalar::Zero();
+      // return sparse_sparse_product_with_pruning_impl2(lhs,rhs,res);
+      typedef typename Lhs::Scalar BlockType;
+      typedef typename Rhs::Scalar RhsBlockType;
+      typedef typename Lhs::Index Index;
 
-    // make sure to call innerSize/outerSize since we fake the storage order.
-    Index rows = lhs.innerSize();
-    Index cols = lhs.outerSize();
-    //int size = lhs.outerSize();
-    eigen_assert(lhs.innerSize() == rhs.innerSize() && lhs.outerSize() == rhs.outerSize());
+      // make sure to call innerSize/outerSize since we fake the storage order.
+      Index rows = lhs.innerSize();
+      Index cols = lhs.outerSize();
+      //int size = lhs.outerSize();
+      eigen_assert(lhs.innerSize() == rhs.innerSize() && lhs.outerSize() == rhs.outerSize());
 
-    // reset the output
-    res.setZero();
-    for (Index j=0; j<cols; ++j)
-    {
-      for (typename Matrix::InnerIterator rhsIt(rhs, j); rhsIt; ++rhsIt)
+      // reset the output
+      res.setZero();
+      for (Index j=0; j<cols; ++j)
       {
-        res.template block<BlockType::RowsAtCompileTime,BlockType::ColsAtCompileTime>
-            ( rhsIt.index()*BlockType::RowsAtCompileTime, j*BlockType::ColsAtCompileTime ).noalias() += rhsIt.value()*nRhsCoef;
-      }
+          for (typename Rhs::InnerIterator rhsIt(rhs, j); rhsIt; ++rhsIt)
+          {
+//              res.template block<BlockType::RowsAtCompileTime,BlockType::ColsAtCompileTime>
+//                      ( rhsIt.index()*BlockType::RowsAtCompileTime, j*BlockType::ColsAtCompileTime ).noalias() += rhsIt.value()*nRhsCoef;
+            res.template block<
+                RhsBlockType::RowsAtCompileTime, RhsBlockType::ColsAtCompileTime>
+                ( rhsIt.index()*BlockType::RowsAtCompileTime + block_y,
+                  j*BlockType::ColsAtCompileTime + block_y ).noalias() +=
+                rhsIt.value()*(double)nRhsCoef;
+          }
 
-      for (typename Matrix::InnerIterator lhsIt(lhs, j); lhsIt; ++lhsIt)
-      {
-        res.template block<BlockType::RowsAtCompileTime,BlockType::ColsAtCompileTime>
-            ( lhsIt.index()*BlockType::RowsAtCompileTime, j*BlockType::ColsAtCompileTime ) += lhsIt.value();
+          for (typename Lhs::InnerIterator lhsIt(lhs, j); lhsIt; ++lhsIt)
+          {
+              res.template block<BlockType::RowsAtCompileTime,BlockType::ColsAtCompileTime>
+                      ( lhsIt.index()*BlockType::RowsAtCompileTime, j*BlockType::ColsAtCompileTime ) += lhsIt.value();
+          }
       }
-    }
   }
 
   //////////////////////////////////////////////////////////////////////////////////////////
-  template<typename Lhs>
-  static inline void SparseBlockSubtract(const Lhs& lhs, const Lhs& rhs, Lhs& res)
+  template<typename Lhs, typename Rhs, int block_y = 0, int block_x = 0>
+  static inline void SparseBlockSubtract(const Lhs& lhs, const Rhs& rhs,
+                                         Lhs& res)
   {
-    SparseBlockAdd(lhs,rhs,res,-1);
+    SparseBlockAdd<Lhs, Rhs, -1, block_y, block_x>(lhs,rhs,res);
   }
 
   //////////////////////////////////////////////////////////////////////////////////////////
-  template<typename Matrix, typename ResultType>
-  static void SparseBlockSubtractDenseResult(const Matrix& lhs, const Matrix& rhs, ResultType const & res)
+  template<typename Lhs, typename Rhs, typename Res,
+           int block_y = 0, int block_x = 0>
+  static void SparseBlockSubtractDenseResult(const Lhs& lhs, const Rhs& rhs, Res const & res)
   {
-    SparseBlockAddDenseResult(lhs,rhs,res,-1);
+      SparseBlockAddDenseResult<Lhs, Rhs, Res, block_y, block_x>(lhs,rhs,res,-1);
   }
+
 
   //////////////////////////////////////////////////////////////////////////////////////////
   /// UNOPTIMIZED -- USED FOR TESTING ONLY
   template<typename SparseMatrix, typename DenseMatrix>
-  static void LoadSparseFromDense(const DenseMatrix& dense, SparseMatrix& sparse)
+  static void LoadSparseFromDense(const DenseMatrix& dense,
+                                  SparseMatrix& sparse)
   {
     typedef typename SparseMatrix::Scalar BlockType;
     const int _BlockRows = BlockType::RowsAtCompileTime;

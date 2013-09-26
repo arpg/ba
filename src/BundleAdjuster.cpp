@@ -635,7 +635,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     VectorXt deltaCalib;
     if (kCalibDim > 0 && num_pose_params > 0) {
       deltaCalib = delta_p.template tail(kCalibDim);
-      std::cout << "Delta calib: " << deltaCalib.transpose() << std::endl;
+      // std::cout << "Delta calib: " << deltaCalib.transpose() << std::endl;
     }
 
     ApplyUpdate(delta_p, delta_l, deltaCalib, false);
@@ -651,8 +651,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     //             " and Epp: " << binary_error_ << std::endl;
 
     if (dPostError > dPrevError) {
-      std::cout << "Error increasing during optimization, rolling back .."<<
-                  std::endl;
+      // std::cout << "Error increasing during optimization, rolling back .."<<
+      //             std::endl;
       ApplyUpdate(delta_p, delta_l, deltaCalib, true);
       break;
     }

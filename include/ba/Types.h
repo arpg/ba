@@ -308,8 +308,8 @@ struct ImuResidualT
       pdy_dy->template block<3,3>(7,7) =
           Eigen::Matrix<Scalar,3,3>::Identity();
 
-      TEST( _Test_IntegratePose_ExpJacobian(k,dt) );
-      TEST( _Test_IntegratePose_StateKJacobian(pose, k, dt, *pdy_dk));
+      BA_TEST( _Test_IntegratePose_ExpJacobian(k,dt) );
+      BA_TEST( _Test_IntegratePose_StateKJacobian(pose, k, dt, *pdy_dk));
     }
     return y;
   }
@@ -395,9 +395,9 @@ struct ImuResidualT
       const Eigen::Matrix<Scalar,9,1> k1 =
           GetPoseDerivative(pose,g,z_start,z_end,bg,ba,0,&dk_db,&dk_dy);
 
-      TEST( _Test_IntegrateImu_KBiasJacobian( pose, z_start, z_end,
+      BA_TEST( _Test_IntegrateImu_KBiasJacobian( pose, z_start, z_end,
                                                 bg, ba, g, dk_db ) );
-      TEST( _Test_IntegrateImu_KStateJacobian( pose, z_start, z_end, bg,
+      BA_TEST( _Test_IntegrateImu_KStateJacobian( pose, z_start, z_end, bg,
                                                  ba, g, dk_dy ) );
 
       // total derivative of k1 wrt b: dk1/db = dG/db + dG/dy*dy/db
@@ -411,7 +411,7 @@ struct ImuResidualT
       dy_db = dy_dk*dk1_db;
       dy_dy0 = dy_dy + dy_dk*dk1_dy; // this is dy1_dy0
 
-      TEST( _Test_IntegrateImu_StateStateJacobian( pose, k1, dy_dy, dt ) );
+      BA_TEST( _Test_IntegrateImu_StateStateJacobian( pose, k1, dy_dy, dt ) );
 
       const Eigen::Matrix<Scalar,9,1> k2 =
           GetPoseDerivative(y1,g,z_start,z_end,bg,ba,dt/2,&dk_db,&dk_dy);
@@ -520,9 +520,9 @@ struct ImuResidualT
           const ImuPose y0 = pose;
           pose = IntegrateImu(pose,*prev_meas,meas,bg,ba,g,&dy_db,&dy_dy);
 
-          TEST( _Test_IntegrateImu_BiasJacobian( y0,*prev_meas,meas,
+          BA_TEST( _Test_IntegrateImu_BiasJacobian( y0,*prev_meas,meas,
                                                    bg,ba,g,dy_db ) );
-          TEST( _Test_IntegrateImu_StateJacobian( y0,*prev_meas,meas,bg,
+          BA_TEST( _Test_IntegrateImu_StateJacobian( y0,*prev_meas,meas,bg,
                                                     ba,g,dy_dy ) );
 
           // now push forward the jacobian. This calculates the total derivative
@@ -550,12 +550,12 @@ struct ImuResidualT
     }
 
     if (dpose_db != 0) {
-      TEST(_Test_IntegrateResidual_BiasJacobian(orig_pose, measurements, bg,
+      BA_TEST(_Test_IntegrateResidual_BiasJacobian(orig_pose, measurements, bg,
                                                   ba, g, *dpose_db ) );
     }
 
     if (dpose_dpose != 0) {
-      TEST(_Test_IntegrateResidual_StateJacobian( orig_pose, measurements, bg,
+      BA_TEST(_Test_IntegrateResidual_StateJacobian( orig_pose, measurements, bg,
                                                     ba, g, *dpose_dpose ) );
     }
 

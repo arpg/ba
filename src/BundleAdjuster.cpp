@@ -95,8 +95,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
                      poses_[ii].t_vs.matrix() << std::endl;
       }
 
-      //std::cout << "Pose delta for " << ii << " is " <<
-      //           p_update.transpose() << std::endl;
+      // std::cout << "Pose delta for " << ii << " is " <<
+      //             (-delta_p.template block<kPoseDim,1>(p_offset,0)*
+      //              coef).transpose() << std::endl;
     } else {
       // std::cout << " Pose " << ii << " is inactive." << std::endl;
       if (kCalibDim > 2 && inertial_residuals_.size() > 0) {
@@ -314,10 +315,15 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       Eigen::SparseBlockProduct(jt_pr, j_pr_, jt_pr_j_pr, true);
 
       auto temp_u = u;
+      // this is a block add, as jt_pr_j_pr does not have the same block
+      // dimensions as u, due to efficiency
       Eigen::template SparseBlockAdd(temp_u, jt_pr_j_pr, u);
 
       VectorXt jt_pr_r_pr(num_pose_params);
-      Eigen::SparseBlockVectorProductDenseResult(jt_pr, r_pr_, jt_pr_r_pr);
+      // this is a strided multiplication, as jt_pr_r_pr might have a larger
+      // pose dimension than jt_pr (for efficiency)
+      Eigen::SparseBlockVectorProductDenseResult(jt_pr, r_pr_, jt_pr_r_pr,
+                                                 -1, kPoseDim);
       bp += jt_pr_r_pr;
     }
 
@@ -337,7 +343,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
     // add the contribution from the unary terms if any
     if (unary_residuals_.size() > 0) {
-      BlockMat< Eigen::Matrix<Scalar, kPrPoseDim, kPrPoseDim> > jt_u_j_u(
+      BlockMat< Eigen::Matrix<Scalar, kPoseDim, kPoseDim> > jt_u_j_u(
             num_poses, num_poses);
 
       Eigen::SparseBlockProduct(jt_u_, j_u_, jt_u_j_u);
@@ -370,7 +376,6 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       bl.setZero();
       StartTimer(_schur_complement_v);
       for (int ii = 0; ii < landmarks_.size() ; ++ii) {
-        Landmark lm = landmarks_[ii];
         Eigen::Matrix<Scalar,kLmDim,kLmDim> jtj;
         Eigen::Matrix<Scalar,kLmDim,1> jtr;
         jtj.setZero();
@@ -383,7 +388,13 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
                     res.residual_id*ProjectionResidual::kResSize, 0) *
                     res.weight);
         }
-        bl.template block<kLmDim,1>(landmarks_[ii].opt_id, 0) = jtr;
+        bl.template block<kLmDim,1>(landmarks_[ii].opt_id*kLmDim, 0) = jtr;
+        if (kLmDim == 1) {
+          if (fabs(jtj(0,0)) < 1e-6) {
+            jtj(0,0) += 1e-6;
+          }
+        }
+
         vi.insert(landmarks_[ii].opt_id, landmarks_[ii].opt_id) = jtj.inverse();
       }
 
@@ -449,23 +460,17 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       //s.template block(0, 0, num_pose_params, num_pose_params ) =
       //    du - djt_pr_j_l_vi_jt_l_j_pr;
 
-      // std::cout << "Eigen::SparseBlockSubtractDenseResult(U, WV_invWt, "
-      // "S.template block(0, 0, uNumPoseParams, uNumPoseParams )) took  " <<
-      // Toc(dSchurTime) << " seconds."  << std::endl;
 
       // now form the rhs for the pose equations
-      // schur_time = Tic();
       VectorXt jt_pr_j_l_vi_bll(num_pose_params);
       Eigen::SparseBlockVectorProductDenseResult(
-            jt_pr_j_l_vi, bl, jt_pr_j_l_vi_bll);
-      // std::cout << "Eigen::SparseBlockVectorProductDenseResult(Wp_V_inv, bl,
-      // "WV_inv_bl) took  " << Toc(dSchurTime) << " seconds."  << std::endl;
+            jt_pr_j_l_vi, bl, jt_pr_j_l_vi_bll, -1, kPoseDim);
 
       rhs_p.template head(num_pose_params) = bp - jt_pr_j_l_vi_bll;
 
-      // std::cout << "Dense S matrix is " << S.format(cleanFmt) << std::endl;
-      // std::cout << "Dense rhs matrix is " <<
-      // rhs_p.transpose().format(cleanFmt) << std::endl;
+      // std::cout << "Dense S matrix is " << s.format(kCleanFmt) << std::endl;
+       // std::cout << "Dense rhs matrix is " <<
+       // rhs_p.transpose().format(kCleanFmt) << std::endl;
 
     } else {
       Eigen::LoadDenseFromSparse(
@@ -592,11 +597,11 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
     // now we have to solve for the pose constraints
     StartTimer(_solve_);
-    Eigen::SimplicialLDLT<Eigen::SparseMatrix<Scalar>, Eigen::Upper> solver;
-    Eigen::SparseMatrix<Scalar> s_sparse = s.sparseView();
-    solver.compute(s_sparse);
-    // VectorXt delta_p = num_poses == 0 ? VectorXt() : s.ldlt().solve(rhs_p);
-    VectorXt delta_p = num_poses == 0 ? VectorXt() : solver.solve(rhs_p);
+    // Eigen::SimplicialLDLT<Eigen::SparseMatrix<Scalar>, Eigen::Upper> solver;
+    // Eigen::SparseMatrix<Scalar> s_sparse = s.sparseView();
+    // solver.compute(s_sparse);
+    VectorXt delta_p = num_poses == 0 ? VectorXt() : s.ldlt().solve(rhs_p);
+    //VectorXt delta_p = num_poses == 0 ? VectorXt() : solver.solve(rhs_p);
     PrintTimer(_solve_);
 
     StartTimer(_back_substitution_);
@@ -605,10 +610,13 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       delta_l.resize(num_lm*kLmDim);
       VectorXt jt_l_j_pr_delta_p;
       jt_l_j_pr_delta_p.resize(num_lm*kLmDim );
+      // this is the strided multiplication as delta_p has all pose parameters,
+      // however jt_l_j_pr_delta_p is only with respect to the 6 pose parameters
       Eigen::SparseBlockVectorProductDenseResult(
             jt_l_j_pr,
             delta_p.head(num_pose_params),
-            jt_l_j_pr_delta_p);
+            jt_l_j_pr_delta_p,
+            kPoseDim, -1);
 
       VectorXt rhs_l;
       rhs_l.resize(num_lm*kLmDim );
@@ -617,6 +625,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       for (size_t ii = 0 ; ii < num_lm ; ++ii) {
         delta_l.template block<kLmDim,1>( ii*kLmDim, 0 ).noalias() =
             vi.coeff(ii,ii)*rhs_l.template block<kLmDim,1>(ii*kLmDim,0);
+        //std::cout << "Lm " << ii << " delta is " <<
+        //      delta_l.template block<kLmDim,1>(ii*kLmDim, 0).transpose() <<
+        //            std::endl;
       }
     }
     PrintTimer(_back_substitution_);
@@ -640,8 +651,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     //             " and Epp: " << binary_error_ << std::endl;
 
     if (dPostError > dPrevError) {
-      //std::cout << "Error increasing during optimization, rolling back .."<<
-      //            std::endl;
+      std::cout << "Error increasing during optimization, rolling back .."<<
+                  std::endl;
       ApplyUpdate(delta_p, delta_l, deltaCalib, true);
       break;
     }

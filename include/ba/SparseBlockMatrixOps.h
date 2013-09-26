@@ -5,13 +5,23 @@ namespace Eigen {
 
   //////////////////////////////////////////////////////////////////////////////////////////
   template<typename Lhs, typename Rhs, typename ResultType>
-  static void SparseBlockVectorProductDenseResult(const Lhs& lhs, const Rhs& rhs, ResultType& res)
+  static void SparseBlockVectorProductDenseResult(
+      const Lhs& lhs, const Rhs& rhs, ResultType& res, int rhs_stride = -1,
+      int res_stride = -1)
   {
     // return sparse_sparse_product_with_pruning_impl2(lhs,rhs,res);
     typedef typename ResultType::Scalar ResultScalar;
     typedef typename Lhs::Scalar LhsScalar;
     typedef typename Rhs::Scalar RhsScalar;
     typedef typename Rhs::Index Index;
+
+    if (res_stride == -1) {
+      res_stride = LhsScalar::RowsAtCompileTime;
+    }
+
+    if (rhs_stride == -1) {
+      rhs_stride = LhsScalar::ColsAtCompileTime;
+    }
 
     // make sure to call innerSize/outerSize since we fake the storage order.
     const Index lhsCols = lhs.outerSize();
@@ -24,17 +34,18 @@ namespace Eigen {
       for (typename Lhs::InnerIterator lhsIt(lhs, ii); lhsIt; ++lhsIt)
       {
         res.template block<LhsScalar::RowsAtCompileTime,1>(
-              LhsScalar::RowsAtCompileTime*lhsIt.index(),0).noalias() +=
+              res_stride*lhsIt.index(),0).noalias() +=
             lhsIt.value() *
             rhs.template block<LhsScalar::ColsAtCompileTime,1>(
-              LhsScalar::ColsAtCompileTime*ii,0);
+              rhs_stride*ii,0);
       }
     }
   }
 
   //////////////////////////////////////////////////////////////////////////////////////////
   template<typename Lhs, typename Rhs, typename ResultType>
-  static void SparseBlockTransposeVectorProductDenseResultAtb(const Lhs& lhs, const Rhs& rhs, ResultType& res)
+  static void SparseBlockTransposeVectorProductDenseResultAtb(
+      const Lhs& lhs, const Rhs& rhs, ResultType& res, int res_stride = -1)
   {
     // return sparse_sparse_product_with_pruning_impl2(lhs,rhs,res);
     typedef typename ResultType::Scalar ResultScalar;
@@ -42,6 +53,9 @@ namespace Eigen {
     typedef typename Rhs::Scalar RhsScalar;
     typedef typename Rhs::Index Index;
 
+    if (res_stride == -1) {
+      res_stride = LhsScalar::RowsAtCompileTime;
+    }
     // make sure to call innerSize/outerSize since we fake the storage order.
     const Index lhsCols = lhs.outerSize();
     eigen_assert(lhs.outerSize()*LhsScalar::ColsAtCompileTime == rhs.rows());
@@ -52,8 +66,7 @@ namespace Eigen {
     {
       for (typename Lhs::InnerIterator lhsIt(lhs, ii); lhsIt; ++lhsIt){
         res.template block<LhsScalar::ColsAtCompileTime,1>(
-              LhsScalar::ColsAtCompileTime*ii, 0).noalias() +=
-            lhsIt.value().transpose() *
+          res_stride*ii, 0).noalias() += lhsIt.value().transpose() *
             rhs.template block<LhsScalar::RowsAtCompileTime,1>(
               LhsScalar::RowsAtCompileTime*lhsIt.index(),0);
       }

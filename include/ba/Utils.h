@@ -15,12 +15,12 @@ namespace Eigen
 ///////////////////////////////////////////////////////////////////////////////
 namespace ba
 {
-// #define ENABLE_TIMING
+#define ENABLE_TIMING
 
 #ifdef ENABLE_TESTING
-#define TEST(x)  assert(x)
+#define BA_TEST(x)  assert(x)
 #else
-#define TEST(x)
+#define BA_TEST(x)
 #endif
 
 #define ForceStartTimer(x) double x = ba::Tic()

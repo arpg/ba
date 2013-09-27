@@ -1166,36 +1166,47 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
       //{
       //  Scalar dEps = 1e-9;
-      //  Eigen::Matrix<Scalar,6,6> drTvs_dX1_dF;
+      //  Eigen::Matrix<Scalar,6,6> drtvs_dx1_fd;
       //  for(int ii = 0 ; ii < 6 ; ii++){
       //    Vector6t eps = Vector6t::Zero();
       //    eps[ii] = dEps;
       //    Vector6t resPlus =
-      //        SE3t::log(SE3t::exp(-eps)*pose1.Tvs * pose2.Tvs.inverse());
+      //        SE3t::log(SE3t::exp(-eps)*pose1.t_vs * pose2.t_vs.inverse());
       //    eps[ii] = -dEps;
       //    Vector6t resMinus =
-      //        SE3t::log(SE3t::exp(-eps)*pose1.Tvs * pose2.Tvs.inverse());
-      //    drTvs_dX1_dF.col(ii) = (resPlus-resMinus)/(2*dEps);
+      //        SE3t::log(SE3t::exp(-eps)*pose1.t_vs * pose2.t_vs.inverse());
+      //    drtvs_dx1_fd.col(ii) = (resPlus-resMinus)/(2*dEps);
       //  }
-      //  std::cout << "drTvs_dX1 = [" << res.dZ_dX1.template block<6,6>(15,15).format(cleanFmt) << "]" << std::endl;
-      //  std::cout << "drTvs_dX1_dF = [" << drTvs_dX1_dF.format(cleanFmt) << "]" << std::endl;
-      //  std::cout << "drTvs_dX1 - drTvs_dX1_dF = [" << (res.dZ_dX1.template block<6,6>(15,15)- drTvs_dX1_dF).format(cleanFmt) << "]" << std::endl;
+      //  std::cout << "dz_dx1 = [" <<
+      //               res.dz_dx1.template block<6,6>(15,15).format(kCleanFmt)<<
+      //               "]" << std::endl;
+      //  std::cout << "drtvs_dx1_fd = [" << drtvs_dx1_fd.format(kCleanFmt) <<
+      //               "]" << std::endl;
+      //  std::cout << "dz_dx1 - drtvs_dx1_fd = [" <<
+      //               (res.dz_dx1.template block<6,6>(15,15)- drtvs_dx1_fd).
+      //               format(kCleanFmt) << "]" << std::endl;
       //}
       //{
       //  Scalar dEps = 1e-9;
-      //  Eigen::Matrix<Scalar,6,6> drTvs_dX2_dF;
+      //  Eigen::Matrix<Scalar,6,6> drtvs_dx2_df;
       //  for(int ii = 0 ; ii < 6 ; ii++){
       //    Vector6t eps = Vector6t::Zero();
       //    eps[ii] = dEps;
-      //    Vector6t resPlus = SE3t::log(pose1.Tvs * (SE3t::exp(-eps)*pose2.Tvs).inverse());
+      //    Vector6t resPlus =
+      //        SE3t::log(pose1.t_vs * (SE3t::exp(-eps)*pose2.t_vs).inverse());
       //    eps[ii] = -dEps;
-      //    //Vector6t resMinus = SE3t::log(SE3t::exp(-eps)*pose1.Tvs * pose2.Tvs.inverse());
-      //    Vector6t resMinus = SE3t::log(pose1.Tvs * (SE3t::exp(-eps)*pose2.Tvs).inverse());
-      //    drTvs_dX2_dF.col(ii) = (resPlus-resMinus)/(2*dEps);
+      //    Vector6t resMinus =
+      //        SE3t::log(pose1.t_vs * (SE3t::exp(-eps)*pose2.t_vs).inverse());
+      //    drtvs_dx2_df.col(ii) = (resPlus-resMinus)/(2*dEps);
       //  }
-      //  std::cout << "drTvs_dX2 = [" << res.dZ_dX2.template block<6,6>(15,15).format(cleanFmt) << "]" << std::endl;
-      //  std::cout << "drTvs_dX2_dF = [" << drTvs_dX2_dF.format(cleanFmt) << "]" << std::endl;
-      //  std::cout << "drTvs_dX2 - drTvs_dX2_dF = [" << (res.dZ_dX2.template block<6,6>(15,15)- drTvs_dX2_dF).format(cleanFmt) << "]" << std::endl;
+      //  std::cout << "dz_dx2 = [" <<
+      //               res.dz_dx2.template block<6,6>(15,15).format(kCleanFmt)<<
+      //                "]" << std::endl;
+      //  std::cout << "drtvs_dx2_df = [" << drtvs_dx2_df.format(kCleanFmt) <<
+      //               "]" << std::endl;
+      //  std::cout << "dz_dx2 - drtvs_dx2_df = [" <<
+      //               (res.dz_dx2.template block<6,6>(15,15)- drtvs_dx2_df).
+      //               format(kCleanFmt) << "]" << std::endl;
       //}
     } else {
       res.dz_dy = res.dz_dx1.template block<ImuResidual::kResSize, 6>(0,0) +
@@ -1432,9 +1443,10 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
 ////////////////////////////////////////////////////////////////////////////////
 template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
-void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::_Test_dImuResidual_dX(const Pose& pose1,
-    const Pose& pose2, const ImuPose& imu_pose, const ImuResidual& res,
-    const Vector3t gravity, const Eigen::Matrix<Scalar, 7, 6>& dse3_dx1,
+bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::_Test_dImuResidual_dX(
+    const Pose& pose1, const Pose& pose2, const ImuPose& imu_pose,
+    const ImuResidual& res, const Vector3t gravity,
+    const Eigen::Matrix<Scalar, 7, 6>& dse3_dx1,
     const Eigen::Matrix<Scalar,10,6>& dt_db)
 {
   const SE3t t_12 = pose1.t_wp.inverse()*imu_pose.t_wp;
@@ -1740,6 +1752,10 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::_Test_dImuResidual_dX(
                (dt_db_-dt_db_fd).format(kCleanFmt) << "] norm = " <<
                (dt_db_-dt_db_fd).norm() << std::endl;
 
+  return((dz_dx1-dz_dx1_fd).norm() < NORM_THRESHOLD &&
+         (res.dz_dg-dz_dg_fd).norm() < NORM_THRESHOLD &&
+         (dz_db-dz_db_fd).norm() < NORM_THRESHOLD &&
+         (dt_db_-dt_db_fd).norm() < NORM_THRESHOLD);
 }
 
 // specializations

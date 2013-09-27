@@ -191,6 +191,7 @@ static bool _Test_dLog_dq(
                "]" << std::endl;
   std::cout << "dlog_dq - dlog_dqf = [" <<
                (dlog- dLog_dq_fd).format(kCleanFmt) << "]" << std::endl;
+  return (dlog- dLog_dq_fd).norm() < NORM_THRESHOLD;
 }
 
 ///////////////////////////////////////////////////////////////////////////////

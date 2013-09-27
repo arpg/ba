@@ -9,7 +9,8 @@
 class LocalParamSe3 : public ceres::LocalParameterization {
  public:
   virtual ~LocalParamSe3() {}
-  virtual bool Plus(const double* x, const double* delta, double* x_plus_delta) const
+  virtual bool Plus(const double* x, const double* delta,
+                    double* x_plus_delta) const
   {
         const Eigen::Map<const Sophus::SE3d> T(x);
         const Eigen::Map<const Eigen::Matrix<double,6,1> > dx(delta);
@@ -24,9 +25,12 @@ class LocalParamSe3 : public ceres::LocalParameterization {
         // Largely zeroes.
         memset(jacobian,0, sizeof(double)*7*6);
 
-        // This jacobian is 7x6 as it is the jacobian of the global variable change (size 7) with respect to the local delta (size 6).
-        // The global variable is structured as [q1 q2 q3 q4 t1 t2 t3] where q is the quaternion and t the translation
-        // the local variable is stctured as [dt1 dt2 dt3 w1 w2 w3] where dt is the delta for translation and w is the angular velocity.
+        // This jacobian is 7x6 as it is the jacobian of the global variable
+        // change (size 7) with respect to the local delta (size 6).
+        // The global variable is structured as [q1 q2 q3 q4 t1 t2 t3] where
+        // q is the quaternion and t the translation
+        // the local variable is stctured as [dt1 dt2 dt3 w1 w2 w3] where dt
+        // is the delta for translation and w is the angular velocity.
         // the jacobian is in ROW MAJOR format
 
         /* Explicit formulation. Needs to be optimized */
@@ -85,7 +89,8 @@ class LocalParamSe3 : public ceres::LocalParameterization {
 class LocalParamSo3 : public ceres::LocalParameterization {
  public:
   virtual ~LocalParamSo3() {}
-  virtual bool Plus(const double* x, const double* delta, double* x_plus_delta) const
+  virtual bool Plus(const double* x, const double* delta,
+                    double* x_plus_delta) const
   {
         const Eigen::Map<const Sophus::SO3d> T(x);
         const Eigen::Map<const Eigen::Matrix<double,3,1> > dx(delta);

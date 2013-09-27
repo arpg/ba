@@ -313,7 +313,7 @@ public:
   const { return landmarks_[id].x_w; }
 
 private:
-  void _Test_dImuResidual_dX(
+  bool _Test_dImuResidual_dX(
       const Pose &pose1, const Pose &pose2,const ImuPose &imu_pose,
       const ImuResidual &res, const Vector3t gravity,
       const Eigen::Matrix<Scalar,7,6>& dse3_dx1,

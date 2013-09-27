@@ -15,7 +15,7 @@ namespace Eigen
 ///////////////////////////////////////////////////////////////////////////////
 namespace ba
 {
-// #define ENABLE_TIMING
+#define ENABLE_TIMING
 
 #ifdef ENABLE_TESTING
 #define BA_TEST(x)  assert(x)
@@ -155,7 +155,42 @@ inline Eigen::Matrix<Scalar,3,4> dLog_dq(const Eigen::Quaternion<Scalar>& q)
             s9,  s8,
             s7 - 2*powi(z,2)*s3*s4+2*powi(z,2)*s2*s5*s6, -(2*z*s2)/powi(w,2)
             ).finished();
+  }    
+}
+
+//////////////////////////////////////////////////////////////////////////////
+template <typename Scalar>
+static bool _Test_dLog_dq(
+     const Eigen::Quaternion<Scalar>& q)
+{
+  Scalar dEps = 1e-9;
+  std::cout << "q:" << q.coeffs().transpose() << std::endl;
+  Eigen::Matrix<Scalar,3,4> dLog_dq_fd;
+  for(int ii = 0 ; ii < 4 ; ii++){
+      Eigen::Matrix<Scalar,4,1> eps;
+      eps.setZero();
+      eps[ii] += dEps;
+      Eigen::Quaternion<Scalar> q_plus = q;
+      q_plus.coeffs() += eps;
+      Sophus::SO3Group<Scalar> so3_plus;
+      memcpy(so3_plus.data(),q_plus.coeffs().data(),sizeof(Scalar)*4);
+      Eigen::Matrix<Scalar,3,1> res_plus = so3_plus.log();
+
+      eps[ii] -= 2*dEps;
+      Eigen::Quaternion<Scalar> q_minus = q;
+      q_minus.coeffs() += eps;
+      Sophus::SO3Group<Scalar> so3_minus;
+      memcpy(so3_minus.data(),q_minus.coeffs().data(),sizeof(Scalar)*4);
+      Eigen::Matrix<Scalar,3,1> res_minus = so3_minus.log();
+
+      dLog_dq_fd.col(ii) = (res_plus-res_minus)/(2*dEps);
   }
+  const auto dlog = dLog_dq(q);
+  std::cout << "dlog_dq = [" << dlog.format(kCleanFmt) << "]" << std::endl;
+  std::cout << "dlog_dqf = [" << dLog_dq_fd.format(kCleanFmt) <<
+               "]" << std::endl;
+  std::cout << "dlog_dq - dlog_dqf = [" <<
+               (dlog- dLog_dq_fd).format(kCleanFmt) << "]" << std::endl;
 }
 
 ///////////////////////////////////////////////////////////////////////////////

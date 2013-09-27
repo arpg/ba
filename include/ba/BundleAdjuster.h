@@ -41,6 +41,7 @@ class BundleAdjuster
   typedef Eigen::Matrix<Scalar,4,1> Vector4t;
   typedef Eigen::Matrix<Scalar,6,1> Vector6t;
   typedef Eigen::Matrix<Scalar,7,1> Vector7t;
+  typedef Eigen::Matrix<Scalar,9,1> Vector9t;
   typedef Eigen::Matrix<Scalar,Eigen::Dynamic,1> VectorXt;
   typedef Eigen::Matrix<Scalar,Eigen::Dynamic,Eigen::Dynamic> MatrixXt;
   typedef Eigen::Matrix<Scalar,3,3> Matrix3t;
@@ -50,7 +51,7 @@ public:
   ////////////////////////////////////////////////////////////////////////////
   BundleAdjuster() :
     imu_(SE3t(),Vector3t::Zero(),Vector3t::Zero(),Vector2t::Zero()),
-    translation_enabled_(false),
+    translation_enabled_(kCalibDim > 15 ? false : true),
     total_tvs_change_(0),
     tvs_trans_prior_(1.0),
     tvs_rot_prior_(1.0)

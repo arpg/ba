@@ -258,7 +258,7 @@ struct ImuResidualT
   Eigen::Matrix<Scalar,kResSize,PoseSize> dz_dx1;
   Eigen::Matrix<Scalar,kResSize,PoseSize> dz_dx2;
   Eigen::Matrix<Scalar,kResSize,6> dz_dy;
-  Eigen::Matrix<Scalar,9,2> dZ_dG;
+  Eigen::Matrix<Scalar,9,2> dz_dg;
   Eigen::Matrix<Scalar,kResSize,6> dz_db;
   Eigen::Matrix<Scalar,kResSize,1> residual;
 

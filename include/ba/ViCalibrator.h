@@ -499,13 +499,13 @@ public:
 
   ceres::Problem::Options prob_options_;
   ceres::Solver::Options  solver_options_;
-  ceres::CauchyLoss imu_loss_func_;
+
   ceres::LossFunctionWrapper loss_func_;
   LocalParamSe3  local_param_se3_;
   LocalParamSo3  local_param_so3_;
-
   ba::InterpolationBufferT<ba::ImuMeasurementT<double>,double> imu_buffer_;
   ba::ImuCalibrationT<double> imu_;
+  ceres::CauchyLoss imu_loss_func_;
   double imu_cauchy_norm_;
   unsigned int num_imu_residuals_;
   bool is_bias_active_;

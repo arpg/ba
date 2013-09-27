@@ -116,9 +116,9 @@ class LocalParamSo3 : public ceres::LocalParameterization {
         const double half_q2 = 0.5*q2;
         const double half_q3 = 0.5*q3;
 
-        const double q1_sq = q1*q1;
-        const double q2_sq = q2*q2;
-        const double q3_sq = q3*q3;
+        // const double q1_sq = q1*q1;
+        // const double q2_sq = q2*q2;
+//        / const double q3_sq = q3*q3;
 
         // d output_quaternion / d update
         jacobian[0] = half_q0;

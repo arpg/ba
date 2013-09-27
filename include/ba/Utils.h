@@ -15,7 +15,7 @@ namespace Eigen
 ///////////////////////////////////////////////////////////////////////////////
 namespace ba
 {
-#define ENABLE_TIMING
+// #define ENABLE_TIMING
 
 #ifdef ENABLE_TESTING
 #define BA_TEST(x)  assert(x)

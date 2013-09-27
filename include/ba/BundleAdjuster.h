@@ -313,6 +313,11 @@ public:
   const { return landmarks_[id].x_w; }
 
 private:
+  void _Test_dImuResidual_dX(
+      const Pose &pose1, const Pose &pose2,const ImuPose &imu_pose,
+      const ImuResidual &res, const Vector3t gravity,
+      const Eigen::Matrix<Scalar,7,6>& dse3_dx1,
+      const Eigen::Matrix<Scalar,10,6>& dt_db);
   void ApplyUpdate(const VectorXt &delta_p,
                    const VectorXt &delta_l,
                    const VectorXt &deltaCalib,
@@ -382,6 +387,7 @@ private:
   std::vector<UnaryResidual> unary_residuals_;
   std::vector<ImuResidual> inertial_residuals_;
   std::vector<Scalar> errors_;
+
 };
 
 static const int NOT_USED = 0;

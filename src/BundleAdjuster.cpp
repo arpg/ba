@@ -831,10 +831,10 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         res.dz_dx_ref.template block<2,1>(0,5) =
             (dt_dp_m_tsw_m_twp.col(1)*x_p[0] - dt_dp_m_tsv_m.col(0)*x_v[1]);
 
-        for (unsigned int ii=3; ii<6; ++ii) {
-          res.dz_dx_ref.template block<2,1>(0,ii) =
-             dt_dp_m_tsw_m_twp * Sophus::SE3Group<Scalar>::generator(ii) * x_v;
-        }
+        // for (unsigned int ii=3; ii<6; ++ii) {
+        //  res.dz_dx_ref.template block<2,1>(0,ii) =
+        //     dt_dp_m_tsw_m_twp * Sophus::SE3Group<Scalar>::generator(ii) * x_v;
+        //}
 
         //Eigen::Matrix<Scalar,2,6> dZ_dPr_fd;
         //for(int ii = 0; ii < 6 ; ii++) {

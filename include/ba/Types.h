@@ -239,6 +239,7 @@ struct ProjectionResidualT
   Eigen::Matrix<Scalar,2,6> dz_dx_ref;
   Eigen::Matrix<Scalar,2,Eigen::Dynamic> dz_dcam_params;
   Eigen::Matrix<Scalar,2,1> residual;
+  Eigen::Matrix<Scalar,2,2> covariance_inv;
 };
 
 template< typename Scalar=double, int ResidualSize = 15, int PoseSize = 15 >

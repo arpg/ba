@@ -21,7 +21,7 @@ using BlockMat = Eigen::SparseBlockMatrix<Scalar>;
 template<typename Scalar=double,int LmSize=1, int PoseSize=6, int CalibSize=8>
 class BundleAdjuster
 {
-  static const unsigned int kPrPoseDim = PoseSize;
+  static const unsigned int kPrPoseDim = 6;
   static const unsigned int kLmDim = LmSize;
   static const unsigned int kPoseDim = PoseSize;
   static const unsigned int kCalibDim = CalibSize;

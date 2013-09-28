@@ -13,11 +13,12 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
   double coef = do_rollback == true ? -1.0 : 1.0;
   // update gravity terms if necessary
   if (inertial_residuals_.size() > 0) {
-    const VectorXt delta_calib = delta_p.template tail(kCalibDim);
+    const VectorXt delta_calib = delta_p.template tail(kCalibDim)*coef;
     if (kCalibDim > 0) {
-      // std::cout << "Gravity delta is " <<
-      // deltaCalib.template block<2,1>(0,0).transpose() <<
-      // " gravity is: " << imu_.g.transpose() << std::endl;
+      imu_.g -= delta_calib.template head<2>();
+      std::cout << "Gravity delta is " <<
+      delta_calib.template head<2>().transpose() << " gravity is: " <<
+      imu_.g.transpose() << std::endl;
     }
 
     if (kCalibDim > 2) {
@@ -742,6 +743,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   proj_error_ = 0;
   for (ProjectionResidual& res : proj_residuals_) {
     // calculate measurement jacobians
+    res.covariance_inv.setZero();
 
     // Tsw = T_cv * T_vw
     Landmark& lm = landmarks_[res.landmark_id];
@@ -775,6 +777,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     // Landmark Jacobian
     if (lm.is_active) {
       res.dz_dlm = -dt_dp_s.template block<2,kLmDim>( 0, kLmDim == 3 ? 0 : 3 );
+      // res.covariance_inv +=
+      //    (res.dz_dlm * 1e-6 * res.dz_dlm.transpose()).inverse();
     }
 
     // if the measurement and reference poses are the same, the jacobian is zero
@@ -806,6 +810,11 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
       res.dz_dx_meas.template block<2,1>(0,5) =
           (dt_dp_m_tsv_m.col(1)*x_p[0] - dt_dp_m_tsv_m.col(0)*x_p[1]);
+
+      // res.covariance_inv +=
+      //    (res.dz_dx_meas * 1e-6 *
+      //     Eigen::Matrix<Scalar,::Constant(value);
+      //     res.dz_dx_meas.transpose()).inverse();
 
       // only need this if we are in inverse depth mode and the poses aren't
       // the same
@@ -933,7 +942,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     for( ProjectionResidual& res : proj_residuals_ ){
       // calculate the huber norm weight for this measurement
       const Scalar e = res.residual.norm();
-      res.weight = e > c_huber ? c_huber/e : 1.0;
+      res.weight *= e > c_huber ? c_huber/e : 1.0;
       proj_error_ += res.residual.norm() * res.weight;
     }
   }

@@ -379,8 +379,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
         jtr.setZero();
         for (const int id : landmarks_[ii].proj_residuals) {
           const ProjectionResidual& res = proj_residuals_[id];
-          jtj += (res.dz_dlm.transpose() * res.dz_dlm) * res.weight;
-          jtr += (res.dz_dlm.transpose() *
+          jtj += (res.dz_dlm.transpose() * /*res.covariance_inv **/ res.dz_dlm) *
+              res.weight;
+          jtr += (res.dz_dlm.transpose() * /*res.covariance_inv **/
                   r_pr_.template block<ProjectionResidual::kResSize,1>(
                     res.residual_id*ProjectionResidual::kResSize, 0) *
                     res.weight);
@@ -777,8 +778,10 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     // Landmark Jacobian
     if (lm.is_active) {
       res.dz_dlm = -dt_dp_s.template block<2,kLmDim>( 0, kLmDim == 3 ? 0 : 3 );
-      // res.covariance_inv +=
-      //    (res.dz_dlm * 1e-6 * res.dz_dlm.transpose()).inverse();
+      res.covariance_inv +=
+          (res.dz_dlm *
+           (Eigen::Matrix<Scalar,kLmDim,1>::Constant(1.0/1e-6)).asDiagonal() *
+           res.dz_dlm.transpose());
     }
 
     // if the measurement and reference poses are the same, the jacobian is zero
@@ -811,10 +814,10 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       res.dz_dx_meas.template block<2,1>(0,5) =
           (dt_dp_m_tsv_m.col(1)*x_p[0] - dt_dp_m_tsv_m.col(0)*x_p[1]);
 
-      // res.covariance_inv +=
-      //    (res.dz_dx_meas * 1e-6 *
-      //     Eigen::Matrix<Scalar,::Constant(value);
-      //     res.dz_dx_meas.transpose()).inverse();
+      res.covariance_inv +=
+          (res.dz_dx_meas *
+           (Eigen::Matrix<Scalar,6,1>::Constant(1.0/1e-6)).asDiagonal() *
+           res.dz_dx_meas.transpose());
 
       // only need this if we are in inverse depth mode and the poses aren't
       // the same
@@ -839,6 +842,11 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
         res.dz_dx_ref.template block<2,1>(0,5) =
             (dt_dp_m_tsw_m_twp.col(1)*x_p[0] - dt_dp_m_tsv_m.col(0)*x_v[1]);
+
+        res.covariance_inv +=
+            (res.dz_dx_ref *
+             (Eigen::Matrix<Scalar,6,1>::Constant(1.0/1e-6)).asDiagonal() *
+             res.dz_dx_ref.transpose());
 
         // for (unsigned int ii=3; ii<6; ++ii) {
         //  res.dz_dx_ref.template block<2,1>(0,ii) =
@@ -874,6 +882,10 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         //std::cout << "dZ_dPr_fd:" << dZ_dPr_fd << " norm: " <<
         //(res.dZ_dPr - dZ_dPr_fd).norm() <<  std::endl;
       }
+
+      res.covariance_inv = res.covariance_inv.inverse();
+      std::cout << "w, res " << res.residual_id << " is: " << std::endl <<
+                  res.covariance_inv << std::endl;
 
       // calculate jacobian wrt to camera parameters
       // [TEST]: This is only working for fov models
@@ -1017,6 +1029,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   StartTimer(_j_evaluation_inertial_);
   inertial_error_ = 0;
   for (ImuResidual& res : inertial_residuals_) {
+    res.covariance_inv.setZero();
     // set up the initial pose for the integration
     const Vector3t gravity = GetGravityVector(imu_.g);
 
@@ -1117,18 +1130,40 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
     res.dz_dx2.template block<3,3>(6,6) = -Matrix3t::Identity();
     res.dz_dx2.template block<6,6>(9,9) =
-        -Eigen::Matrix<Scalar,6,6>::Identity();
-
-    const Eigen::Matrix<Scalar,3,2> d_gravity = dGravity_dDirection(imu_.g);
-    res.dz_dg.template block<3,2>(0,0) =
-        -0.5*powi(total_dt,2)*Matrix3t::Identity()*d_gravity;
-
-    res.dz_dg.template block<3,2>(6,0) =
-        -total_dt*Matrix3t::Identity()*d_gravity;
+        -Eigen::Matrix<Scalar,6,6>::Identity();    
 
     res.residual.template head<6>() = SE3t::log(t_w1*t_12*t_2w);
     res.residual.template segment<3>(6) = imu_pose.v_w - pose2.v_w;
     res.residual.template segment<6>(9) = pose1.b - pose2.b;
+
+    res.covariance_inv +=
+        (res.dz_dx1 *
+         (Eigen::Matrix<Scalar,kPoseDim,1>::Constant(1.0/1e-6)).asDiagonal() *
+         res.dz_dx1.transpose()) +
+        (res.dz_dx2 *
+         (Eigen::Matrix<Scalar,kPoseDim,1>::Constant(1.0/1e-6)).asDiagonal() *
+         res.dz_dx2.transpose()) +
+        (res.dz_db *
+         (Eigen::Matrix<Scalar,6,1>::Constant(1.0/1e-6)).asDiagonal() *
+         res.dz_db.transpose());
+
+    if (kCalibDim > 0) {
+      const Eigen::Matrix<Scalar,3,2> d_gravity = dGravity_dDirection(imu_.g);
+      res.dz_dg.template block<3,2>(0,0) =
+          -0.5*powi(total_dt,2)*Matrix3t::Identity()*d_gravity;
+
+      res.dz_dg.template block<3,2>(6,0) =
+          -total_dt*Matrix3t::Identity()*d_gravity;
+
+      res.covariance_inv.template block<9,9>(0, 0) +=
+          (res.dz_dg *
+           (Eigen::Matrix<Scalar,2,1>::Constant(1.0/1e-6)).asDiagonal() *
+           res.dz_dg.transpose());
+    }
+
+    res.covariance_inv = res.covariance_inv.inverse();
+    std::cout << "w, res " << res.residual_id << " is: " << std::endl <<
+                 res.covariance_inv << std::endl;
 
     if ((kCalibDim > 2 || kPoseDim > 15) && translation_enabled_ == false) {
       // disable imu translation error
@@ -1329,7 +1364,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
         jt_pr.insert(
           pose.opt_id, res.residual_id).setZero().template block<6,2>(0,0) =
-              dz_dx.transpose() * res.weight;
+              dz_dx.transpose() * /*res.covariance_inv * */res.weight;
       }
 
 
@@ -1375,14 +1410,14 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         // this down weights the velocity error
         // dz_dz.template block<3,kPoseDim>(6,0) *= 0.1;
         // up weight the Tvs translation prior
-        if(kPoseDim > 15){
-          dz_dz.template block<3,kPoseDim>(15,0) *= 100;
-          dz_dz.template block<3,kPoseDim>(18,0) *= 10;
-        }
+        // if(kPoseDim > 15){
+        //  dz_dz.template block<3,kPoseDim>(15,0) *= 100;
+        //  dz_dz.template block<3,kPoseDim>(18,0) *= 10;
+        // }
         jt_i_.insert(
           pose.opt_id, res.residual_id ).setZero().
             template block<kPoseDim,ImuResidual::kResSize>(0,0) =
-              dz_dz.transpose() * res.weight;
+              dz_dz.transpose() * /*res.covariance_inv **/ res.weight;
       }
     }
   }

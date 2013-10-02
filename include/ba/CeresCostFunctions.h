@@ -221,7 +221,7 @@ struct FullImuCostFunction {
     PoseT<T> start_pose;
     start_pose.t_wp = t_wx1;
     start_pose.v_w = v1;
-    start_pose.time = measurements.front().Time;
+    start_pose.time = measurements.front().time;
     std::vector<ImuPoseT<T>> vPoses;
     ImuPoseT<T> end_pose = IntegrateResidualJet<T, Scalar>(start_pose,
                                                            measurements, bg, ba,

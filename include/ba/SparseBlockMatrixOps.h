@@ -25,7 +25,7 @@ namespace Eigen {
 
     // make sure to call innerSize/outerSize since we fake the storage order.
     const Index lhsCols = lhs.outerSize();
-    eigen_assert(lhsCols*LhsScalar::ColsAtCompileTime == rhs.rows());
+    eigen_assert(lhsCols == rhs.rows() / rhs_stride);
 
     res.setZero();
     //    for (typename Rhs::InnerIterator rhsIt(rhs, j); rhsIt; ++rhsIt)
@@ -261,8 +261,7 @@ namespace Eigen {
   template<typename Lhs, typename Rhs, int block_y = 0, int block_x = 0>
   static void SparseBlockAdd(const Lhs& lhs, const Rhs& rhs, Lhs& res, const int nRhsCoef = 1 )
   {
-      // cannot add in-place.
-      assert(&lhs!=&res && &rhs != &res);
+      // this function cannot add in-place.
 
       const typename Lhs::Scalar zero = Lhs::Scalar::Zero();
       // return sparse_sparse_product_with_pruning_impl2(lhs,rhs,res);

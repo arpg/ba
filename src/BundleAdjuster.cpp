@@ -630,13 +630,13 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     }
     PrintTimer(_back_substitution_);
 
-    VectorXt deltaCalib;
+    VectorXt delta_Calib;
     if (kCalibDim > 0 && num_pose_params > 0) {
-      deltaCalib = delta_p.template tail(kCalibDim);
+      delta_Calib = delta_p.template tail(kCalibDim);
       // std::cout << "Delta calib: " << deltaCalib.transpose() << std::endl;
     }
 
-    ApplyUpdate(delta_p, delta_l, deltaCalib, false);
+    ApplyUpdate(delta_p, delta_l, delta_Calib, false);
 
     const double dPrevError = proj_error_ + inertial_error_ + binary_error_;
     //std::cout << "Pre-solve norm: " << dPrevError << " with Epr:" <<
@@ -651,7 +651,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     if (dPostError > dPrevError) {
       // std::cout << "Error increasing during optimization, rolling back .."<<
       //             std::endl;
-      ApplyUpdate(delta_p, delta_l, deltaCalib, true);
+      ApplyUpdate(delta_p, delta_l, delta_Calib, true);
       break;
     }
     else if ((dPrevError - dPostError)/dPrevError < 0.01) {
@@ -993,9 +993,9 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
   StartTimer(_j_evaluation_unary_);
   for( UnaryResidual& res : unary_residuals_ ){
-    const SE3t& Twp = poses_[res.pose_id].t_wp;
-    // res.dZ_dX = dLog_dX(Twp, res.t_wp.inverse());
-    res.dz_dx = dLog_decoupled_dX(Twp, res.t_wp);
+    const SE3t& t_wp = poses_[res.pose_id].t_wp;
+    res.dz_dx = dLog_dX(t_wp, res.t_wp.inverse());
+    // res.dz_dx = dLog_decoupled_dX(Twp, res.t_wp);
 
     //Eigen::Matrix<Scalar,6,6> J_fd;
     //Scalar dEps = 1e-10;
@@ -1014,7 +1014,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     //std::cout << "Junary_fd:" << J_fd << std::endl;
 
     r_u_.template segment<UnaryResidual::kResSize>(res.residual_offset) =
-        log_decoupled(Twp, res.t_wp);
+        log_decoupled(t_wp, res.t_wp);
   }
   PrintTimer(_j_evaluation_unary_);
 
@@ -1791,7 +1791,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::_Test_dImuResidual_dX(
 }
 
 // specializations
-// template class BundleAdjuster<REAL_TYPE, ba::NOT_USED,9,8>;
+template class BundleAdjuster<REAL_TYPE, ba::NOT_USED,15,2>;
 template class BundleAdjuster<REAL_TYPE, 1,6,0>;
 //template class BundleAdjuster<REAL_TYPE, 1,15,8>;
 template class BundleAdjuster<REAL_TYPE, 1,15,0>;

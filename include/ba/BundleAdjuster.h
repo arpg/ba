@@ -394,7 +394,7 @@ static const int NOT_USED = 0;
 
 // typedefs for convenience
 template< typename Scalar >
-using GlobalInertialBundleAdjuster = BundleAdjuster<Scalar, ba::NOT_USED,9>;
+using GlobalInertialBundleAdjuster = BundleAdjuster<Scalar, ba::NOT_USED,15, 2>;
 template< typename Scalar >
 using InverseDepthVisualInertialBundleAdjuster = BundleAdjuster<Scalar, 1,9>;
 template< typename Scalar >

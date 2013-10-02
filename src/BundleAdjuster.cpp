@@ -96,9 +96,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
                      poses_[ii].t_vs.matrix() << std::endl;
       }
 
-      // std::cout << "Pose delta for " << ii << " is " <<
-      //             (-delta_p.template block<kPoseDim,1>(p_offset,0)*
-      //              coef).transpose() << std::endl;
+      std::cout << "Pose delta for " << ii << " is " <<
+                  (-delta_p.template block<kPoseDim,1>(p_offset,0)*
+                   coef).transpose() << std::endl;
     } else {
       // std::cout << " Pose " << ii << " is inactive." << std::endl;
       if (kCalibDim > 2 && inertial_residuals_.size() > 0) {
@@ -734,6 +734,15 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   j_l_.setZero();
   // jt_l_.setZero();
 
+  // go through all the poses to check if they are all active
+  bool are_all_active = true;
+  for (const Pose& pose : poses_) {
+    if (pose.is_active == false) {
+      are_all_active = false;
+      break;
+    }
+  }
+
 
   // used to store errors for robust norm calculation
   errors_.reserve(num_proj_res);
@@ -1126,6 +1135,22 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
       res.dz_dg.template block<3,2>(6,0) =
           -total_dt*Matrix3t::Identity()*d_gravity;
+    }
+
+    if (are_all_active) {
+      std::cout << "All poses active, setting translation and bias "
+                   " component of pose 0 to inactive." << std::endl;
+      if (res.pose1_id == 0) {
+        res.dz_dx1.template block<res.kResSize, 3>(0, 0).setZero();
+        res.dz_dx1.template block<res.kResSize, 6>(0, 9).setZero();
+        // res.dz_dx1.template block<res.kResSize,
+        //     kPoseDim >= 15 ? 9 : 3>(0, 6).setZero();
+      }else if (res.pose2_id == 0) {
+        res.dz_dx2.template block<res.kResSize, 3>(0, 0).setZero();
+        res.dz_dx2.template block<res.kResSize, 6>(0, 9).setZero();
+        // res.dz_dx2.template block<res.kResSize,
+        //     kPoseDim >= 15 ? 9 : 3>(0, 6).setZero();
+      }
     }
 
     if ((kCalibDim > 2 || kPoseDim > 15) && translation_enabled_ == false) {
@@ -1769,7 +1794,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::_Test_dImuResidual_dX(
 // template class BundleAdjuster<REAL_TYPE, ba::NOT_USED,9,8>;
 template class BundleAdjuster<REAL_TYPE, 1,6,0>;
 //template class BundleAdjuster<REAL_TYPE, 1,15,8>;
-template class BundleAdjuster<REAL_TYPE, 1,15,2>;
+template class BundleAdjuster<REAL_TYPE, 1,15,0>;
 //template class BundleAdjuster<REAL_TYPE, 1,21,2>;
 // template class BundleAdjuster<double, 3,9>;
 

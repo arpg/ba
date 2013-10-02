@@ -1,8 +1,27 @@
+/*
+ This file is part of the BA Project.
+
+ Copyright (C) 2013 George Washington University,
+ Nima Keivan,
+ Gabe Sibley
+
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+
+ http://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+ */
+
 #ifndef INTERPOLATIONBUFFER_H
 #define INTERPOLATIONBUFFER_H
 
-
-namespace ba{
+namespace ba {
 ////////////////////////////////////////////////////////////////////////////////
 /// Templated interpolation buffer. Used to smoothly interpolate between stored
 /// elements. The interplation is delimited by the time value.
@@ -13,16 +32,15 @@ namespace ba{
 ///     a scalar
 ///     ElementType& operator +(const ElementType& rhs) : result of addition
 ///     with an element
-template< typename ElementType, typename ScalarType >
-struct InterpolationBufferT
-{
+template<typename ElementType, typename ScalarType>
+struct InterpolationBufferT {
   std::vector<ElementType> elements;
   ScalarType start_time;
   ScalarType end_time;
   ScalarType average_dt;
-  InterpolationBufferT(unsigned int size = 1000) :
-    start_time(-1),end_time(-1)
-  {
+  InterpolationBufferT(unsigned int size = 1000)
+      : start_time(-1),
+        end_time(-1) {
     elements.reserve(size);
   }
   //////////////////////////////////////////////////////////////////////////////
@@ -30,15 +48,13 @@ struct InterpolationBufferT
   /// and end times
   /// \param element The new element to add
   ///
-  void AddElement(const ElementType& element)
-  {
+  void AddElement(const ElementType& element) {
     assert(element.time > end_time);
     const size_t nElems = elements.size();
-    const ScalarType dt =
-        nElems == 0 ? 0 : element.time - elements.back().time;
+    const ScalarType dt = nElems == 0 ? 0 : element.time - elements.back().time;
 
     // update the average dt
-    average_dt = (average_dt*nElems + dt)/(nElems+1);
+    average_dt = (average_dt * nElems + dt) / (nElems + 1);
     // add the element and update the end time
     elements.push_back(element);
     end_time = element.time;
@@ -57,13 +73,12 @@ struct InterpolationBufferT
   /// in which case we've reached the end
   ///
   bool GetNext(const ScalarType max_time, size_t& index_out,
-               ElementType& output)
-  {
+               ElementType& output) {
     // if we have reached the end, interpolate and signal the end
     if (index_out + 1 >= elements.size()) {
       output = GetElement(max_time, &index_out);
       return false;
-    } else if (elements[index_out+1].time > max_time) {
+    } else if (elements[index_out + 1].time > max_time) {
       output = GetElement(max_time, &index_out);
       return false;
     } else {
@@ -78,8 +93,7 @@ struct InterpolationBufferT
   /// \param dTime The time for which we check the element
   /// \return True if an element exists for this time
   ///
-  bool HasElement(const ScalarType time)
-  {
+  bool HasElement(const ScalarType time) {
     return (time >= start_time && time <= end_time);
   }
 
@@ -90,8 +104,7 @@ struct InterpolationBufferT
   /// \param dTime The time for which we require the element
   /// \return The element
   ///
-  ElementType GetElement(const ScalarType time)
-  {
+  ElementType GetElement(const ScalarType time) {
     size_t index;
     return GetElement(time, &index);
   }
@@ -107,10 +120,10 @@ struct InterpolationBufferT
   ElementType GetElement(const ScalarType time, size_t* pIndex) {
     // assert(dTime >= StartTime && dTime <= EndTime);
     // guess what the index would be
-    size_t guess_idx = (time-start_time)/average_dt;
+    size_t guess_idx = (time - start_time) / average_dt;
     const size_t n_elements = elements.size();
-    guess_idx = std::min(std::max((unsigned int)guess_idx,0u),
-                        (unsigned int)elements.size()-1u);
+    guess_idx = std::min(std::max((unsigned int) guess_idx, 0u),
+                         (unsigned int) elements.size() - 1u);
 
     // now using the guess, find a direction to go
     if (elements[guess_idx].time > time) {
@@ -120,54 +133,50 @@ struct InterpolationBufferT
         return elements.front();
       }
 
-      while ((guess_idx-1) > 0 && elements[guess_idx-1].time > time) {
+      while ((guess_idx - 1) > 0 && elements[guess_idx - 1].time > time) {
         guess_idx--;
       }
-      const ScalarType interpolator =
-          (time-elements[guess_idx-1].time)/
-          (elements[guess_idx].time-elements[guess_idx-1].time);
+      const ScalarType interpolator = (time - elements[guess_idx - 1].time)
+          / (elements[guess_idx].time - elements[guess_idx - 1].time);
 
-      *pIndex = guess_idx-1;
-      ElementType res =
-          elements[guess_idx-1]*(1-interpolator) +
-          elements[guess_idx]*interpolator;
+      *pIndex = guess_idx - 1;
+      ElementType res = elements[guess_idx - 1] * (1 - interpolator)
+          + elements[guess_idx] * interpolator;
 
       res.time = time;
       return res;
     } else {
       // we need to go forwards
-      if (guess_idx == n_elements-1) {
+      if (guess_idx == n_elements - 1) {
         *pIndex = guess_idx;
         return elements.back();
       }
 
-      while ((guess_idx+1) < n_elements && elements[guess_idx+1].time < time) {
+      while ((guess_idx + 1) < n_elements &&
+             elements[guess_idx + 1].time < time) {
         guess_idx++;
       }
-      const ScalarType interpolator =
-          (time - elements[guess_idx].time)/
-          (elements[guess_idx+1].time-elements[guess_idx].time);
+      const ScalarType interpolator = (time - elements[guess_idx].time)
+          / (elements[guess_idx + 1].time - elements[guess_idx].time);
 
       *pIndex = guess_idx;
-      ElementType res =
-          elements[guess_idx]*(1-interpolator) +
-          elements[guess_idx+1]*interpolator;
+      ElementType res = elements[guess_idx] * (1 - interpolator)
+          + elements[guess_idx + 1] * interpolator;
       res.time = time;
       return res;
     }
   }
 
   std::vector<ElementType> GetRange(const ScalarType star_time,
-                                    const ScalarType end_time)
-  {
+                                    const ScalarType end_time) {
     std::vector<ElementType> measurements;
     size_t index;
     // get all the imu measurements between these two poses, and add them to a
     // vector
     if (HasElement(star_time)) {
-      measurements.push_back(GetElement(star_time,&index));
+      measurements.push_back(GetElement(star_time, &index));
       ElementType meas;
-      while (GetNext(end_time,index,meas)) {
+      while (GetNext(end_time, index, meas)) {
         measurements.push_back(meas);
       }
       // push back the last item
@@ -177,6 +186,5 @@ struct InterpolationBufferT
   }
 };
 }
-
 
 #endif // INTERPOLATIONBUFFER_H

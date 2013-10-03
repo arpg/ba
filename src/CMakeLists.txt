@@ -23,6 +23,7 @@ set( INCDIR "../include/ba" )
 
 list(APPEND SOURCES    
     BundleAdjuster.cpp
+    BundleAdjusterTest.cpp
 )
 
 list(APPEND HEADERS

@@ -27,7 +27,7 @@
 #include <calibu/Calibu.h>
 
 #define IMU_GYRO_UNCERTAINTY 100 //0.00104719755
-#define IMU_ACCEL_UNCERTAINTY 100 //0.0392266
+#define IMU_ACCEL_UNCERTAINTY 10 //0.0392266
 
 namespace ba {
 static const double Gravity = 9.80665;
@@ -270,6 +270,7 @@ struct ImuResidualT {
   std::vector<ImuPose> poses;
   Eigen::Matrix<Scalar, kResSize, PoseSize> dz_dx1;
   Eigen::Matrix<Scalar, kResSize, PoseSize> dz_dx2;
+  Eigen::Matrix<Scalar, PoseSize, PoseSize> cov_inv;
   Eigen::Matrix<Scalar, kResSize, 6> dz_dy;
   Eigen::Matrix<Scalar, 9, 2> dz_dg;
   Eigen::Matrix<Scalar, kResSize, 6> dz_db;

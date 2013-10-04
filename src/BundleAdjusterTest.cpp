@@ -318,4 +318,18 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::_Test_dImuResidual_dX(
          (dz_db-dz_db_fd).norm() < NORM_THRESHOLD &&
          (dt_db_-dt_db_fd).norm() < NORM_THRESHOLD);
 }
+
+
+//template bool BundleAdjuster<REAL_TYPE, 1,15,0>::_Test_dImuResidual_dX(
+//    const Pose& pose1, const Pose& pose2, const ImuPose& imu_pose,
+//    const ImuResidual& res, const Vector3t gravity,
+//    const Eigen::Matrix<REAL_TYPE, 7, 6>& dse3_dx1,
+//    const Eigen::Matrix<REAL_TYPE,10,6>& dt_db);
+
+//template bool BundleAdjuster<REAL_TYPE, 1,6,0>::_Test_dImuResidual_dX(
+//    const Pose& pose1, const Pose& pose2, const ImuPose& imu_pose,
+//    const ImuResidual& res, const Vector3t gravity,
+//    const Eigen::Matrix<REAL_TYPE, 7, 6>& dse3_dx1,
+//    const Eigen::Matrix<REAL_TYPE,10,6>& dt_db);
+
 }

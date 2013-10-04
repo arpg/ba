@@ -25,6 +25,12 @@ class BundleAdjuster
   static const unsigned int kLmDim = LmSize;
   static const unsigned int kPoseDim = PoseSize;
   static const unsigned int kCalibDim = CalibSize;
+  static const bool kVelInState = (kPoseDim >= 9);
+  static const bool kBiasInState = (kPoseDim >= 15);
+  static const bool kTvsInState = (kPoseDim >= 21);
+  static const bool kGravityInCalib = (kCalibDim >= 2);
+  static const bool kTvsInCalib = (kCalibDim >= 8);
+  static const bool kCamParamsInCalib = (kCalibDim > 8);
 
   typedef PoseT<Scalar> Pose;
   typedef LandmarkT<Scalar,LmSize> Landmark;

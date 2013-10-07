@@ -121,6 +121,7 @@ public:
     pose.b = b;
     pose.cam_params = cam_params;
     pose.is_active = is_active;
+    pose.is_param_mask_used = false;
     pose.t_sw.reserve(rig_.cameras.size());
     // assume equal distribution of measurements amongst poses
     pose.proj_residuals.reserve(
@@ -371,6 +372,8 @@ private:
   VectorXt r_i_;
 
   bool translation_enabled_;
+  bool is_param_mask_used_;
+  bool do_sparse_solve_;
   double total_tvs_change_;
   SE3t last_tvs_;
   double proj_error_;
@@ -393,7 +396,6 @@ private:
   std::vector<UnaryResidual> unary_residuals_;
   std::vector<ImuResidual> inertial_residuals_;
   std::vector<Scalar> errors_;
-
 };
 
 static const int NOT_USED = 0;

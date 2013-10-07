@@ -38,6 +38,8 @@ struct PoseT {
   Eigen::Matrix<Scalar, 3, 1> v_w;
   Eigen::Matrix<Scalar, 6, 1> b;
   Eigen::Matrix<Scalar, Eigen::Dynamic, 1> cam_params;
+  std::vector<bool> param_mask;
+  bool is_param_mask_used;
   bool is_active;
   unsigned int id;
   unsigned int opt_id;
@@ -210,26 +212,27 @@ struct ImuMeasurementT {
   }
 };
 
-template<typename Scalar = double>
-struct UnaryResidualT {
-  static const unsigned int kResSize = 6;
-  unsigned int pose_id;
+template<typename Scalar, int kParamSize>
+struct ResidualT {
   unsigned int residual_id;
   unsigned int residual_offset;
   Scalar weight;
+};
+
+template<typename Scalar = double>
+struct UnaryResidualT : public ResidualT<Scalar, 6> {
+  static const unsigned int kResSize = 6;
+  unsigned int pose_id;
   Sophus::SE3Group<Scalar> t_wp;
   Eigen::Matrix<Scalar, kResSize, 6> dz_dx;
   Eigen::Matrix<Scalar, 6, 1> residual;
 };
 
 template<typename Scalar = double>
-struct BinaryResidualT {
+struct BinaryResidualT : public ResidualT<Scalar, 6> {
   static const unsigned int kResSize = 6;
   unsigned int x1_id;
   unsigned int x2_id;
-  unsigned int residual_id;
-  unsigned int residual_offset;
-  Scalar weight;
   Sophus::SE3Group<Scalar> t_ab;
   Eigen::Matrix<Scalar, kResSize, 6> dz_dx1;
   Eigen::Matrix<Scalar, kResSize, 6> dz_dx2;
@@ -237,16 +240,13 @@ struct BinaryResidualT {
 };
 
 template<typename Scalar = double, int LmSize = 1>
-struct ProjectionResidualT {
+struct ProjectionResidualT : public ResidualT<Scalar, 6> {
   static const unsigned int kResSize = 2;
   Eigen::Matrix<Scalar, 2, 1> z;
   unsigned int x_meas_id;
   unsigned int x_ref_id;
   unsigned int landmark_id;
   unsigned int cam_id;
-  unsigned int residual_id;
-  unsigned int residual_offset;
-  Scalar weight;
 
   Eigen::Matrix<Scalar, kResSize, LmSize> dz_dlm;
   Eigen::Matrix<Scalar, 2, 6> dz_dx_meas;
@@ -256,15 +256,12 @@ struct ProjectionResidualT {
 };
 
 template<typename Scalar = double, int ResidualSize = 15, int PoseSize = 15>
-struct ImuResidualT {
+struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
   typedef ImuPoseT<Scalar> ImuPose;
   typedef ImuMeasurementT<Scalar> ImuMeasurement;
   static const unsigned int kResSize = ResidualSize;
   unsigned int pose1_id;
   unsigned int pose2_id;
-  unsigned int residual_id;
-  unsigned int residual_offset;
-  Scalar weight;
   // Eigen::Matrix<Scalar,9,9>   SigmanInv;
   std::vector<ImuMeasurement> measurements;
   std::vector<ImuPose> poses;

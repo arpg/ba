@@ -264,6 +264,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
   }
 
   const bool use_triangular = false;
+  do_sparse_solve_ = true;
 
   for (unsigned int kk = 0 ; kk < uMaxIter ; ++kk) {
     StartTimer(_BuildProblem_);
@@ -467,19 +468,13 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
       rhs_p.template head(num_pose_params) = bp - jt_pr_j_l_vi_bll;
 
-      std::cout << "Dense S matrix is " << s.format(kCleanFmt) << std::endl;
-      // std::cout << "Dense rhs matrix is " <<
-      // rhs_p.transpose().format(kCleanFmt) << std::endl;
 
     } else {
       Eigen::LoadDenseFromSparse(
             u, s.template block(0, 0, num_pose_params, num_pose_params));
       rhs_p.template head(num_pose_params) = bp;
     }
-    PrintTimer(_schur_complement_);
-
-    // std::cout << "  Rhs calculation and schur complement took " <<
-    // Toc(dMatTime) << " seconds." << std::endl;
+    PrintTimer(_schur_complement_);  
 
     // fill in the calibration components if any
     if (kCalibDim && inertial_residuals_.size() > 0) {
@@ -592,18 +587,44 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       rhs_p.template tail<kCalibDim>() -= jt_kpr_j_l_vi_bl;
       */
     }
+
+    // regularize masked parameters.
+    if (is_param_mask_used_) {
+      for (Pose& pose : poses_) {
+        if (pose.is_param_mask_used) {
+          for (int ii = 0 ; ii < pose.param_mask.size() ; ++ii) {
+            if (!pose.param_mask[ii]) {
+              const int idx = pose.opt_id*kPoseDim + ii;
+              std::cout << "setting pose " << pose.opt_id << "parameter " <<
+                           ii << " to static, regularizing row,col " <<
+                           idx << std::endl;
+              s(idx, idx) = 1.0;
+            }
+          }
+        }
+      }
+    }
+
     PrintTimer(_steup_problem_);
 
     // now we have to solve for the pose constraints
     StartTimer(_solve_);
-    // Eigen::SimplicialLDLT<Eigen::SparseMatrix<Scalar>, Eigen::Upper> solver;
-    // Eigen::SparseMatrix<Scalar> s_sparse = s.sparseView();
-    // solver.compute(s_sparse);
-    //VectorXt delta_p = num_poses == 0 ? VectorXt() : solver.solve(rhs_p);
-    Eigen::LDLT<Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>,
-                Eigen::Upper> solver;
-    solver.compute(s);
-    VectorXt delta_p = num_poses == 0 ? VectorXt() : solver.solve(rhs_p);
+
+    std::cout << "Dense S matrix is " << s.format(kLongFmt) << std::endl;
+    std::cout << "Dense rhs matrix is " <<
+    rhs_p.transpose().format(kLongFmt) << std::endl;
+    VectorXt delta_p;
+    if (do_sparse_solve_) {
+       Eigen::SimplicialLDLT<Eigen::SparseMatrix<Scalar>, Eigen::Upper> solver;
+       Eigen::SparseMatrix<Scalar> s_sparse = s.sparseView();
+       solver.compute(s_sparse);
+      delta_p = num_poses == 0 ? VectorXt() : solver.solve(rhs_p);
+    } else {
+      Eigen::LDLT<Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>,
+                  Eigen::Upper> solver;
+      solver.compute(s);
+      delta_p = num_poses == 0 ? VectorXt() : solver.solve(rhs_p);
+    }
 
     PrintTimer(_solve_);
 
@@ -739,6 +760,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   j_l_.setZero();
   // jt_l_.setZero();
 
+  is_param_mask_used_ = false;
+
   // go through all the poses to check if they are all active
   bool are_all_active = true;
   for (const Pose& pose : poses_) {
@@ -748,6 +771,21 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     }
   }
 
+  if (are_all_active) {
+    std::cout << "all poses active." << std::endl;
+    Pose& lastPose = poses_.back();
+    lastPose.is_param_mask_used = true;
+    lastPose.param_mask.assign(kPoseDim, true);
+    // dsiable the translation components.
+    lastPose.param_mask[0] = lastPose.param_mask[1] =
+    lastPose.param_mask[2] = false;
+    if (kBiasInState) {
+      // disable bias components
+      lastPose.param_mask[9] = lastPose.param_mask[10] =
+      lastPose.param_mask[11] = lastPose.param_mask[12] =
+      lastPose.param_mask[13] = lastPose.param_mask[14] = false;
+    }
+  }
 
   // used to store errors for robust norm calculation
   errors_.reserve(num_proj_res);
@@ -918,14 +956,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       //(res.dZ_dK - dZ_dK_fd).norm() <<  std::endl;
       //m_Rig.cameras[res.CameraId].camera.SetGenericParams(params);
       //}
-    }
-
-    if (are_all_active) {
-      if (res.x_meas_id == 0) {
-        // res.dz_dx_meas.template block<res.kResSize, 3>(0, 0).setZero();
-      }else if (res.x_ref_id == 0) {
-        // res.dz_dx_ref.template block<res.kResSize, 3>(0, 0).setZero();
-      }
     }
 
     // set the residual in m_R which is dense
@@ -1161,20 +1191,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
           -total_dt*Matrix3t::Identity()*d_gravity;
     }
 
-    if (are_all_active) {
-      if (res.pose1_id == poses_.size()-1) {
-        // res.dz_dx1.template block<res.kResSize, 3>(0, 0).setZero();
-        if (kBiasInState) {
-          res.dz_dx1.template block<res.kResSize, 6>(0, 9).setZero();
-        }
-      }else if (res.pose2_id == poses_.size()-1) {
-        // res.dz_dx2.template block<res.kResSize, 3>(0, 0).setZero();
-        if (kBiasInState) {
-          res.dz_dx2.template   block<res.kResSize, 6>(0, 9).setZero();
-        }
-      }
-    }
-
     /* if ((kCalibDim > 2 || kPoseDim > 15) && translation_enabled_ == false) {
       // disable imu translation error
       res.residual.template head<3>().setZero();
@@ -1271,19 +1287,17 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     }*/
 
     // calculate the weights for this residual
-    res.cov_inv.setIdentity();
-    res.cov_inv *= 1e-6;
+    res.cov_inv.diagonal() =
+        Eigen::Matrix<Scalar, kPoseDim, 1>::Constant(1e-6);
     Vector6t cov_meas =
         (Vector6t() <<
         IMU_GYRO_UNCERTAINTY, IMU_GYRO_UNCERTAINTY,
         IMU_GYRO_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY,
          IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY).finished();
 
-    res.cov_inv.template block<9, 9>(0, 0) =
+    res.cov_inv.template block<9, 9>(0, 0) +=
         res.dz_db.template block<9, 6>(0, 0) * cov_meas.asDiagonal() *
         res.dz_db.template block<9, 6>(0, 0).transpose();
-    res.cov_inv.template block<9, 9>(0, 0).diagonal() +=
-        Eigen::Matrix<Scalar, 9, 1>::Constant(1e-6);
     // std::cout << "cov_meas " << std::endl << cov_meas << std::endl;
     // std::cout << "res.dz_db " << std::endl <<
     //              res.dz_db.template block<9, 6>(0, 0) << std::endl;
@@ -1386,11 +1400,19 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       // sort the measurements by id so the sparse insert is O(1)
       std::sort(pose.proj_residuals.begin(), pose.proj_residuals.end());
       for (const int id: pose.proj_residuals) {
-        const ProjectionResidual& res = proj_residuals_[id];
+        ProjectionResidual& res = proj_residuals_[id];
+        auto& dz_dx = res.x_meas_id == pose.id ? res.dz_dx_meas : res.dz_dx_ref;
+        if (pose.is_param_mask_used) {
+          is_param_mask_used_ = true;
+          for (int ii = 0 ; ii < kPrPoseDim ; ++ii) {
+             if (!pose.param_mask[ii]) {
+               dz_dx.col(ii).setZero();
+             }
+          }
+        }
         // insert the jacobians into the sparse matrices
         // The weight is only multiplied by the transpose matrix, this is
         // so we can perform Jt*W*J*dx = Jt*W*r
-        auto dz_dx = res.x_meas_id == pose.id ? res.dz_dx_meas : res.dz_dx_ref;
         j_pr_.insert(
           res.residual_id, pose.opt_id).setZero().template block<2,6>(0,0) =
             dz_dx;
@@ -1404,9 +1426,18 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       // add the pose/pose constraints
       std::sort(pose.binary_residuals.begin(), pose.binary_residuals.end());
       for (const int id: pose.binary_residuals) {
-        const BinaryResidual& res = binary_residuals_[id];
-        const Eigen::Matrix<Scalar,6,6>& dz_dz =
+        BinaryResidual& res = binary_residuals_[id];
+        Eigen::Matrix<Scalar,6,6>& dz_dz =
             res.x1_id == pose.id ? res.dz_dx1 : res.dz_dx2;
+
+        if (pose.is_param_mask_used) {
+          is_param_mask_used_ = true;
+          for (int ii = 0 ; ii < 6 ; ++ii) {
+             if (!pose.param_mask[ii]) {
+               dz_dz.col(ii).setZero();
+             }
+          }
+        }
 
         j_pp_.insert(
           res.residual_id, pose.opt_id ).setZero().template block<6,6>(0,0) =
@@ -1420,7 +1451,15 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       // add the unary constraints
       std::sort(pose.unary_residuals.begin(), pose.unary_residuals.end());
       for (const int id: pose.unary_residuals) {
-        const UnaryResidual& res = unary_residuals_[id];
+        UnaryResidual& res = unary_residuals_[id];
+        if (pose.is_param_mask_used) {
+          is_param_mask_used_ = true;
+          for (int ii = 0 ; ii < 6 ; ++ii) {
+             if (!pose.param_mask[ii]) {
+               res.dz_dx.col(ii).setZero();
+             }
+          }
+        }
         j_u_.insert(
           res.residual_id, pose.opt_id ).setZero().template block<6,6>(0,0) =
             res.dz_dx;
@@ -1432,25 +1471,27 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
       std::sort(pose.inertial_residuals.begin(), pose.inertial_residuals.end());
       for (const int id: pose.inertial_residuals) {
-        const ImuResidual& res = inertial_residuals_[id];
+        ImuResidual& res = inertial_residuals_[id];
         Eigen::Matrix<Scalar,ImuResidual::kResSize,kPoseDim> dz_dz =
             res.pose1_id == pose.id ? res.dz_dx1 : res.dz_dx2;
+
+        if (pose.is_param_mask_used) {
+          is_param_mask_used_ = true;
+          for (int ii = 0 ; ii < kPoseDim ; ++ii) {
+             if (!pose.param_mask[ii]) {
+               dz_dz.col(ii).setZero();
+             }
+          }
+        }
 
         j_i_.insert(
           res.residual_id, pose.opt_id ).setZero().
             template block<ImuResidual::kResSize,kPoseDim>(0,0) = dz_dz;
 
-        // this down weights the velocity error
-        // dz_dz.template block<3,kPoseDim>(6,0) *= 0.1;
-        // up weight the Tvs translation prior
-        // if(kPoseDim > 15){
-        //  dz_dz.template block<3,kPoseDim>(15,0) *= 100;
-        //  dz_dz.template block<3,kPoseDim>(18,0) *= 10;
-        // }
         jt_i_.insert(
           pose.opt_id, res.residual_id ).setZero().
             template block<kPoseDim,ImuResidual::kResSize>(0,0) =
-              dz_dz.transpose() * res.cov_inv /*res.weight*/;
+              dz_dz.transpose() * /*res.cov_inv*/ res.weight;
       }
     }
   }

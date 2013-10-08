@@ -375,7 +375,8 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
                               const Eigen::Matrix<Scalar, 3, 1>& ba,
                               const Eigen::Matrix<Scalar, 3, 1>& g,
                               Eigen::Matrix<Scalar, 10, 6>* dy_db_ptr = 0,
-                              Eigen::Matrix<Scalar, 10, 10>* dy_dpose_ptr = 0) {
+                              Eigen::Matrix<Scalar, 10, 10>* dy_dpose_ptr = 0,
+                              Eigen::Matrix<Scalar, 10, 10>* c_prior = 0) {
     //construct the state matrix
     Scalar dt = z_end.time - z_start.time;
     if (dt == 0) {
@@ -455,6 +456,18 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       dy_db = dy_dk * dk_total_db;
       dy_dy0 = dy_dy + dy_dk * dk_total_dy;
 
+      if (c_prior != 0) {
+        Eigen::Matrix<Scalar,6,1> cov_meas =
+            (Eigen::Matrix<Scalar,6,1>() <<
+            IMU_GYRO_UNCERTAINTY, IMU_GYRO_UNCERTAINTY,
+            IMU_GYRO_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY,
+             IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY).finished();
+
+        const auto& c_prop =
+            dy_dy0 * (*c_prior) * dy_dy0.transpose();
+        *c_prior = c_prop + dy_db * cov_meas.asDiagonal() * dy_db.transpose();
+      }
+
     } else {
       const Eigen::Matrix<Scalar, 9, 1> k1 = GetPoseDerivative(pose, g, z_start,
                                                                z_end, bg, ba,
@@ -490,9 +503,10 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       const Eigen::Matrix<Scalar, 3, 1>& ba,
       const Eigen::Matrix<Scalar, 3, 1>& g, std::vector<ImuPose>& poses_out,
       Eigen::Matrix<Scalar, 10, 6>* dpose_db = 0,
-      Eigen::Matrix<Scalar, 10, 10>* dpose_dpose = 0) {
+      Eigen::Matrix<Scalar, 10, 10>* dpose_dpose = 0,
+      Eigen::Matrix<Scalar, 10, 10>* c_res = 0) {
     return IntegrateResidual(ImuPose(pose), measurements, bg, ba, g, poses_out,
-                             dpose_db, dpose_dpose);
+                             dpose_db, dpose_dpose, c_res);
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -502,7 +516,8 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       const Eigen::Matrix<Scalar, 3, 1>& ba,
       const Eigen::Matrix<Scalar, 3, 1>& g, std::vector<ImuPose>& poses,
       Eigen::Matrix<Scalar, 10, 6>* dpose_db = 0,
-      Eigen::Matrix<Scalar, 10, 10>* dpose_dpose = 0) {
+      Eigen::Matrix<Scalar, 10, 10>* dpose_dpose = 0,
+      Eigen::Matrix<Scalar, 10, 10>* c_res = 0) {
     const ImuPose orig_pose = pose;
     const ImuMeasurement* prev_meas = 0;
     poses.clear();
@@ -522,13 +537,13 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       if (prev_meas != 0) {
         // std::cout << "Integrating from time " << pPrevMeas->Time <<
         // " to " << meas.Time << std::endl;
-        if (dpose_db != 0) {
+        if (dpose_db != 0 || dpose_dpose != 0) {
           //double dt = meas.Time - pPrevMeas->Time;
           Eigen::Matrix<Scalar, 10, 6> dy_db;
           Eigen::Matrix<Scalar, 10, 10> dy_dy;
           const ImuPose y0 = pose;
           pose = IntegrateImu(pose, *prev_meas, meas, bg, ba, g, &dy_db,
-                              &dy_dy);
+                              &dy_dy, c_res);
 
           BA_TEST( _Test_IntegrateImu_BiasJacobian( y0,*prev_meas,meas,
                   bg,ba,g,dy_db ) );

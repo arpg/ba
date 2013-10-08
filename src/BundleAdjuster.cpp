@@ -1072,10 +1072,15 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     const Pose& pose2 = poses_[res.pose2_id];
 
     Eigen::Matrix<Scalar,10,6> jb_q;
-    // Eigen::Matrix<Scalar,10,10> jb_y;
+    Eigen::Matrix<Scalar,10,10> c_res;
+    c_res.setZero();
     ImuPose imu_pose = ImuResidual::IntegrateResidual(
-          pose1,res.measurements,pose1.b.template head<3>(),
-          pose1.b.template tail<3>(),gravity,res.poses,&jb_q/*,&jb_y*/);
+          pose1, res.measurements, pose1.b.template head<3>(),
+          pose1.b.template tail<3>(), gravity, res.poses,
+          &jb_q, NULL, &c_res);
+
+    std::cout << "initial cov for res " << res.residual_id << " is " <<
+                 std::endl << c_res.format(kLongFmt) << std::endl;
 
     Scalar total_dt =
         res.measurements.back().time - res.measurements.front().time;
@@ -1151,21 +1156,41 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
     // we always calculate the bias jacobians, as it's used in error prop.
     Eigen::Matrix<Scalar,10,6> dt_db = jb_q;
-    // for this derivation refer to page 22 of notes
-    dt_db.template block<3,3>(0,0) +=
-        dqx_dq(imu_pose.t_wp.unit_quaternion(), t_2w.translation())*
-        dt_db.template block<4,3>(3, 0);
+    // This is the 7x7 jacobian of the quaternion/translation multiplication of
+    // two transformations, with respect to the second transformation (as the
+    // operation is not commutative.)
+    // For this derivation refer to page 22/23 of notes.
+    const Eigen::Matrix<Scalar,7,7> dt1t2_dt2 = dt1t2_dt1(imu_pose.t_wp, t_2w);
+    const Eigen::Matrix<Scalar,6,7> dse3t1t2_dt2 = dlog_dse3 * dt1t2_dt2;
 
-    dt_db.template block<4,3>(3,0) =
-        dq1q2_dq1(t_2w.so3().unit_quaternion())*
-        dt_db.template block<4,3>(3,0) ;
+    // Transform the bias jacobian for position and rotation through the
+    // jacobian of multiplication by t_2w.
 
     // dt/dB
     res.dz_db.template block<6,6>(0,0) =
-        dlog_dse3 * dt_db.template block<7,6>(0,0);
-
+        dse3t1t2_dt2 * dt_db.template block<7,6>(0,0);
     // dV/dB
     res.dz_db.template block<3,6>(6,0) = dt_db.template block<3,6>(7,0);
+
+    // Transform the covariance through the multiplication by t_2w as well as
+    // the SE3 log
+    Eigen::Matrix<Scalar,9,10> dse2t1t2v_dt2;
+    dse2t1t2v_dt2.setZero();
+    dse2t1t2v_dt2.template topLeftCorner<6,7>() = dse3t1t2_dt2;
+    dse2t1t2v_dt2.template bottomRightCorner<3,3>().setIdentity();
+
+    res.cov_inv.setZero();
+    res.cov_inv.diagonal() =
+            Eigen::Matrix<Scalar, kPoseDim, 1>::Constant(1e-6);
+    // std::cout << "cres: " << std::endl << c_res.format(kLongFmt) << std::endl;
+    res.cov_inv.template topLeftCorner<9,9>() =
+        dse2t1t2v_dt2 * c_res *
+        dse2t1t2v_dt2.transpose();
+    // std::cout << "cov: " << std::endl <<
+    //              res.cov_inv.format(kLongFmt) << std::endl;
+    res.cov_inv = res.cov_inv.inverse();
+    // std::cout << "inf: " << std::endl <<
+    //              res.cov_inv.format(kLongFmt) << std::endl;
 
     // bias jacbian, only if bias in the state.
     if (kBiasInState) {
@@ -1285,27 +1310,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         res.dz_dy.template block<ImuResidual::kResSize, 3>(0,0).setZero();
       }
     }*/
-
-    // calculate the weights for this residual
-    res.cov_inv.diagonal() =
-        Eigen::Matrix<Scalar, kPoseDim, 1>::Constant(1e-6);
-    Vector6t cov_meas =
-        (Vector6t() <<
-        IMU_GYRO_UNCERTAINTY, IMU_GYRO_UNCERTAINTY,
-        IMU_GYRO_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY,
-         IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY).finished();
-
-    res.cov_inv.template block<9, 9>(0, 0) +=
-        res.dz_db.template block<9, 6>(0, 0) * cov_meas.asDiagonal() *
-        res.dz_db.template block<9, 6>(0, 0).transpose();
-    // std::cout << "cov_meas " << std::endl << cov_meas << std::endl;
-    // std::cout << "res.dz_db " << std::endl <<
-    //              res.dz_db.template block<9, 6>(0, 0) << std::endl;
-    // std::cout << "cov: " << std::endl << res.cov_inv.format(kCleanFmt) <<
-    //              std::endl;
-    res.cov_inv = res.cov_inv.inverse();
-    // std::cout << "inf for res " << res.residual_id << " is " << std::endl <<
-    //              res.cov_inv.format(kCleanFmt) << std::endl;
 
     errors_.push_back(res.residual.squaredNorm());
 
@@ -1561,6 +1565,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 // specializations
 // template class BundleAdjuster<REAL_TYPE, ba::NOT_USED,15,2>;
 template class BundleAdjuster<REAL_TYPE, 1,6,0>;
+// template class BundleAdjuster<REAL_TYPE, 3,6,0>;
 //template class BundleAdjuster<REAL_TYPE, 1,15,8>;
 template class BundleAdjuster<REAL_TYPE, 1,9,0>;
 //template class BundleAdjuster<REAL_TYPE, 1,21,2>;

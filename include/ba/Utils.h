@@ -288,6 +288,23 @@ inline Eigen::Matrix<Scalar, 3, 4> dqx_dq(
 
 ///////////////////////////////////////////////////////////////////////////////
 template<typename Scalar = double>
+inline Eigen::Matrix<Scalar, 7, 7> dt1t2_dt1(
+    const Sophus::SE3d& t1,
+    const Sophus::SE3d& t2) {
+
+  Eigen::Matrix<Scalar,7,7> dt1t2_dt2;
+  dt1t2_dt2.setZero();
+  dt1t2_dt2.template block<3,3>(0,0).setIdentity();
+  dt1t2_dt2.template block<3,4>(0,3) =
+      dqx_dq(t1.unit_quaternion(), t2.translation());
+  dt1t2_dt2.template block<4,4>(3,3) =
+      dq1q2_dq1(t2.unit_quaternion());
+
+  return dt1t2_dt2;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+template<typename Scalar = double>
 inline Eigen::Matrix<Scalar, 6, 1> log_decoupled(
     const Sophus::SE3Group<Scalar>& a, const Sophus::SE3Group<Scalar>& b) {
   Eigen::Matrix<Scalar, 6, 1> res;

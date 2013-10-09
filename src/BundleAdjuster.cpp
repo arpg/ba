@@ -121,8 +121,16 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
         // std::cout << "Delta for landmark " << ii << " is " <<
         // lm_delta.transpose() << std::endl;
         // m_vLandmarks[ii].Xs /= m_vLandmarks[ii].Xs[3];
+        landmarks_[ii].x_w =
+            MultHomogeneous(poses_[landmarks_[ii].ref_pose_id].GetTsw(
+                landmarks_[ii].ref_cam_id, rig_, kPoseDim >= 21).inverse(),
+                landmarks_[ii].x_s);
       } else {
-        landmarks_[ii].x_s.template head<kLmDim>() -= lm_delta;
+        landmarks_[ii].x_w.template head<kLmDim>() -= lm_delta;
+        landmarks_[ii].x_s =
+            MultHomogeneous(poses_[landmarks_[ii].ref_pose_id].GetTsw(
+                landmarks_[ii].ref_cam_id, rig_, kPoseDim >= 21),
+                landmarks_[ii].x_w);
       }
 
         // std::cout << "Adjusting landmark with zref: " <<
@@ -141,10 +149,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
         // m_Rig.cameras[0].camera.SetGenericParams(origParams);
         // std::cout << "to " << m_vLandmarks[ii].Xs.transpose() << std::endl;
 
-      landmarks_[ii].x_w =
-          MultHomogeneous(poses_[landmarks_[ii].ref_pose_id].GetTsw(
-              landmarks_[ii].ref_cam_id, rig_, kPoseDim >= 21).inverse(),
-              landmarks_[ii].x_s);
+
     }
   }
 }
@@ -393,6 +398,11 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
           if (fabs(jtj(0,0)) < 1e-6) {
             jtj(0,0) += 1e-6;
           }
+        } else {
+          if (jtj.norm() < 1e-6) {
+            jtj.diagonal() +=
+                Eigen::Matrix<Scalar, kLmDim, 1>::Constant(1e-6);
+          }
         }
 
         vi.insert(landmarks_[ii].opt_id, landmarks_[ii].opt_id) = jtj.inverse();
@@ -405,6 +415,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
             num_poses, num_lm);
 
       Eigen::SparseBlockProduct(jt_pr,j_l_,jt_pr_j_l);
+
       decltype(jt_l_j_pr)::forceTranspose(jt_pr_j_l, jt_l_j_pr);
       PrintTimer(_schur_complement_jtpr_jl);
 
@@ -425,7 +436,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
       //StartTimer(_schur_complement_jtpr_jl_vi_jtl_jpr_d);
       //MatrixXt djt_pr_j_l_vi(
-      //      jt_pr_j_l_vi.rows()*kPoseDim,jt_pr_j_l_vi.cols()*kLmDim);
+      //      jt_pr_j_l_vi.rows()*kPrPoseDim,jt_pr_j_l_vi.cols()*kLmDim);
       //Eigen::LoadDenseFromSparse(jt_pr_j_l_vi,djt_pr_j_l_vi);
 
       //MatrixXt djt_l_j_pr(
@@ -770,6 +781,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       break;
     }
   }
+  are_all_active = false;
 
   if (are_all_active) {
     std::cout << "all poses active." << std::endl;
@@ -823,19 +835,18 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     // this array is used to calculate the robust norm
     errors_.push_back(res.residual.squaredNorm());
 
-    const Eigen::Matrix<Scalar,2,4> dt_dp_s = cam.dTransfer3D_dP(
-          t_sw_m*t_ws_r, lm.x_s.template head<3>(),lm.x_s(3));
+    const Eigen::Matrix<Scalar,2,4> dt_dp_s = kLmDim == 3 ?
+          cam.dTransfer3D_dP(
+            t_sw_m, lm.x_w.template head<3>(),lm.x_w(3)) :
+          cam.dTransfer3D_dP(
+            t_sw_m*t_ws_r, lm.x_s.template head<3>(),lm.x_s(3));
 
     // Landmark Jacobian
     if (lm.is_active) {
       res.dz_dlm = -dt_dp_s.template block<2,kLmDim>( 0, kLmDim == 3 ? 0 : 3 );
     }
 
-    // if the measurement and reference poses are the same, the jacobian is zero
-    if (res.x_ref_id == res.x_meas_id) {
-      res.dz_dx_meas.setZero();
-      res.dz_dx_ref.setZero();
-    } else if (pose.is_active || ref_pose.is_active) {
+    if (pose.is_active || ref_pose.is_active) {
       // std::cout << "Calculating j for residual with poseid " << pose.Id <<
       // " and refPoseId " << refPose.Id << std::endl;
       // derivative for the measurement pose
@@ -1072,15 +1083,15 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     const Pose& pose2 = poses_[res.pose2_id];
 
     Eigen::Matrix<Scalar,10,6> jb_q;
-    Eigen::Matrix<Scalar,10,10> c_res;
-    c_res.setZero();
+    Eigen::Matrix<Scalar,10,10> c_imu_pose;
+    c_imu_pose.setZero();
     ImuPose imu_pose = ImuResidual::IntegrateResidual(
           pose1, res.measurements, pose1.b.template head<3>(),
           pose1.b.template tail<3>(), gravity, res.poses,
-          &jb_q, NULL, &c_res);
+          &jb_q, NULL, &c_imu_pose);
 
     std::cout << "initial cov for res " << res.residual_id << " is " <<
-                 std::endl << c_res.format(kLongFmt) << std::endl;
+                 std::endl << c_imu_pose.format(kLongFmt) << std::endl;
 
     Scalar total_dt =
         res.measurements.back().time - res.measurements.front().time;
@@ -1184,7 +1195,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
             Eigen::Matrix<Scalar, kPoseDim, 1>::Constant(1e-6);
     // std::cout << "cres: " << std::endl << c_res.format(kLongFmt) << std::endl;
     res.cov_inv.template topLeftCorner<9,9>() =
-        dse2t1t2v_dt2 * c_res *
+        dse2t1t2v_dt2 * c_imu_pose *
         dse2t1t2v_dt2.transpose();
     // std::cout << "cov: " << std::endl <<
     //              res.cov_inv.format(kLongFmt) << std::endl;
@@ -1495,7 +1506,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         jt_i_.insert(
           pose.opt_id, res.residual_id ).setZero().
             template block<kPoseDim,ImuResidual::kResSize>(0,0) =
-              dz_dz.transpose() * /*res.cov_inv*/ res.weight;
+              dz_dz.transpose() * res.cov_inv /*res.weight*/;
       }
     }
   }

@@ -259,7 +259,7 @@ public:
     const bool diff_poses = meas_pose_id != residual.x_ref_id;
     if (diff_poses || cam_id != lm.ref_cam_id || LmSize != 1) {
       landmarks_[landmark_id].proj_residuals.push_back(res_id);
-      if (diff_poses) {
+      if (diff_poses || LmSize  != 1) {
         poses_[meas_pose_id].proj_residuals.push_back(res_id);
         if (LmSize == 1) {
           poses_[residual.x_ref_id].proj_residuals.push_back(res_id);

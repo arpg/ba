@@ -63,8 +63,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
           poses_[ii].t_wp = poses_[ii].t_wp * SE3t::exp(calib_update);
           poses_[ii].t_wp = poses_[ii].t_wp * SE3t::exp(p_update);
         }
-        std::cout << "Pose " << ii << " calib delta is " <<
-                     (calib_update).transpose() << std::endl;
+        // std::cout << "Pose " << ii << " calib delta is " <<
+        //              (calib_update).transpose() << std::endl;
         poses_[ii].t_vs = imu_.t_vs;
       } else {
         poses_[ii].t_wp = poses_[ii].t_wp * SE3t::exp(p_update);
@@ -91,9 +91,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
                      poses_[ii].t_vs.matrix() << std::endl;
       }
 
-      std::cout << "Pose delta for " << ii << " is " <<
-                  (-delta_p.template block<kPoseDim,1>(p_offset,0)*
-                   coef).transpose() << std::endl;
+      // std::cout << "Pose delta for " << ii << " is " <<
+      //             (-delta_p.template block<kPoseDim,1>(p_offset,0)*
+      //             coef).transpose() << std::endl;
     } else {
       // if Tvs is being globally adjusted, we must apply the tvs adjustment
       // to the static poses as well, so that reprojection residuals remain
@@ -606,9 +606,6 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
           for (int ii = 0 ; ii < pose.param_mask.size() ; ++ii) {
             if (!pose.param_mask[ii]) {
               const int idx = pose.opt_id*kPoseDim + ii;
-              std::cout << "setting pose " << pose.opt_id << "parameter " <<
-                           ii << " to static, regularizing row,col " <<
-                           idx << std::endl;
               s(idx, idx) = 1.0;
             }
           }
@@ -621,9 +618,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     // now we have to solve for the pose constraints
     StartTimer(_solve_);
 
-    std::cout << "Dense S matrix is " << s.format(kLongFmt) << std::endl;
-    std::cout << "Dense rhs matrix is " <<
-    rhs_p.transpose().format(kLongFmt) << std::endl;
+    // std::cout << "Dense S matrix is " << s.format(kLongFmt) << std::endl;
+    // std::cout << "Dense rhs matrix is " <<
+    // rhs_p.transpose().format(kLongFmt) << std::endl;
     VectorXt delta_p;
     if (do_sparse_solve_) {
        Eigen::SimplicialLDLT<Eigen::SparseMatrix<Scalar>, Eigen::Upper> solver;
@@ -688,8 +685,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     if (dPostError > dPrevError) {
       // std::cout << "Error increasing during optimization, rolling back .."<<
       //             std::endl;
-      // ApplyUpdate(delta_p, delta_l, delta_Calib, true);
-      // break;
+      ApplyUpdate(delta_p, delta_l, delta_Calib, true);
+      break;
     }
     else if ((dPrevError - dPostError)/dPrevError < 0.01) {
       //std::cout << "Error decrease less than 1%, aborting." << std::endl;
@@ -781,10 +778,10 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       break;
     }
   }
-  are_all_active = false;
+  // are_all_active = false;
 
   if (are_all_active) {
-    std::cout << "all poses active." << std::endl;
+    // std::cout << "all poses active." << std::endl;
     Pose& lastPose = poses_.back();
     lastPose.is_param_mask_used = true;
     lastPose.param_mask.assign(kPoseDim, true);
@@ -1575,10 +1572,10 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 }
 // specializations
 // template class BundleAdjuster<REAL_TYPE, ba::NOT_USED,15,2>;
-template class BundleAdjuster<REAL_TYPE, 1,6,0>;
+template class BundleAdjuster<REAL_TYPE, 3,6,0>;
 // template class BundleAdjuster<REAL_TYPE, 3,6,0>;
 //template class BundleAdjuster<REAL_TYPE, 1,15,8>;
-template class BundleAdjuster<REAL_TYPE, 1,9,0>;
+template class BundleAdjuster<REAL_TYPE, 3,9,0>;
 //template class BundleAdjuster<REAL_TYPE, 1,21,2>;
 // template class BundleAdjuster<double, 3,9>;
 

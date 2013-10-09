@@ -116,11 +116,12 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
     if (landmarks_[ii].is_active) {
       const auto& lm_delta =
         delta_l.template segment<kLmDim>(landmarks_[ii].opt_id*kLmDim)*coef;
+
+      // std::cout << "Delta for landmark " << ii << " is " <<
+      // lm_delta.transpose() << std::endl;
+
       if (kLmDim == 1) {
-        landmarks_[ii].x_s.template tail<kLmDim>() -= lm_delta;
-        // std::cout << "Delta for landmark " << ii << " is " <<
-        // lm_delta.transpose() << std::endl;
-        // m_vLandmarks[ii].Xs /= m_vLandmarks[ii].Xs[3];
+        landmarks_[ii].x_s.template tail<kLmDim>() -= lm_delta;        
         landmarks_[ii].x_w =
             MultHomogeneous(poses_[landmarks_[ii].ref_pose_id].GetTsw(
                 landmarks_[ii].ref_cam_id, rig_, kPoseDim >= 21).inverse(),
@@ -270,6 +271,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
   const bool use_triangular = false;
   do_sparse_solve_ = true;
+  do_last_pose_cov_ = true;
 
   for (unsigned int kk = 0 ; kk < uMaxIter ; ++kk) {
     StartTimer(_BuildProblem_);
@@ -403,8 +405,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
             jtj.diagonal() +=
                 Eigen::Matrix<Scalar, kLmDim, 1>::Constant(1e-6);
           }
-        }
-
+        }        
         vi.insert(landmarks_[ii].opt_id, landmarks_[ii].opt_id) = jtj.inverse();
       }
 
@@ -620,13 +621,22 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
     // std::cout << "Dense S matrix is " << s.format(kLongFmt) << std::endl;
     // std::cout << "Dense rhs matrix is " <<
-    // rhs_p.transpose().format(kLongFmt) << std::endl;
+    rhs_p.transpose().format(kLongFmt) << std::endl;
     VectorXt delta_p;
     if (do_sparse_solve_) {
-       Eigen::SimplicialLDLT<Eigen::SparseMatrix<Scalar>, Eigen::Upper> solver;
+       Eigen::SimplicialLDLT<Eigen::SparseMatrix<Scalar>, Eigen::Upper>   solver;
        Eigen::SparseMatrix<Scalar> s_sparse = s.sparseView();
        solver.compute(s_sparse);
       delta_p = num_poses == 0 ? VectorXt() : solver.solve(rhs_p);
+
+      if (do_last_pose_cov_) {
+        const unsigned int start_offset = rhs_p.rows()-kPoseDim;
+        for (int ii = 0; ii < kPoseDim ; ++ii) {
+          last_pose_cov_.col(ii) = solver.solve(
+                VectorXt::Unit(rhs_p.rows(), start_offset+ii)).
+              template tail<kPoseDim>();
+        }
+      }
     } else {
       Eigen::LDLT<Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>,
                   Eigen::Upper> solver;
@@ -657,9 +667,6 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       for (size_t ii = 0 ; ii < num_lm ; ++ii) {
         delta_l.template block<kLmDim,1>( ii*kLmDim, 0 ).noalias() =
             vi.coeff(ii,ii)*rhs_l.template block<kLmDim,1>(ii*kLmDim,0);
-        //std::cout << "Lm " << ii << " delta is " <<
-        //      delta_l.template block<kLmDim,1>(ii*kLmDim, 0).transpose() <<
-        //            std::endl;
       }
     }
     PrintTimer(_back_substitution_);
@@ -1086,9 +1093,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
           pose1, res.measurements, pose1.b.template head<3>(),
           pose1.b.template tail<3>(), gravity, res.poses,
           &jb_q, NULL, &c_imu_pose);
-
-    std::cout << "initial cov for res " << res.residual_id << " is " <<
-                 std::endl << c_imu_pose.format(kLongFmt) << std::endl;
 
     Scalar total_dt =
         res.measurements.back().time - res.measurements.front().time;

@@ -374,6 +374,7 @@ private:
   bool translation_enabled_;
   bool is_param_mask_used_;
   bool do_sparse_solve_;
+  bool do_last_pose_cov_;
   double total_tvs_change_;
   SE3t last_tvs_;
   double proj_error_;
@@ -396,6 +397,7 @@ private:
   std::vector<UnaryResidual> unary_residuals_;
   std::vector<ImuResidual> inertial_residuals_;
   std::vector<Scalar> errors_;
+  Eigen::Matrix<Scalar,PoseSize,PoseSize> last_pose_cov_;
 };
 
 static const int NOT_USED = 0;

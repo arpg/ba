@@ -122,16 +122,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
 
       if (kLmDim == 1) {
         landmarks_[ii].x_s.template tail<kLmDim>() -= lm_delta;
-//        landmarks_[ii].x_w =
-//            MultHomogeneous(poses_[landmarks_[ii].ref_pose_id].GetTsw(
-//                landmarks_[ii].ref_cam_id, rig_, kPoseDim >= 21).inverse(),
-//                landmarks_[ii].x_s);
       } else {
         landmarks_[ii].x_w.template head<kLmDim>() -= lm_delta;
-//        landmarks_[ii].x_s =
-//            MultHomogeneous(poses_[landmarks_[ii].ref_pose_id].GetTsw(
-//                landmarks_[ii].ref_cam_id, rig_, kPoseDim >= 21),
-//                landmarks_[ii].x_w);
       }
 
         // std::cout << "Adjusting landmark with zref: " <<
@@ -1096,7 +1088,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     for( ProjectionResidual& res : proj_residuals_ ){
       // calculate the huber norm weight for this measurement
       const Scalar e = res.residual.norm();
-      // res.weight *= e > c_huber ? c_huber/e : 1.0;
+      res.weight *= e > c_huber ? c_huber/e : 1.0;
       proj_error_ += res.residual.norm() * res.weight;
     }
   }

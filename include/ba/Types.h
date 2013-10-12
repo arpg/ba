@@ -267,7 +267,7 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
   std::vector<ImuPose> poses;
   Eigen::Matrix<Scalar, kResSize, PoseSize> dz_dx1;
   Eigen::Matrix<Scalar, kResSize, PoseSize> dz_dx2;
-  Eigen::Matrix<Scalar, PoseSize, PoseSize> cov_inv;
+  Eigen::Matrix<Scalar, kResSize, kResSize> cov_inv;
   Eigen::Matrix<Scalar, kResSize, 6> dz_dy;
   Eigen::Matrix<Scalar, 9, 2> dz_dg;
   Eigen::Matrix<Scalar, kResSize, 6> dz_db;

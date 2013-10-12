@@ -54,7 +54,7 @@ namespace ba {
 #endif
 
 static Eigen::IOFormat kCleanFmt(4, 0, ", ", ";\n", "", "");
-static Eigen::IOFormat kLongFmt(12, 0, ", ", ";\n", "", "");
+static Eigen::IOFormat kLongFmt(Eigen::FullPrecision, 0, ", ", ";\n", "", "");
 #define NORM_THRESHOLD 1e-3
 #define TESTING_EPS 1e-9
 

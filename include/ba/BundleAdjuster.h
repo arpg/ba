@@ -74,6 +74,7 @@ public:
     assert(rig != 0 || LmSize == 0);
     assert(num_landmarks != 0 || LmSize == 0);
 
+    root_pose_id_ = 0;
     num_active_poses_ = 0;
     num_active_landmarks_ = 0;
     proj_residual_offset = 0;
@@ -123,9 +124,7 @@ public:
     pose.is_active = is_active;
     pose.is_param_mask_used = false;
     pose.t_sw.reserve(rig_.cameras.size());
-    // assume equal distribution of measurements amongst poses
-    pose.proj_residuals.reserve(
-          proj_residuals_.capacity()/poses_.capacity());
+
     pose.id = poses_.size();
     if (is_active) {
       pose.opt_id = num_active_poses_;
@@ -305,6 +304,8 @@ public:
 
   void Solve(const unsigned int uMaxIter);
 
+  void SetRootPoseId(const unsigned int id) { root_pose_id_ = id; }
+
   bool IsTranslationEnabled() { return translation_enabled_; }
   unsigned int GetNumPoses() const { return poses_.size(); }
 
@@ -383,6 +384,7 @@ private:
   double inertial_error_;
   double tvs_trans_prior_;
   double tvs_rot_prior_;
+  unsigned int root_pose_id_;
   unsigned int num_active_poses_;
   unsigned int num_active_landmarks_;
   unsigned int binary_residual_offset_;
@@ -397,7 +399,7 @@ private:
   std::vector<UnaryResidual> unary_residuals_;
   std::vector<ImuResidual> inertial_residuals_;
   std::vector<Scalar> errors_;
-  Eigen::Matrix<Scalar,PoseSize,PoseSize> last_pose_cov_;
+  Eigen::Matrix<Scalar,PoseSize+1,PoseSize+1> last_pose_cov_;
 };
 
 static const int NOT_USED = 0;

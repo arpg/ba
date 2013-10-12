@@ -1088,7 +1088,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     for( ProjectionResidual& res : proj_residuals_ ){
       // calculate the huber norm weight for this measurement
       const Scalar e = res.residual.norm();
-      res.weight *= e > c_huber ? c_huber/e : 1.0;
+      // res.weight *= e > c_huber ? c_huber/e : 1.0;
       proj_error_ += res.residual.norm() * res.weight;
     }
   }
@@ -1284,6 +1284,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     // std::cout << "cov: " << std::endl <<
     //              res.cov_inv.format(kLongFmt) << std::endl;
     res.cov_inv = res.cov_inv.inverse();
+    res.cov_inv.setIdentity();
     // std::cout << "inf: " << std::endl <<
     //              res.cov_inv.format(kLongFmt) << std::endl;
 
@@ -1433,7 +1434,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       // calculate the huber norm weight for this measurement
       // const Scalar e = res.residual.norm();
       //res.W *= e > c_huber ? c_huber/e : 1.0;
-      inertial_error_ += res.residual.norm() * res.weight;
+      inertial_error_ += res.residual.transpose() * res.cov_inv * res.residual;
     }
   }
   errors_.clear();

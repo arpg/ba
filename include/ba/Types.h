@@ -78,6 +78,26 @@ struct LandmarkT {
   bool is_active;
 };
 
+template<typename T>
+///
+/// \brief GetGravityVector Returns the 3d gravity vector from the 2d
+/// direction vector
+/// \param direction The 2d gravity direction vector
+/// \param g Gravity of 1 g in m/s^2
+/// \return The 3d gravity vecto
+///
+static Eigen::Matrix<T, 3, 1> GetGravityVector(
+    const Eigen::Matrix<T, 2, 1>& dir, const T g = (T) ba::Gravity) {
+  T sp = sin(dir[0]);
+  T cp = cos(dir[0]);
+  T sq = sin(dir[1]);
+  T cq = cos(dir[1]);
+  Eigen::Matrix < T, 3, 1 > vec(cp * sq, -sp, cp * cq);
+  vec *= -g;
+  return vec;
+}
+
+
 template<typename Scalar = double>
 struct ImuCalibrationT {
   ImuCalibrationT(const Sophus::SE3Group<Scalar>& t_vs,
@@ -88,6 +108,7 @@ struct ImuCalibrationT {
         b_g(b_g),
         b_a(b_a),
         g(g),
+        g_vec(GetGravityVector(g)),
         r((Eigen::Matrix<Scalar, 6, 1>() <<
         IMU_GYRO_UNCERTAINTY,
         IMU_GYRO_UNCERTAINTY,
@@ -109,30 +130,12 @@ struct ImuCalibrationT {
   /// \brief Gravity vector (2D, parametrized by roll and pitch of the
   /// vector wrt the ground plane)
   Eigen::Matrix<Scalar, 2, 1> g;
+  Eigen::Matrix<Scalar, 3, 1> g_vec;
 
   /// \brief Sensor uncertainty. The first 3 rows/cols are gyroscope
   /// and the last are accel
   Eigen::Matrix<Scalar, 6, 6> r;
 };
-
-template<typename T>
-///
-/// \brief GetGravityVector Returns the 3d gravity vector from the 2d
-/// direction vector
-/// \param direction The 2d gravity direction vector
-/// \param g Gravity of 1 g in m/s^2
-/// \return The 3d gravity vecto
-///
-static Eigen::Matrix<T, 3, 1> GetGravityVector(
-    const Eigen::Matrix<T, 2, 1>& dir, const T g = (T) ba::Gravity) {
-  T sp = sin(dir[0]);
-  T cp = cos(dir[0]);
-  T sq = sin(dir[1]);
-  T cq = cos(dir[1]);
-  Eigen::Matrix < T, 3, 1 > vec(cp * sq, -sp, cp * cq);
-  vec *= -g;
-  return vec;
-}
 
 template<typename T>
 ///
@@ -217,6 +220,7 @@ struct ResidualT {
   unsigned int residual_id;
   unsigned int residual_offset;
   Scalar weight;
+  Scalar orig_weight;
 };
 
 template<typename Scalar = double>

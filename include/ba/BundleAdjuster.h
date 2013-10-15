@@ -24,13 +24,7 @@ class BundleAdjuster
   static const unsigned int kPrPoseDim = 6;
   static const unsigned int kLmDim = LmSize;
   static const unsigned int kPoseDim = PoseSize;
-  static const unsigned int kCalibDim = CalibSize;
-  static const bool kVelInState = (kPoseDim >= 9);
-  static const bool kBiasInState = (kPoseDim >= 15);
-  static const bool kTvsInState = (kPoseDim >= 21);
-  static const bool kGravityInCalib = (kCalibDim >= 2);
-  static const bool kTvsInCalib = (kCalibDim >= 8);
-  static const bool kCamParamsInCalib = (kCalibDim > 8);
+  static const unsigned int kCalibDim = CalibSize;  
 
   typedef PoseT<Scalar> Pose;
   typedef LandmarkT<Scalar,LmSize> Landmark;
@@ -54,6 +48,13 @@ class BundleAdjuster
   typedef Sophus::SE3Group<Scalar> SE3t;
 
 public:
+  static const bool kVelInState = (kPoseDim >= 9);
+  static const bool kBiasInState = (kPoseDim >= 15);
+  static const bool kTvsInState = (kPoseDim >= 21);
+  static const bool kGravityInCalib = (kCalibDim >= 2);
+  static const bool kTvsInCalib = (kCalibDim >= 8);
+  static const bool kCamParamsInCalib = (kCalibDim > 8);
+
   ////////////////////////////////////////////////////////////////////////////
   BundleAdjuster() :
     imu_(SE3t(),Vector3t::Zero(),Vector3t::Zero(),Vector2t::Zero()),
@@ -97,6 +98,18 @@ public:
     unary_residuals_.clear();
     inertial_residuals_.clear();
     landmarks_.clear();
+  }
+
+  ////////////////////////////////////////////////////////////////////////////
+  void SetGravity(const Vector3t& g){
+    if (kGravityInCalib) {
+      const Vector3t new_g_norm = g.normalized();
+      const double p = asin(new_g_norm[1]);
+      const double q = acos(std::min(1.0,std::max(-1.0,-new_g_norm[2]/cos(p))));
+      imu_.g << p, q;
+    }else {
+      imu_.g_vec = g;
+    }
   }
 
   ////////////////////////////////////////////////////////////////////////////
@@ -183,7 +196,7 @@ public:
 
     //now add this constraint to pose A
     UnaryResidual residual;
-    residual.weight = 1.0;
+    residual.orig_weight = 1.0;
     residual.pose_id = pos_id;
     residual.residual_id = unary_residuals_.size();
     residual.residual_offset = unary_residual_offset_;
@@ -207,7 +220,7 @@ public:
 
     //now add this constraint to pose A
     BinaryResidual residual;
-    residual.weight = 1.0;
+    residual.orig_weight = 1.0;
     residual.x1_id = pose1_id;
     residual.x2_id = pose2_id;
     residual.residual_id = binary_residuals_.size();
@@ -235,7 +248,7 @@ public:
     assert(meas_pose_id < poses_.size());
 
     ProjectionResidual residual;
-    residual.weight = weight;
+    residual.orig_weight = weight;
     residual.landmark_id = landmark_id;
     residual.x_meas_id = meas_pose_id;
     residual.x_ref_id = landmarks_[landmark_id].ref_pose_id;
@@ -287,7 +300,7 @@ public:
     //assert(PoseSize == 9);
 
     ImuResidual residual;
-    residual.weight = weight;
+    residual.orig_weight = weight;
     residual.pose1_id = pose1_id;
     residual.pose2_id = pose2_id;
     residual.measurements = imu_meas;
@@ -308,6 +321,7 @@ public:
 
   bool IsTranslationEnabled() { return translation_enabled_; }
   unsigned int GetNumPoses() const { return poses_.size(); }
+  unsigned int GetNumImuResiduals() const { return inertial_residuals_.size(); }
 
   const ImuResidual& GetImuResidual(const unsigned int id)
   const { return inertial_residuals_[id]; }

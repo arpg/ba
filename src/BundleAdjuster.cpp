@@ -1,4 +1,5 @@
 #include <ba/BundleAdjuster.h>
+#include <iomanip>
 
 namespace ba {
 #define DAMPING 1.0
@@ -18,6 +19,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
       std::cout << "Gravity delta is " <<
       delta_calib.template head<2>().transpose() << " gravity is: " <<
       imu_.g.transpose() << std::endl;
+      imu_.g_vec = GetGravityVector(imu_.g);
     }
 
     if (kTvsInCalib) {
@@ -91,9 +93,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
                      poses_[ii].t_vs.matrix() << std::endl;
       }
 
-       std::cout << "Pose delta for " << ii << " is " <<
-                   (-delta_p.template block<kPoseDim,1>(p_offset,0)*
-                   coef).transpose() << std::endl;
+       // std::cout << "Pose delta for " << ii << " is " <<
+       //            (-delta_p.template block<kPoseDim,1>(p_offset,0)*
+       //            coef).transpose() << std::endl;
     } else {
       // if Tvs is being globally adjusted, we must apply the tvs adjustment
       // to the static poses as well, so that reprojection residuals remain
@@ -165,6 +167,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals()
           t_sw_m*t_ws_r, lm.x_s.template head<3>(),lm.x_s(3));
 
     res.residual = res.z - p;
+    // std::cout << "res " << res.residual_id << " : pre" << res.residual.norm() <<
+    //              " post " << res.residual.norm() * res.weight << std::endl;
     proj_error_ += res.residual.norm() * res.weight;
   }
 
@@ -180,7 +184,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals()
   double total_tvs_change = 0;
   for (ImuResidual& res : inertial_residuals_) {
     // set up the initial pose for the integration
-    const Vector3t gravity = GetGravityVector(imu_.g);
+    const Vector3t gravity = kGravityInCalib ? GetGravityVector(imu_.g) :
+                                               imu_.g_vec;
 
     const Pose& pose1 = poses_[res.pose1_id];
     const Pose& pose2 = poses_[res.pose2_id];
@@ -190,12 +195,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals()
           pose1,res.measurements,pose1.b.template head<3>(),
           pose1.b.template tail<3>(),gravity,res.poses);
 
-    const SE3t t_ab = pose1.t_wp.inverse()*imu_pose.t_wp;
-    const SE3t& t_wa = pose1.t_wp;
     const SE3t& t_wb = pose2.t_wp;
 
     res.residual.setZero();
-    res.residual.template head<6>() = SE3t::log(t_wa*t_ab*t_wb.inverse());
+    res.residual.template head<6>() = SE3t::log(imu_pose.t_wp*t_wb.inverse());
     res.residual.template segment<3>(6) = imu_pose.v_w - pose2.v_w;
 
     if (kBiasInState) {
@@ -257,6 +260,11 @@ template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
 void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     const unsigned int uMaxIter)
 {
+  if (proj_residuals_.empty() && binary_residuals_.empty() &&
+      unary_residuals_.empty() && inertial_residuals_.empty()) {
+    return;
+  }
+
   // transfor all landmarks to the sensor view
   if (kLmDim == 1) {
     for (Landmark& lm : landmarks_){
@@ -266,13 +274,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     }
   }
 
-  if (proj_residuals_.empty() && binary_residuals_.empty() &&
-      unary_residuals_.empty() && inertial_residuals_.empty()) {
-    return;
-  }
-
   const bool use_triangular = false;
-  do_sparse_solve_ = true;
+  do_sparse_solve_ = false;
   do_last_pose_cov_ = false;
 
   for (unsigned int kk = 0 ; kk < uMaxIter ; ++kk) {
@@ -700,26 +703,38 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       // std::cout << "Delta calib: " << deltaCalib.transpose() << std::endl;
     }
 
+    // make copies
+    auto landmarks = landmarks_;
+    auto poses = poses_;
+    auto imu = imu_;
+    auto rig = rig_;
+
     ApplyUpdate(delta_p, delta_l, delta_Calib, false);
 
     const double dPrevError = proj_error_ + inertial_error_ + binary_error_;
-    std::cout << "Pre-solve norm: " << dPrevError << " with Epr:" <<
+    std::cout << std::setprecision (15) <<
+                 "Pre-solve norm: " << dPrevError << " with Epr:" <<
                  proj_error_ << " and Ei:" << inertial_error_ <<
                  " and Epp: " << binary_error_ << std::endl;
     EvaluateResiduals();
     const double dPostError = proj_error_ + inertial_error_ + binary_error_;
-    std::cout << "Post-solve norm: " << dPostError << " with Epr:" <<
+    std::cout << std::setprecision (15) <<
+                 "Post-solve norm: " << dPostError << " with Epr:" <<
                   proj_error_ << " and Ei:" << inertial_error_ <<
                  " and Epp: " << binary_error_ << std::endl;
 
     if (dPostError > dPrevError) {
        std::cout << "Error increasing during optimization, rolling back .."<<
                    std::endl;
-      ApplyUpdate(delta_p, delta_l, delta_Calib, true);
+      // ApplyUpdate(delta_p, delta_l, delta_Calib, true);
+      landmarks_ = landmarks;
+      poses_ = poses;
+      imu_ = imu;
+      rig_ = rig;
       break;
     }
-    else if ((dPrevError - dPostError)/dPrevError < 0.01) {
-      std::cout << "Error decrease less than 1%, aborting." << std::endl;
+    else if ((dPrevError - dPostError)/dPrevError < 0.0001) {
+      std::cout << "Error decrease less than 0.001%, aborting." << std::endl;
       break;
     }
       //std::cout << "BA iteration " << kk <<  " error: " << dPostError <<
@@ -828,6 +843,24 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     // dsiable the translation components.
     rootPose.param_mask[0] = rootPose.param_mask[1] =
     rootPose.param_mask[2] = false;
+    rootPose.param_mask[3] = rootPose.param_mask[4] =
+    rootPose.param_mask[5] = false;
+
+    // [TEST] - removes velocity optimization
+//    poses_.back().is_param_mask_used = true;
+//    poses_.back().param_mask.assign(kPoseDim, false);
+//    rootPose.param_mask[6] = rootPose.param_mask[7] =
+//    rootPose.param_mask[8] = false;
+
+//    for (Pose& pose : poses_){
+//      if (&pose != &rootPose) {
+//        pose.is_param_mask_used = true;
+//        pose.param_mask.assign(kPoseDim, true);
+//        pose.param_mask[6] = pose.param_mask[7] =
+//        pose.param_mask[8] = false;
+//      }
+//    }
+
     if (kBiasInState) {
       // disable bias components
       rootPose.param_mask[9] = rootPose.param_mask[10] =
@@ -1057,6 +1090,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     }
 
     // set the residual in m_R which is dense
+    res.weight =  res.orig_weight;
     r_pr_.template segment<ProjectionResidual::kResSize>(res.residual_offset) =
         res.residual;
   }
@@ -1088,7 +1122,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     for( ProjectionResidual& res : proj_residuals_ ){
       // calculate the huber norm weight for this measurement
       const Scalar e = res.residual.norm();
-      // res.weight *= e > c_huber ? c_huber/e : 1.0;
+      res.weight *= (e > c_huber ? c_huber/e : 1.0);
       proj_error_ += res.residual.norm() * res.weight;
     }
   }
@@ -1126,6 +1160,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     //std::cout << "dz_dx2:" << res.dz_dx2 << std::endl;
     //std::cout << "dz_dx2_fd:" << dz_dx2_fd << std::endl;
 
+    res.weight = res.orig_weight;
     r_pp_.template segment<BinaryResidual::kResSize>(res.residual_offset) =
         res.residual;
 
@@ -1155,6 +1190,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     //std::cout << "Junary:" << res.dZ_dX << std::endl;
     //std::cout << "Junary_fd:" << J_fd << std::endl;
 
+    res.weight = res.orig_weight;
     r_u_.template segment<UnaryResidual::kResSize>(res.residual_offset) =
         log_decoupled(t_wp, res.t_wp);
   }
@@ -1164,14 +1200,15 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   inertial_error_ = 0;
   for (ImuResidual& res : inertial_residuals_) {
     // set up the initial pose for the integration
-    const Vector3t gravity = GetGravityVector(imu_.g);
+    const Vector3t gravity = kGravityInCalib ? GetGravityVector(imu_.g) :
+                                               imu_.g_vec;
 
     const Pose& pose1 = poses_[res.pose1_id];
     const Pose& pose2 = poses_[res.pose2_id];
 
     Eigen::Matrix<Scalar,10,6> jb_q;
     Eigen::Matrix<Scalar,10,10> c_imu_pose;
-    c_imu_pose.setZero();
+    c_imu_pose.setZero();    
     ImuPose imu_pose = ImuResidual::IntegrateResidual(
           pose1, res.measurements, pose1.b.template head<3>(),
           pose1.b.template tail<3>(), gravity, res.poses,
@@ -1180,7 +1217,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     Scalar total_dt =
         res.measurements.back().time - res.measurements.front().time;
 
-    const SE3t t_12 = pose1.t_wp.inverse()*imu_pose.t_wp;
     const SE3t& t_w1 = pose1.t_wp;
     const SE3t& t_w2 = pose2.t_wp;
     const SE3t& t_2w = t_w2.inverse();
@@ -1246,7 +1282,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
     res.dz_dx2.template block<3,3>(6,6) = -Matrix3t::Identity();
 
-    res.residual.template head<6>() = SE3t::log(t_w1*t_12*t_2w);
+    res.weight = res.orig_weight;
+    res.residual.template head<6>() = SE3t::log(imu_pose.t_wp*t_2w);
     res.residual.template segment<3>(6) = imu_pose.v_w - pose2.v_w;
 
     // we always calculate the bias jacobians, as it's used in error prop.
@@ -1284,7 +1321,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     // std::cout << "cov: " << std::endl <<
     //              res.cov_inv.format(kLongFmt) << std::endl;
     res.cov_inv = res.cov_inv.inverse();
-    res.cov_inv.setIdentity();
     // std::cout << "inf: " << std::endl <<
     //              res.cov_inv.format(kLongFmt) << std::endl;
 

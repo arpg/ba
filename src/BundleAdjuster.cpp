@@ -10,7 +10,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
     const VectorXt& delta_p, const VectorXt& delta_l,
     const VectorXt& delta_calib, const bool do_rollback)
 {
-  double coef = do_rollback == true ? -1.0 : 1.0;
+  double coef = (do_rollback == true ? -1.0 : 1.0) * DAMPING;
   // update gravity terms if necessary
   if (inertial_residuals_.size() > 0) {
     const VectorXt delta_calib = delta_p.template tail(kCalibDim)*coef;
@@ -93,9 +93,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
                      poses_[ii].t_vs.matrix() << std::endl;
       }
 
-       // std::cout << "Pose delta for " << ii << " is " <<
-       //            (-delta_p.template block<kPoseDim,1>(p_offset,0)*
-       //            coef).transpose() << std::endl;
+        std::cout << "Pose delta for " << ii << " is " <<
+                   (-delta_p.template block<kPoseDim,1>(p_offset,0)*
+                   coef).transpose() << std::endl;
     } else {
       // if Tvs is being globally adjusted, we must apply the tvs adjustment
       // to the static poses as well, so that reprojection residuals remain
@@ -166,9 +166,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals()
     const Vector2t p = rig_.cameras[res.cam_id].camera.Transfer3D(
           t_sw_m*t_ws_r, lm.x_s.template head<3>(),lm.x_s(3));
 
-    res.residual = res.z - p;
-    // std::cout << "res " << res.residual_id << " : pre" << res.residual.norm() <<
-    //              " post " << res.residual.norm() * res.weight << std::endl;
+    // res.residual = res.z - p;
+    //  std::cout << "res " << res.residual_id << " : pre" << res.residual.norm() <<
+    //               " post " << res.residual.norm() * res.weight << std::endl;
     proj_error_ += res.residual.norm() * res.weight;
   }
 
@@ -224,7 +224,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals()
 
     // std::cout << "EVALUATE imu res between " << res.PoseAId << " and " <<
     // res.PoseBId << ":" << res.Residual.transpose () << std::endl;
-    inertial_error_ += res.residual.transpose() * res.cov_inv * res.residual;
+    inertial_error_ +=
+        sqrt(res.residual.transpose() * res.cov_inv * res.residual);
     //res.weight;
   }
 
@@ -704,10 +705,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     }
 
     // make copies
-    auto landmarks = landmarks_;
-    auto poses = poses_;
-    auto imu = imu_;
-    auto rig = rig_;
+//    auto landmarks = landmarks_;
+//    auto poses = poses_;
+//    auto imu = imu_;
+//    auto rig = rig_;
 
     ApplyUpdate(delta_p, delta_l, delta_Calib, false);
 
@@ -726,19 +727,17 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     if (dPostError > dPrevError) {
        std::cout << "Error increasing during optimization, rolling back .."<<
                    std::endl;
-      // ApplyUpdate(delta_p, delta_l, delta_Calib, true);
-      landmarks_ = landmarks;
-      poses_ = poses;
-      imu_ = imu;
-      rig_ = rig;
+      ApplyUpdate(delta_p, delta_l, delta_Calib, true);
+//      landmarks_ = landmarks;
+//      poses_ = poses;
+//      imu_ = imu;
+//      rig_ = rig;
       break;
     }
-    else if ((dPrevError - dPostError)/dPrevError < 0.0001) {
-      std::cout << "Error decrease less than 0.001%, aborting." << std::endl;
+    else if (fabs(dPrevError - dPostError)/dPrevError < 0.001) {
+      std::cout << "Error decrease less than 0.1%, aborting." << std::endl;
       break;
     }
-      //std::cout << "BA iteration " << kk <<  " error: " << dPostError <<
-      //            std::endl;
   }
 
 
@@ -843,8 +842,13 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     // dsiable the translation components.
     rootPose.param_mask[0] = rootPose.param_mask[1] =
     rootPose.param_mask[2] = false;
-    rootPose.param_mask[3] = rootPose.param_mask[4] =
-    rootPose.param_mask[5] = false;
+
+    // if there is no velocity in the state, fix the three initial rotations,
+    // as we don't need to accomodate gravity
+    if (!kVelInState) {
+      rootPose.param_mask[3] = rootPose.param_mask[4] =
+      rootPose.param_mask[5] = false;
+    }
 
     // [TEST] - removes velocity optimization
 //    poses_.back().is_param_mask_used = true;
@@ -860,6 +864,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 //        pose.param_mask[8] = false;
 //      }
 //    }
+
+
 
     if (kBiasInState) {
       // disable bias components
@@ -898,6 +904,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
           t_sw_m*t_ws_r, lm.x_s.template head<3>(),lm.x_s(3));
 
     res.residual = res.z - p;
+    // std::cout << "res " << res.residual_id << " : pre" <<
+    //                res.residual.norm() << std::endl;
 
     // this array is used to calculate the robust norm
     errors_.push_back(res.residual.squaredNorm());
@@ -1320,7 +1328,24 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         dse3t1t2v_dt2.transpose();
     // std::cout << "cov: " << std::endl <<
     //              res.cov_inv.format(kLongFmt) << std::endl;
+
     res.cov_inv = res.cov_inv.inverse();
+//    Eigen::VectorXd diag(9);
+//    diag << 123238,
+//            123238,
+//            123238,
+//            60,
+//            60,
+//            60,
+//            300,
+//            300,
+//            300;
+//    res.cov_inv = diag.asDiagonal();
+    // Eigen::VectorXd diag = res.cov_inv.diagonal();
+    // res.cov_inv = diag.asDiagonal();
+    // res.cov_inv = res.cov_inv.diagonal().asDiagonal();
+    // res.cov_inv.setIdentity();
+
     // std::cout << "inf: " << std::endl <<
     //              res.cov_inv.format(kLongFmt) << std::endl;
 
@@ -1470,7 +1495,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       // calculate the huber norm weight for this measurement
       // const Scalar e = res.residual.norm();
       //res.W *= e > c_huber ? c_huber/e : 1.0;
-      inertial_error_ += res.residual.transpose() * res.cov_inv * res.residual;
+      inertial_error_ +=
+          sqrt(res.residual.transpose() * res.cov_inv * res.residual);
     }
   }
   errors_.clear();

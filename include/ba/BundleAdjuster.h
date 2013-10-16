@@ -322,6 +322,7 @@ public:
   bool IsTranslationEnabled() { return translation_enabled_; }
   unsigned int GetNumPoses() const { return poses_.size(); }
   unsigned int GetNumImuResiduals() const { return inertial_residuals_.size(); }
+  unsigned int GetNumProjResiduals() const { return proj_residuals_.size(); }
 
   const ImuResidual& GetImuResidual(const unsigned int id)
   const { return inertial_residuals_[id]; }

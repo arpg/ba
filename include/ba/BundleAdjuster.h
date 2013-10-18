@@ -315,7 +315,9 @@ public:
     return residual.residual_id;
   }
 
-  void Solve(const unsigned int uMaxIter);
+  void Solve(const unsigned int uMaxIter,
+             const Scalar damping = 1.0,
+             const bool error_increase_allowed = false);
 
   void SetRootPoseId(const unsigned int id) { root_pose_id_ = id; }
 
@@ -344,7 +346,8 @@ private:
   void ApplyUpdate(const VectorXt &delta_p,
                    const VectorXt &delta_l,
                    const VectorXt &deltaCalib,
-                   const bool bRollback);
+                   const bool bRollback,
+                   const Scalar damping = 1.0);
   void EvaluateResiduals();
   void BuildProblem();
 

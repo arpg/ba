@@ -2,15 +2,16 @@
 #include <iomanip>
 
 namespace ba {
-#define DAMPING 1.0
+// #define DAMPING 0.1
 
 ////////////////////////////////////////////////////////////////////////////////
 template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
 void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
     const VectorXt& delta_p, const VectorXt& delta_l,
-    const VectorXt& delta_calib, const bool do_rollback)
+    const VectorXt& delta_calib, const bool do_rollback,
+    const Scalar damping)
 {
-  double coef = (do_rollback == true ? -1.0 : 1.0) * DAMPING;
+  double coef = (do_rollback == true ? -1.0 : 1.0) * damping;
   // update gravity terms if necessary
   if (inertial_residuals_.size() > 0) {
     const VectorXt delta_calib = delta_p.template tail(kCalibDim)*coef;
@@ -259,7 +260,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals()
 ////////////////////////////////////////////////////////////////////////////////
 template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
 void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
-    const unsigned int uMaxIter)
+    const unsigned int uMaxIter,
+    const Scalar damping,
+    const bool error_increase_allowed)
 {
   if (proj_residuals_.empty() && binary_residuals_.empty() &&
       unary_residuals_.empty() && inertial_residuals_.empty()) {
@@ -710,7 +713,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 //    auto imu = imu_;
 //    auto rig = rig_;
 
-    ApplyUpdate(delta_p, delta_l, delta_Calib, false);
+    ApplyUpdate(delta_p, delta_l, delta_Calib, false, damping);
 
     const double dPrevError = proj_error_ + inertial_error_ + binary_error_;
     std::cout << std::setprecision (15) <<
@@ -724,17 +727,18 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
                   proj_error_ << " and Ei:" << inertial_error_ <<
                  " and Epp: " << binary_error_ << std::endl;
 
-    if (dPostError > dPrevError) {
+    if (dPostError > dPrevError && !error_increase_allowed) {
        std::cout << "Error increasing during optimization, rolling back .."<<
                    std::endl;
-      ApplyUpdate(delta_p, delta_l, delta_Calib, true);
+      ApplyUpdate(delta_p, delta_l, delta_Calib, true, damping);
 //      landmarks_ = landmarks;
 //      poses_ = poses;
 //      imu_ = imu;
 //      rig_ = rig;
       break;
     }
-    else if (fabs(dPrevError - dPostError)/dPrevError < 0.001) {
+
+    if (fabs(dPrevError - dPostError)/dPrevError < 0.001) {
       std::cout << "Error decrease less than 0.1%, aborting." << std::endl;
       break;
     }

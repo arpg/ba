@@ -193,6 +193,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
       //               " post " << res.residual.norm() * res.weight << std::endl;
       *proj_error += res.residual.squaredNorm() * res.weight;
     }
+
   }
 
   if (binary_error) {

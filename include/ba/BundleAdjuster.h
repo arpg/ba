@@ -171,6 +171,7 @@ public:
     landmark.ref_pose_id = ref_pose_id;
     landmark.ref_cam_id = ref_cam_id;
     landmark.is_active = is_active;
+    landmark.is_reliable = true;
     landmark.id = landmarks_.size();
     if (is_active) {
       landmark.opt_id = num_active_landmarks_;
@@ -334,8 +335,10 @@ public:
   const Pose& GetPose(const unsigned int id) const  { return poses_[id]; }
 
   // return the landmark in the world frame
-  const Vector4t& GetLandmark(const unsigned int id)
+  const Vector4t& GetLandmark(const unsigned int id)  
   const { return landmarks_[id].x_w; }
+  bool IsLandmarkReliable(const unsigned int id)
+  const { return landmarks_[id].is_reliable; }
 
 private:
   bool _Test_dImuResidual_dX(
@@ -372,8 +375,8 @@ private:
   VectorXt r_pp_;
 
   // pose/pose jacobian for unary constraints
-  BlockMat< Eigen::Matrix<Scalar, UnaryResidual::kResSize, PoseSize>> j_u_;
-  BlockMat< Eigen::Matrix<Scalar, PoseSize, UnaryResidual::kResSize>> jt_u_;
+  BlockMat<Eigen::Matrix<Scalar, UnaryResidual::kResSize, PoseSize>> j_u_;
+  BlockMat<Eigen::Matrix<Scalar, PoseSize, UnaryResidual::kResSize>> jt_u_;
   VectorXt r_u_;
 
   // imu jacobian

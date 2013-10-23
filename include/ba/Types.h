@@ -76,6 +76,7 @@ struct LandmarkT {
   unsigned int ref_pose_id;
   unsigned int ref_cam_id;
   bool is_active;
+  bool is_reliable;
 };
 
 template<typename T>

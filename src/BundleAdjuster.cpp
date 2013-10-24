@@ -158,108 +158,120 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
 
 ////////////////////////////////////////////////////////////////////////////////
 template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
-void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals()
+void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
+    double* proj_error, double* binary_error,
+    double* unary_error, double* inertial_error)
 {
-  proj_error_ = 0;
-  for (ProjectionResidual& res : proj_residuals_) {
-    Landmark& lm = landmarks_[res.landmark_id];
-    Pose& pose = poses_[res.x_meas_id];
-    Pose& ref_pose = poses_[res.x_ref_id];
-    const SE3t t_sw_m =
-        pose.GetTsw(res.cam_id, rig_, kTvsInState);
-    const SE3t t_ws_r =
-        ref_pose.GetTsw(lm.ref_cam_id,rig_, kTvsInState).inverse();
-
-    const Vector2t p = rig_.cameras[res.cam_id].camera.Transfer3D(
-          t_sw_m*t_ws_r, lm.x_s.template head<3>(),lm.x_s(3));
-
-    res.residual = res.z - p;
-
-    //  std::cout << "res " << res.residual_id << " : pre" << res.residual.norm() <<
-    //               " post " << res.residual.norm() * res.weight << std::endl;
-    proj_error_ += res.residual.norm() * res.weight;
+  if (unary_error) {
+    *unary_error = 0;
   }
 
-  binary_error_ = 0;
-  for (BinaryResidual& res : binary_residuals_) {
-    const Pose& pose1 = poses_[res.x1_id];
-    const Pose& pose2 = poses_[res.x2_id];
-    res.residual = SE3t::log(pose1.t_wp*res.t_ab*pose2.t_wp.inverse());
-    binary_error_ += res.residual.norm() * res.weight;
+  if (proj_error) {
+    *proj_error = 0;
+    for (ProjectionResidual& res : proj_residuals_) {
+      Landmark& lm = landmarks_[res.landmark_id];
+      Pose& pose = poses_[res.x_meas_id];
+      Pose& ref_pose = poses_[res.x_ref_id];
+      const SE3t t_sw_m =
+          pose.GetTsw(res.cam_id, rig_, kTvsInState);
+      const SE3t t_ws_r =
+          ref_pose.GetTsw(lm.ref_cam_id,rig_, kTvsInState).inverse();
+
+      const Vector2t p = rig_.cameras[res.cam_id].camera.Transfer3D(
+            t_sw_m*t_ws_r, lm.x_s.template head<3>(),lm.x_s(3));
+
+      res.residual = res.z - p;
+
+      //  std::cout << "res " << res.residual_id << " : pre" << res.residual.norm() <<
+      //               " post " << res.residual.norm() * res.weight << std::endl;
+      *proj_error += res.residual.squaredNorm() * res.weight;
+    }
   }
 
-  inertial_error_ = 0;
-  double total_tvs_change = 0;
-  for (ImuResidual& res : inertial_residuals_) {
-    // set up the initial pose for the integration
-    const Vector3t gravity = kGravityInCalib ? GetGravityVector(imu_.g) :
-                                               imu_.g_vec;
-
-    const Pose& pose1 = poses_[res.pose1_id];
-    const Pose& pose2 = poses_[res.pose2_id];
-
-    // Eigen::Matrix<Scalar,10,10> jb_y;
-    const ImuPose imu_pose = ImuResidual::IntegrateResidual(
-          pose1,res.measurements,pose1.b.template head<3>(),
-          pose1.b.template tail<3>(),gravity,res.poses);
-
-    const SE3t& t_wb = pose2.t_wp;
-
-    res.residual.setZero();
-    res.residual.template head<6>() = SE3t::log(imu_pose.t_wp*t_wb.inverse());
-    res.residual.template segment<3>(6) = imu_pose.v_w - pose2.v_w;
-
-    if (kBiasInState) {
-      res.residual.template segment<6>(9) = pose1.b - pose2.b;
+  if (binary_error) {
+    *binary_error = 0;
+    for (BinaryResidual& res : binary_residuals_) {
+      const Pose& pose1 = poses_[res.x1_id];
+      const Pose& pose2 = poses_[res.x2_id];
+      res.residual = SE3t::log(pose1.t_wp*res.t_ab*pose2.t_wp.inverse());
+      *binary_error += res.residual.squaredNorm() * res.weight;
     }
-
-    // if (kCalibDim > 2 || kPoseDim > 15) {
-      // disable imu translation error
-    //  res.residual.template head<3>().setZero();
-    //  res.residual.template segment<3>(6).setZero(); // velocity error
-    // }
-
-    if (kTvsInState) {
-      res.residual.template segment<6>(15) =
-          SE3t::log(pose1.t_vs*pose2.t_vs.inverse());
-
-      if (translation_enabled_ == false) {
-        total_tvs_change += res.residual.template segment<6>(15).norm();
-
-      }
-      res.residual.template segment<3>(15).setZero();
-    }
-
-    // std::cout << "EVALUATE imu res between " << res.PoseAId << " and " <<
-    // res.PoseBId << ":" << res.Residual.transpose () << std::endl;
-    inertial_error_ +=
-        sqrt(res.residual.transpose() * res.cov_inv * res.residual);
-    //res.weight;
   }
 
-  if (inertial_residuals_.size() > 0 && translation_enabled_ == false) {
-    if (kTvsInCalib) {
-      const Scalar log_dif =
-          SE3t::log(imu_.t_vs * last_tvs_.inverse()).norm();
+  if (inertial_error) {
+    *inertial_error = 0;
+    double total_tvs_change = 0;
+    for (ImuResidual& res : inertial_residuals_) {
+      // set up the initial pose for the integration
+      const Vector3t gravity = kGravityInCalib ? GetGravityVector(imu_.g) :
+                                                 imu_.g_vec;
 
-      std::cout << "logDif is " << log_dif << std::endl;
-      if (log_dif < 0.01 && poses_.size() >= 30) {
-        std::cout << "EMABLING TRANSLATION ERRORS" << std::endl;
-        translation_enabled_ = true;
+      const Pose& pose1 = poses_[res.pose1_id];
+      const Pose& pose2 = poses_[res.pose2_id];
+
+      // Eigen::Matrix<Scalar,10,10> jb_y;
+      const ImuPose imu_pose = ImuResidual::IntegrateResidual(
+            pose1,res.measurements,pose1.b.template head<3>(),
+            pose1.b.template tail<3>(),gravity,res.poses);
+
+      const SE3t& t_wb = pose2.t_wp;
+
+      res.residual.setZero();
+      res.residual.template head<6>() = SE3t::log(imu_pose.t_wp*t_wb.inverse());
+      res.residual.template segment<3>(6) = imu_pose.v_w - pose2.v_w;
+
+      if (kBiasInState) {
+        res.residual.template segment<6>(9) = pose1.b - pose2.b;
       }
-      last_tvs_ = imu_.t_vs;
+
+      // if (kCalibDim > 2 || kPoseDim > 15) {
+        // disable imu translation error
+      //  res.residual.template head<3>().setZero();
+      //  res.residual.template segment<3>(6).setZero(); // velocity error
+      // }
+
+      if (kTvsInState) {
+        res.residual.template segment<6>(15) =
+            SE3t::log(pose1.t_vs*pose2.t_vs.inverse());
+
+        if (translation_enabled_ == false) {
+          total_tvs_change += res.residual.template segment<6>(15).norm();
+
+        }
+        res.residual.template segment<3>(15).setZero();
+      }
+
+      // std::cout << "EVALUATE imu res between " << res.PoseAId << " and " <<
+      // res.PoseBId << ":" << res.Residual.transpose () << std::endl;
+      *inertial_error +=
+          (res.residual.transpose() * res.cov_inv * res.residual);
+      //res.weight;
     }
 
-    if (kTvsInState) {
-      std::cout << "Total tvs change is: " << total_tvs_change << std::endl;
-      if (total_tvs_change_ != 0 &&
-          total_tvs_change/inertial_residuals_.size() < 0.1 &&
-          poses_.size() >= 30) {
-        std::cout << "EMABLING TRANSLATION ERRORS" << std::endl;
-        translation_enabled_ = true;
-        total_tvs_change = 0;
+    if (inertial_residuals_.size() > 0 && translation_enabled_ == false) {
+      if (kTvsInCalib) {
+        const Scalar log_dif =
+            SE3t::log(imu_.t_vs * last_tvs_.inverse()).norm();
+
+        std::cout << "logDif is " << log_dif << std::endl;
+        if (log_dif < 0.01 && poses_.size() >= 30) {
+          std::cout << "EMABLING TRANSLATION ERRORS" << std::endl;
+          translation_enabled_ = true;
+        }
+        last_tvs_ = imu_.t_vs;
       }
-      total_tvs_change_ = total_tvs_change;
+
+      if (kTvsInState) {
+        std::cout << "Total tvs change is: " << total_tvs_change << std::endl;
+        if (total_tvs_change_ != 0 &&
+            total_tvs_change/inertial_residuals_.size() < 0.1 &&
+            poses_.size() >= 30) {
+          std::cout << "EMABLING TRANSLATION ERRORS" << std::endl;
+          translation_enabled_ = true;
+          total_tvs_change = 0;
+        }
+        total_tvs_change_ = total_tvs_change;
+      }
     }
   }
 }
@@ -743,7 +755,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
                  "Pre-solve norm: " << dPrevError << " with Epr:" <<
                  proj_error_ << " and Ei:" << inertial_error_ <<
                  " and Epp: " << binary_error_ << std::endl;
-    EvaluateResiduals();
+    EvaluateResiduals(&proj_error_, &binary_error_,
+                      &unary_error_, &inertial_error_);
     const double dPostError = proj_error_ + inertial_error_ + binary_error_;
     std::cout << std::setprecision (15) <<
                  "Post-solve norm: " << dPostError << " with Epr:" <<
@@ -1162,7 +1175,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       // calculate the huber norm weight for this measurement
       const Scalar e = res.residual.norm();
       res.weight *= (e > c_huber ? c_huber/e : 1.0);
-      proj_error_ += res.residual.norm() * res.weight;
+      proj_error_ += res.residual.squaredNorm() * res.weight;
     }
   }
   errors_.clear();
@@ -1203,7 +1216,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     r_pp_.template segment<BinaryResidual::kResSize>(res.residual_offset) =
         res.residual;
 
-    binary_error_ += res.residual.norm() * res.weight;
+    binary_error_ += res.residual.squaredNorm() * res.weight;
   }
   PrintTimer(_j_evaluation_binary_);
 
@@ -1232,6 +1245,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     res.weight = res.orig_weight;
     r_u_.template segment<UnaryResidual::kResSize>(res.residual_offset) =
         log_decoupled(t_wp, res.t_wp);
+    unary_error_ += res.residual.squaredNorm() * res.weight;
   }
   PrintTimer(_j_evaluation_unary_);
 
@@ -1499,7 +1513,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       }
     }*/
 
-    errors_.push_back(res.residual.squaredNorm());
 
     BA_TEST(_Test_dLog_dq((imu_pose.t_wp * Twb.inverse()).unit_quaternion()));
     BA_TEST(_Test_dImuResidual_dX(pose1, pose2, imu_pose, res, gravity,
@@ -1510,27 +1523,10 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     // transform and gravity, we can construct the jacobian
     r_i_.template segment<ImuResidual::kResSize>(res.residual_offset) =
         res.residual;
+    inertial_error_ +=
+        (res.residual.transpose() * res.cov_inv * res.residual);
   }  
 
-  // get the sigma for robust norm calculation.
-  if (errors_.size() > 0) {
-    auto it = errors_.begin()+std::floor(errors_.size()/2);
-    std::nth_element(errors_.begin(),it,errors_.end());
-    // const Scalar sigma = sqrt(*it);
-    // See "Parameter Estimation Techniques: A Tutorial with Application to
-    // Conic Fitting" by Zhengyou Zhang. PP 26 defines this magic number:
-    // const Scalar c_huber = 1.2107*dSigma;
-
-    // now go through the measurements and assign weights
-    for (ImuResidual& res : inertial_residuals_) {
-      // calculate the huber norm weight for this measurement
-      // const Scalar e = res.residual.norm();
-      //res.W *= e > c_huber ? c_huber/e : 1.0;
-      inertial_error_ +=
-          sqrt(res.residual.transpose() * res.cov_inv * res.residual);
-    }
-  }
-  errors_.clear();
   PrintTimer(_j_evaluation_inertial_);
   PrintTimer(_j_evaluation_);
   //TODO : The transpose insertions here are hideously expensive as they are

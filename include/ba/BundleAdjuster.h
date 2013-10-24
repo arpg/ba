@@ -351,7 +351,9 @@ private:
                    const VectorXt &deltaCalib,
                    const bool bRollback,
                    const Scalar damping = 1.0);
-  void EvaluateResiduals();
+  void EvaluateResiduals(
+      double* proj_error = nullptr, double* binary_error = nullptr,
+      double* unary_error = nullptr, double* inertial_error = nullptr);
   void BuildProblem();
 
   ImuCalibration imu_;

@@ -47,6 +47,14 @@ class BundleAdjuster
   typedef Eigen::Matrix<Scalar,3,3> Matrix3t;
   typedef Sophus::SE3Group<Scalar> SE3t;
 
+  struct Delta
+  {
+    VectorXt delta_p;
+    VectorXt delta_l;
+    VectorXt delta_calib;
+  };
+
+
 public:
   static const bool kVelInState = (kPoseDim >= 9);
   static const bool kBiasInState = (kPoseDim >= 15);
@@ -346,10 +354,7 @@ private:
       const ImuResidual &res, const Vector3t gravity,
       const Eigen::Matrix<Scalar,7,6>& dse3_dx1,
       const Eigen::Matrix<Scalar,10,6>& dt_db);
-  void ApplyUpdate(const VectorXt &delta_p,
-                   const VectorXt &delta_l,
-                   const VectorXt &deltaCalib,
-                   const bool bRollback,
+  void ApplyUpdate(const Delta& delta, const bool bRollback,
                    const Scalar damping = 1.0);
   void EvaluateResiduals(
       double* proj_error = nullptr, double* binary_error = nullptr,

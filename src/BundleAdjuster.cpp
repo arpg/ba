@@ -7,14 +7,13 @@ namespace ba {
 ////////////////////////////////////////////////////////////////////////////////
 template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
 void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
-    const VectorXt& delta_p, const VectorXt& delta_l,
-    const VectorXt& delta_calib, const bool do_rollback,
+    const Delta& delta, const bool do_rollback,
     const Scalar damping)
 {
   double coef = (do_rollback == true ? -1.0 : 1.0) * damping;
   // update gravity terms if necessary
   if (inertial_residuals_.size() > 0) {
-    const VectorXt delta_calib = delta_p.template tail(kCalibDim)*coef;
+    const VectorXt delta_calib = delta.delta_p.template tail(kCalibDim)*coef;
     if (kGravityInCalib) {
       imu_.g -= delta_calib.template head<2>();
       std::cout << "Gravity delta is " <<
@@ -33,8 +32,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
   }
 
   // update the camera parameters
-  if (kCamParamsInCalib && delta_calib.rows() > 8){
-    const auto& update = delta_calib.template block<5,1>(8,0)*coef;
+  if (kCamParamsInCalib && delta.delta_calib.rows() > 8){
+    const auto& update = delta.delta_calib.template block<5,1>(8,0)*coef;
 
     std::cout << "calib delta: " << (update).transpose() << std::endl;
 
@@ -54,10 +53,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
     if (poses_[ii].is_active) {
       const unsigned int p_offset = poses_[ii].opt_id*kPoseDim;
       const auto& p_update =
-          -delta_p.template block<6,1>(p_offset,0)*coef;
+          -delta.delta_p.template block<6,1>(p_offset,0)*coef;
       if (kTvsInCalib && inertial_residuals_.size() > 0) {
         const auto& calib_update =
-            -delta_calib.template block<6,1>(2,0)*coef;
+            -delta.delta_calib.template block<6,1>(2,0)*coef;
 
         if (do_rollback == false) {
           poses_[ii].t_wp = poses_[ii].t_wp * SE3t::exp(p_update);
@@ -76,17 +75,17 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
       // update the velocities if they are parametrized
       if (kVelInState) {
         poses_[ii].v_w -=
-            delta_p.template block<3,1>(p_offset+6,0)*coef;
+            delta.delta_p.template block<3,1>(p_offset+6,0)*coef;
       }
 
       if (kBiasInState) {
         poses_[ii].b -=
-            delta_p.template block<6,1>(p_offset+9,0)*coef;
+            delta.delta_p.template block<6,1>(p_offset+9,0)*coef;
       }
 
       if (kTvsInState) {
         const auto& tvs_update =
-            delta_p.template block<6,1>(p_offset+15,0)*coef;
+            delta.delta_p.template block<6,1>(p_offset+15,0)*coef;
         poses_[ii].t_vs = SE3t::exp(tvs_update)*poses_[ii].t_vs;
         poses_[ii].t_wp = poses_[ii].t_wp * SE3t::exp(-tvs_update);
         std::cout << "Tvs of pose " << ii << " after update " <<
@@ -95,14 +94,15 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
       }
 
         std::cout << "Pose delta for " << ii << " is " <<
-                   (-delta_p.template block<kPoseDim,1>(p_offset,0)*
+                   (-delta.delta_p.template block<kPoseDim,1>(p_offset,0)*
                    coef).transpose() << std::endl;
     } else {
       // if Tvs is being globally adjusted, we must apply the tvs adjustment
       // to the static poses as well, so that reprojection residuals remain
       // the same
       if (kTvsInCalib && inertial_residuals_.size() > 0) {
-        const auto& delta_twp = -delta_calib.template block<6,1>(2,0)*coef;
+        const auto& delta_twp =
+            -delta.delta_calib.template block<6,1>(2,0)*coef;
         poses_[ii].t_wp = poses_[ii].t_wp * SE3t::exp(delta_twp);
         std::cout << "INACTIVE POSE " << ii << " calib delta is " <<
                      (delta_twp).transpose() << std::endl;
@@ -118,7 +118,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
   for (size_t ii = 0 ; ii < landmarks_.size() ; ++ii) {
     if (landmarks_[ii].is_active) {
       const auto& lm_delta =
-        delta_l.template segment<kLmDim>(landmarks_[ii].opt_id*kLmDim)*coef;
+        delta.delta_l.template segment<kLmDim>(
+            landmarks_[ii].opt_id*kLmDim) * coef;
 
         // std::cout << "Delta for landmark " << ii << " is " <<
         //lm_delta.transpose() << std::endl;
@@ -671,14 +672,14 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     // std::cout << "Dense S matrix is " << s.format(kLongFmt) << std::endl;
     // std::cout << "Dense rhs matrix is " <<
     //               rhs_p.transpose().format(kLongFmt) << std::endl;
-    VectorXt delta_p;
+    Delta delta;
     if (num_poses > 0) {
       if (do_sparse_solve_) {
          Eigen::SimplicialLDLT<Eigen::SparseMatrix<Scalar>, Eigen::Upper>
              solver;
          Eigen::SparseMatrix<Scalar> s_sparse = s.sparseView();
          solver.compute(s_sparse);
-        delta_p = num_poses == 0 ? VectorXt() : solver.solve(rhs_p);
+        delta.delta_p = num_poses == 0 ? VectorXt() : solver.solve(rhs_p);
 
         if (do_last_pose_cov_) {
           //const unsigned int start_offset = rhs_p.rows()-kPoseDim;
@@ -702,16 +703,15 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
         Eigen::LDLT<Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>,
                     Eigen::Upper> solver;
         solver.compute(s);
-        delta_p = num_poses == 0 ? VectorXt() : solver.solve(rhs_p);
+        delta.delta_p = num_poses == 0 ? VectorXt() : solver.solve(rhs_p);
       }
     }
 
     PrintTimer(_solve_);
 
     StartTimer(_back_substitution_);
-    VectorXt delta_l;
     if (num_lm > 0) {
-      delta_l.resize(num_lm*kLmDim);
+      delta.delta_l.resize(num_lm*kLmDim);
       VectorXt rhs_l =  bl;
 
       if (num_poses > 0) {
@@ -721,7 +721,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
         // however jt_l_j_pr_delta_p is only with respect to the 6 pose parameters
         Eigen::SparseBlockVectorProductDenseResult(
               jt_l_j_pr,
-              delta_p.head(num_pose_params),
+              delta.delta_p.head(num_pose_params),
               jt_l_j_pr_delta_p,
               kPoseDim, -1);
 
@@ -730,15 +730,14 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       }
 
       for (size_t ii = 0 ; ii < num_lm ; ++ii) {
-        delta_l.template block<kLmDim,1>( ii*kLmDim, 0 ).noalias() =
+        delta.delta_l.template block<kLmDim,1>( ii*kLmDim, 0 ).noalias() =
             vi.coeff(ii,ii)*rhs_l.template block<kLmDim,1>(ii*kLmDim,0);
       }
     }
     PrintTimer(_back_substitution_);
 
-    VectorXt delta_Calib;
     if (kCalibDim > 0 && num_pose_params > 0) {
-      delta_Calib = delta_p.template tail(kCalibDim);
+      delta.delta_calib = delta.delta_p.template tail(kCalibDim);
       // std::cout << "Delta calib: " << deltaCalib.transpose() << std::endl;
     }
 
@@ -748,7 +747,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 //    auto imu = imu_;
 //    auto rig = rig_;
 
-    ApplyUpdate(delta_p, delta_l, delta_Calib, false, damping);
+    ApplyUpdate(delta, false, damping);
 
     const double dPrevError = proj_error_ + inertial_error_ + binary_error_;
     std::cout << std::setprecision (15) <<
@@ -766,7 +765,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     if (dPostError > dPrevError && !error_increase_allowed) {
        std::cout << "Error increasing during optimization, rolling back .."<<
                    std::endl;
-      ApplyUpdate(delta_p, delta_l, delta_Calib, true, damping);
+      ApplyUpdate(delta, true, damping);
 //      landmarks_ = landmarks;
 //      poses_ = poses;
 //      imu_ = imu;

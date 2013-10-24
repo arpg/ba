@@ -302,7 +302,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
   }
 
   const bool use_triangular = false;
-  do_sparse_solve_ = false;
+  do_sparse_solve_ = true;
   do_last_pose_cov_ = false;
 
   for (unsigned int kk = 0 ; kk < uMaxIter ; ++kk) {
@@ -333,8 +333,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     BlockMat< Eigen::Matrix<Scalar, kPrPoseDim, kLmDim>>
         jt_pr_j_l_vi(num_poses, num_lm);
 
-    Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic> s(
-          num_pose_params+kCalibDim, num_pose_params+kCalibDim);
+    s_.resize(num_pose_params+kCalibDim, num_pose_params+kCalibDim);
 
     PrintTimer(_rhs_mult_);
 
@@ -348,7 +347,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     vi.setZero();
     u.setZero();
     bp.setZero();
-    s.setZero();
+    s_.setZero();
     rhs_p.setZero();
 
     std::cout << "Num active poses: " << num_poses << std::endl;
@@ -513,7 +512,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
          Eigen::SparseBlockSubtractDenseResult(
                u, jt_pr_j_l_vi_jt_l_j_pr,
-               s.template block(
+               s_.template block(
                  0, 0, num_pose_params,
                  num_pose_params ));
 
@@ -532,7 +531,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       }
     } else {
       Eigen::LoadDenseFromSparse(
-            u, s.template block(0, 0, num_pose_params, num_pose_params));
+            u, s_.template block(0, 0, num_pose_params, num_pose_params));
       rhs_p.template head(num_pose_params) = bp;
     }
     PrintTimer(_schur_complement_);  
@@ -543,7 +542,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       BlockMat<Eigen::Matrix<Scalar,kCalibDim,kCalibDim>> jt_ki_j_ki(1, 1);
       Eigen::SparseBlockProduct(jt_ki_, j_ki_, jt_ki_j_ki);
       Eigen::LoadDenseFromSparse(
-            jt_ki_j_ki, s.template block<kCalibDim, kCalibDim>(
+            jt_ki_j_ki, s_.template block<kCalibDim, kCalibDim>(
               num_pose_params, num_pose_params));
 
       BlockMat<Eigen::Matrix<Scalar, kPoseDim, kCalibDim>>
@@ -552,10 +551,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       Eigen::SparseBlockProduct(jt_i_, j_ki_, jt_i_j_ki);
       Eigen::LoadDenseFromSparse(
             jt_i_j_ki,
-            s.template block(0, num_pose_params, num_pose_params, kCalibDim));
+            s_.template block(0, num_pose_params, num_pose_params, kCalibDim));
 
-      s.template block(num_pose_params, 0, kCalibDim, num_pose_params) =
-          s.template block(0, num_pose_params,
+      s_.template block(num_pose_params, 0, kCalibDim, num_pose_params) =
+          s_.template block(0, num_pose_params,
                            num_pose_params, kCalibDim).transpose();
 
       // and the rhs for the calibration params
@@ -657,7 +656,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
           for (int ii = 0 ; ii < pose.param_mask.size() ; ++ii) {
             if (!pose.param_mask[ii]) {
               const int idx = pose.opt_id*kPoseDim + ii;
-              s(idx, idx) = 1.0;
+              s_(idx, idx) = 1.0;
             }
           }
         }
@@ -677,8 +676,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       if (do_sparse_solve_) {
          Eigen::SimplicialLDLT<Eigen::SparseMatrix<Scalar>, Eigen::Upper>
              solver;
-         Eigen::SparseMatrix<Scalar> s_sparse = s.sparseView();
-         solver.compute(s_sparse);
+         s_sparse_ = s_.sparseView();
+         solver.compute(s_sparse_);
         delta.delta_p = num_poses == 0 ? VectorXt() : solver.solve(rhs_p);
 
         if (do_last_pose_cov_) {
@@ -702,7 +701,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       } else {
         Eigen::LDLT<Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>,
                     Eigen::Upper> solver;
-        solver.compute(s);
+        solver.compute(s_);
         delta.delta_p = num_poses == 0 ? VectorXt() : solver.solve(rhs_p);
       }
     }
@@ -799,6 +798,75 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
   }
   // std::cout << "Solve took " << Toc(dTime) << " seconds." << std::endl;
 }
+
+/*
+////////////////////////////////////////////////////////////////////////////////
+template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
+void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
+    )
+{
+  bool gn_computed = false;
+  double delta_p_gn_norm;
+  VectorXt delta_p_gn;
+  VectorXt delta_p;
+
+  if (do_sparse_solve_) {
+    s_sparse_ = s_.sparseView();
+  }
+
+  if (do_dogleg_) {
+    // calculate steepest descent result
+    VectorXt delta_p_sd =
+        (rhs_p.transpose() * rhs_p) /
+        (rhs_p.transpose() * (do_sparse_solve_ ? s_sparse_ : s_) * rhs_p) *
+        rhs_p;
+    double delta_p_sd_norm = delta_p_sd.norm();
+
+    do {
+      if (delta_p_sd_norm > trust_region_size_) {
+        delta.delta_p = trust_region_size_ / delta_p_sd_norm * delta_p_sd;
+      } else {
+        // if we haven't computed the gn delta yet, then compute it
+        if (gn_computed == false){
+          delta_p_gn = CalculateGn(rhs_p, delta_p_gn);
+          delta_p_gn_norm = delta_p_sd.norm();
+        }
+
+        if (delta_p_gn_norm <= trust_region_size_) {
+          delta_p = delta_p_gn;
+        } else {
+          delta_p = delta_p_sd + beta*(delta_p_gn - delta_p_sd);
+        }
+      }
+
+      // make copies of the parameters so we can repopulate
+
+      // now compare the change in cost
+      const double prev_cost = binary_error_ + unary_error_ + inertial_error_ +
+                               proj_error_;
+      const double pred_cost = 2 *
+          (0.5 * prev_cost - rhs_p.transpose() * delta_p +  0.5 *
+          delta_p.transpose() * (do_sparse_solve_ ? s_sparse_ : s_) * delta_p);
+
+      const double binary_error, unary_error, inertial_error, proj_error;
+      EvaluateResiduals(proj_error, binary_error, inertial_error, unary_error);
+      const double new_cost = binary_error + unary_error + inertial_error +
+                              proj_error;
+      const double rho = (prev_cost - new_cost)/(prev_cost - pred_cost);
+
+      if (rho > 0) {
+        // then we keep the new parameters
+      } else {
+        // revert the parameters
+      }
+
+      // now update the trust region
+    } while(rho > 0);
+  } else {
+    // calculate gn result
+    delta_p = CalculateGn(rhs_p, delta_p_gn);
+  }
+}*/
 
 ////////////////////////////////////////////////////////////////////////////////
 template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >

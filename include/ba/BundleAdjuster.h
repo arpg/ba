@@ -399,6 +399,8 @@ private:
                                                                         jt_kpr_;
 
   VectorXt r_i_;
+  Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic> s_;
+  Eigen::SparseMatrix<Scalar> s_sparse_;
 
   bool translation_enabled_;
   bool is_param_mask_used_;

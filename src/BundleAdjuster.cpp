@@ -691,16 +691,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     GetLandmarkDelta(delta.delta_p, rhs_l_,  vi, jt_l_j_pr,
                      num_poses, num_lm, delta.delta_l);
 
-    SolveInternal();
-
-
-
-
-    // make copies
-//    auto landmarks = landmarks_;
-//    auto poses = poses_;
-//    auto imu = imu_;
-//    auto rig = rig_;
+    // SolveInternal();
 
     ApplyUpdate(delta, false, damping);
 
@@ -721,10 +712,6 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
        std::cout << "Error increasing during optimization, rolling back .."<<
                    std::endl;
       ApplyUpdate(delta, true, damping);
-//      landmarks_ = landmarks;
-//      poses_ = poses;
-//      imu_ = imu;
-//      rig_ = rig;
       break;
     }
 

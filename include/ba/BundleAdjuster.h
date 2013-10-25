@@ -51,7 +51,6 @@ class BundleAdjuster
   {
     VectorXt delta_p;
     VectorXt delta_l;
-    VectorXt delta_calib;
   };
 
 
@@ -349,6 +348,8 @@ public:
   const { return landmarks_[id].is_reliable; }
 
 private:
+  void SolveInternal();
+
   bool _Test_dImuResidual_dX(
       const Pose &pose1, const Pose &pose2,const ImuPose &imu_pose,
       const ImuResidual &res, const Vector3t gravity,
@@ -406,12 +407,16 @@ private:
   BlockMat<Eigen::Matrix<Scalar, CalibSize, ProjectionResidual::kResSize>>
                                                                         jt_kpr_;
 
+  VectorXt rhs_p_;
+  VectorXt rhs_l_;
   VectorXt r_i_;
   Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic> s_;
   Eigen::SparseMatrix<Scalar> s_sparse_;
+  Scalar trust_region_size_;
 
   bool translation_enabled_;
   bool is_param_mask_used_;
+  bool do_dogleg_;
   bool do_sparse_solve_;
   bool do_last_pose_cov_;
   double total_tvs_change_;
@@ -438,6 +443,7 @@ private:
   std::vector<ImuResidual> inertial_residuals_;
   std::vector<Scalar> errors_;
   Eigen::Matrix<Scalar,PoseSize+1,PoseSize+1> last_pose_cov_;
+
 };
 
 static const int NOT_USED = 0;

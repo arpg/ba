@@ -354,6 +354,14 @@ private:
       const ImuResidual &res, const Vector3t gravity,
       const Eigen::Matrix<Scalar,7,6>& dse3_dx1,
       const Eigen::Matrix<Scalar,10,6>& dt_db);
+
+  void CalculateGn(const VectorXt& rhs_p, VectorXt& delta_gn);
+  void GetLandmarkDelta(
+      const VectorXt &delta_p, const VectorXt &rhs_l,
+      const BlockMat<Eigen::Matrix<Scalar, kLmDim, kLmDim> > &vi,
+      const BlockMat<Eigen::Matrix<Scalar, kLmDim, kPrPoseDim> > &jt_l_j_pr,
+      const uint32_t num_poses, const uint32_t num_lm, VectorXt &delta_l);
+
   void ApplyUpdate(const Delta& delta, const bool bRollback,
                    const Scalar damping = 1.0);
   void EvaluateResiduals(

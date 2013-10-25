@@ -321,12 +321,12 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     StartTimer(_steup_problem_);
     StartTimer(_rhs_mult_);
     // calculate bp and bl
-    VectorXt bp(num_pose_params);
+    VectorXt rhs_p(num_pose_params);
     VectorXt bk;
-    VectorXt bl;
+    VectorXt rhs_l;
     BlockMat< Eigen::Matrix<Scalar, kLmDim, kLmDim>> vi(num_lm, num_lm);
 
-    VectorXt rhs_p(num_pose_params + kCalibDim);
+    VectorXt rhs_p_sc(num_pose_params + kCalibDim);
     BlockMat< Eigen::Matrix<Scalar, kLmDim, kPrPoseDim>>
         jt_l_j_pr(num_lm, num_poses);
 
@@ -346,9 +346,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
     vi.setZero();
     u.setZero();
-    bp.setZero();
-    s_.setZero();
     rhs_p.setZero();
+    s_.setZero();
+    rhs_p_sc.setZero();
 
     std::cout << "Num active poses: " << num_poses << std::endl;
     if (proj_residuals_.size() > 0 && num_poses > 0) {
@@ -366,7 +366,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       // pose dimension than jt_pr (for efficiency)
       Eigen::SparseBlockVectorProductDenseResult(jt_pr, r_pr_, jt_pr_r_pr,
                                                  -1, kPoseDim);
-      bp += jt_pr_r_pr;
+      rhs_p += jt_pr_r_pr;
     }
 
     // add the contribution from the binary terms if any
@@ -380,7 +380,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
       VectorXt jt_pp_r_pp(num_pose_params);
       Eigen::SparseBlockVectorProductDenseResult(jt_pp_, r_pp_, jt_pp_r_pp);
-      bp += jt_pp_r_pp;
+      rhs_p += jt_pp_r_pp;
     }
 
     // add the contribution from the unary terms if any
@@ -394,7 +394,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
       VectorXt jt_u_r_u(num_pose_params);
       Eigen::SparseBlockVectorProductDenseResult(jt_u_, r_u_, jt_u_r_u);
-      bp += jt_u_r_u;
+      rhs_p += jt_u_r_u;
     }
 
     // add the contribution from the imu terms if any
@@ -408,14 +408,14 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
       VectorXt jt_i_r_i(num_pose_params);
       Eigen::SparseBlockVectorProductDenseResult(jt_i_, r_i_, jt_i_r_i);
-      bp += jt_i_r_i;      
+      rhs_p += jt_i_r_i;
     }
     PrintTimer(_jtj_);
 
     StartTimer(_schur_complement_);
     if (kLmDim > 0 && num_lm > 0) {
-      bl.resize(num_lm*kLmDim);
-      bl.setZero();
+      rhs_l.resize(num_lm*kLmDim);
+      rhs_l.setZero();
       StartTimer(_schur_complement_v);
       for (int ii = 0; ii < landmarks_.size() ; ++ii) {
         Eigen::Matrix<Scalar,kLmDim,kLmDim> jtj;
@@ -431,7 +431,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
                     res.residual_id*ProjectionResidual::kResSize, 0) *
                     res.weight);
         }
-        bl.template block<kLmDim,1>(landmarks_[ii].opt_id*kLmDim, 0) = jtr;
+        rhs_l.template block<kLmDim,1>(landmarks_[ii].opt_id*kLmDim, 0) = jtr;
         if (kLmDim == 1) {
           if (fabs(jtj(0,0)) < 1e-6) {
             jtj(0,0) += 1e-6;
@@ -525,14 +525,14 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
         // now form the rhs for the pose equations
         VectorXt jt_pr_j_l_vi_bll(num_pose_params);
         Eigen::SparseBlockVectorProductDenseResult(
-              jt_pr_j_l_vi, bl, jt_pr_j_l_vi_bll, -1, kPoseDim);
+              jt_pr_j_l_vi, rhs_l, jt_pr_j_l_vi_bll, -1, kPoseDim);
 
-        rhs_p.template head(num_pose_params) = bp - jt_pr_j_l_vi_bll;
+        rhs_p_sc.template head(num_pose_params) = rhs_p - jt_pr_j_l_vi_bll;
       }
     } else {
       Eigen::LoadDenseFromSparse(
             u, s_.template block(0, 0, num_pose_params, num_pose_params));
-      rhs_p.template head(num_pose_params) = bp;
+      rhs_p_sc.template head(num_pose_params) = rhs_p;
     }
     PrintTimer(_schur_complement_);  
 
@@ -560,7 +560,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       // and the rhs for the calibration params
       bk.resize(kCalibDim,1);
       Eigen::SparseBlockVectorProductDenseResult(jt_ki_, r_i_, bk);
-      rhs_p.template tail<kCalibDim>() = bk;
+      rhs_p_sc.template tail<kCalibDim>() = bk;
     }
 
     if(kCamParamsInCalib){
@@ -667,73 +667,19 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
     // now we have to solve for the pose constraints
     StartTimer(_solve_);
-
     // std::cout << "Dense S matrix is " << s.format(kLongFmt) << std::endl;
     // std::cout << "Dense rhs matrix is " <<
     //               rhs_p.transpose().format(kLongFmt) << std::endl;
     Delta delta;
     if (num_poses > 0) {
-      if (do_sparse_solve_) {
-         Eigen::SimplicialLDLT<Eigen::SparseMatrix<Scalar>, Eigen::Upper>
-             solver;
-         s_sparse_ = s_.sparseView();
-         solver.compute(s_sparse_);
-        delta.delta_p = num_poses == 0 ? VectorXt() : solver.solve(rhs_p);
-
-        if (do_last_pose_cov_) {
-          //const unsigned int start_offset = rhs_p.rows()-kPoseDim;
-          const unsigned int start_offset = num_pose_params-kPoseDim;
-          Eigen::Matrix<Scalar,kPoseDim,kPoseDim> cov;
-          for (int ii = 0; ii < kPoseDim ; ++ii) {
-            cov.col(ii) = solver.solve(
-                  VectorXt::Unit(rhs_p.rows(), start_offset+ii)).
-                template tail<kPoseDim>();
-          }
-
-          Eigen::Matrix<Scalar,7,6> dexp_dx;
-          // dexp_dx.block<3,3>(0,0) =
-          // dexp_dx.block<4,3>(3,3) = dqExp_dw()
-
-          // Propagate from the 6d error state to the 7d pose state, which is
-          // obtained through the exp operation
-
-        }
-      } else {
-        Eigen::LDLT<Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>,
-                    Eigen::Upper> solver;
-        solver.compute(s_);
-        delta.delta_p = num_poses == 0 ? VectorXt() : solver.solve(rhs_p);
-      }
+      CalculateGn(rhs_p_sc, delta.delta_p);
     }
-
     PrintTimer(_solve_);
 
-    StartTimer(_back_substitution_);
-    if (num_lm > 0) {
-      delta.delta_l.resize(num_lm*kLmDim);
-      VectorXt rhs_l =  bl;
+    // now back substitute the landmarks
+    GetLandmarkDelta(delta.delta_p, rhs_l,  vi, jt_l_j_pr,
+                     num_poses, num_lm, delta.delta_l);
 
-      if (num_poses > 0) {
-        VectorXt jt_l_j_pr_delta_p;
-        jt_l_j_pr_delta_p.resize(num_lm*kLmDim );
-        // this is the strided multiplication as delta_p has all pose parameters,
-        // however jt_l_j_pr_delta_p is only with respect to the 6 pose parameters
-        Eigen::SparseBlockVectorProductDenseResult(
-              jt_l_j_pr,
-              delta.delta_p.head(num_pose_params),
-              jt_l_j_pr_delta_p,
-              kPoseDim, -1);
-
-        rhs_l.resize(num_lm*kLmDim );
-        rhs_l -=  jt_l_j_pr_delta_p;
-      }
-
-      for (size_t ii = 0 ; ii < num_lm ; ++ii) {
-        delta.delta_l.template block<kLmDim,1>( ii*kLmDim, 0 ).noalias() =
-            vi.coeff(ii,ii)*rhs_l.template block<kLmDim,1>(ii*kLmDim,0);
-      }
-    }
-    PrintTimer(_back_substitution_);
 
     if (kCalibDim > 0 && num_pose_params > 0) {
       delta.delta_calib = delta.delta_p.template tail(kCalibDim);
@@ -797,6 +743,82 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     }
   }
   // std::cout << "Solve took " << Toc(dTime) << " seconds." << std::endl;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
+void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::GetLandmarkDelta(
+    const VectorXt& delta_p, const VectorXt& rhs_l,
+    const BlockMat< Eigen::Matrix<Scalar, kLmDim, kLmDim>>& vi,
+    const BlockMat< Eigen::Matrix<Scalar, kLmDim, kPrPoseDim>>& jt_l_j_pr,
+    const uint32_t num_poses, const uint32_t num_lm,
+    VectorXt& delta_l)
+{
+  StartTimer(_back_substitution_);
+  if (num_lm > 0) {
+    delta_l.resize(num_lm*kLmDim);
+    VectorXt rhs_l_sc =  rhs_l;
+
+    if (num_poses > 0) {
+      VectorXt jt_l_j_pr_delta_p;
+      jt_l_j_pr_delta_p.resize(num_lm*kLmDim);
+      // this is the strided multiplication as delta_p has all pose parameters,
+      // however jt_l_j_pr_delta_p is only with respect to the 6 pose parameters
+      Eigen::SparseBlockVectorProductDenseResult(
+            jt_l_j_pr,
+            delta_p.head(num_poses*kPoseDim),
+            jt_l_j_pr_delta_p,
+            kPoseDim, -1);
+
+      rhs_l_sc.resize(num_lm*kLmDim );
+      rhs_l_sc -=  jt_l_j_pr_delta_p;
+    }
+
+    for (size_t ii = 0 ; ii < num_lm ; ++ii) {
+      delta_l.template block<kLmDim,1>( ii*kLmDim, 0 ).noalias() =
+          vi.coeff(ii,ii)*rhs_l_sc.template block<kLmDim,1>(ii*kLmDim,0);
+    }
+  }
+  PrintTimer(_back_substitution_);
+
+}
+
+////////////////////////////////////////////////////////////////////////////////
+template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
+void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::CalculateGn(
+    const VectorXt& rhs_p, VectorXt& delta_gn)
+{
+  if (do_sparse_solve_) {
+     Eigen::SimplicialLDLT<Eigen::SparseMatrix<Scalar>, Eigen::Upper>
+         solver;
+     s_sparse_ = s_.sparseView();
+     solver.compute(s_sparse_);
+    delta_gn = (rhs_p.rows() == 0 ? VectorXt() : solver.solve(rhs_p));
+
+    //if (do_last_pose_cov_) {
+    //  //const unsigned int start_offset = rhs_p.rows()-kPoseDim;
+    //  const unsigned int start_offset = num_pose_params-kPoseDim;
+    //  Eigen::Matrix<Scalar,kPoseDim,kPoseDim> cov;
+    //  for (int ii = 0; ii < kPoseDim ; ++ii) {
+    //    cov.col(ii) = solver.solve(
+    //          VectorXt::Unit(rhs_p.rows(), start_offset+ii)).
+    //        template tail<kPoseDim>();
+    //  }
+
+    //  Eigen::Matrix<Scalar,7,6> dexp_dx;
+    //  // dexp_dx.block<3,3>(0,0) =
+    //  // dexp_dx.block<4,3>(3,3) = dqExp_dw()
+
+    //  // Propagate from the 6d error state to the 7d pose state, which is
+    //  // obtained through the exp operation
+
+    //}
+  } else {
+    Eigen::LDLT<Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>,
+                Eigen::Upper> solver;
+    solver.compute(s_);
+    delta_gn = (rhs_p.rows() == 0 ? VectorXt() : solver.solve(rhs_p));
+  }
 }
 
 /*

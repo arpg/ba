@@ -407,6 +407,9 @@ private:
   BlockMat<Eigen::Matrix<Scalar, CalibSize, ProjectionResidual::kResSize>>
                                                                         jt_kpr_;
 
+  BlockMat< Eigen::Matrix<Scalar, kLmDim, kLmDim>> vi_;
+  BlockMat< Eigen::Matrix<Scalar, kLmDim, kPrPoseDim>> jt_l_j_pr_;
+
   VectorXt rhs_p_;
   VectorXt rhs_l_;
   VectorXt r_i_;

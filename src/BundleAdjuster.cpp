@@ -331,11 +331,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     // calculate bp and bl
     rhs_p_.resize(num_pose_params);
     VectorXt bk;
-    BlockMat< Eigen::Matrix<Scalar, kLmDim, kLmDim>> vi(num_lm, num_lm);
+    vi_.resize(num_lm, num_lm);
 
     VectorXt rhs_p_sc(num_pose_params + kCalibDim);
-    BlockMat< Eigen::Matrix<Scalar, kLmDim, kPrPoseDim>>
-        jt_l_j_pr(num_lm, num_poses);
+    jt_l_j_pr_.resize(num_lm, num_poses);
 
     BlockMat< Eigen::Matrix<Scalar, kPrPoseDim, kLmDim>>
         jt_pr_j_l_vi(num_poses, num_lm);
@@ -351,7 +350,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     BlockMat<Eigen::Matrix<Scalar, kPoseDim, kPoseDim>> u(
           num_poses, num_poses);
 
-    vi.setZero();
+    vi_.setZero();
     u.setZero();
     rhs_p_.setZero();
     s_.setZero();
@@ -449,7 +448,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
                 Eigen::Matrix<Scalar, kLmDim, 1>::Constant(1e-6);
           }
         }        
-        vi.insert(landmarks_[ii].opt_id, landmarks_[ii].opt_id) = jtj.inverse();
+        vi_.insert(landmarks_[ii].opt_id, landmarks_[ii].opt_id) = jtj.inverse();
       }
 
       PrintTimer(_schur_complement_v);
@@ -476,13 +475,13 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
         //Eigen::LoadDenseFromSparse(vi,dvi);
         //std::cout << "v_i" << std::endl << dvi.format(kLongFmt) << std::endl;
 
-        decltype(jt_l_j_pr)::forceTranspose(jt_pr_j_l, jt_l_j_pr);
+        decltype(jt_l_j_pr_)::forceTranspose(jt_pr_j_l, jt_l_j_pr_);
         PrintTimer(_schur_complement_jtpr_jl);
 
         // attempt to solve for the poses. W_V_inv is used later on,
         // so we cache it
         StartTimer(_schur_complement_jtpr_jl_vi);
-        Eigen::SparseBlockDiagonalRhsProduct(jt_pr_j_l, vi, jt_pr_j_l_vi);
+        Eigen::SparseBlockDiagonalRhsProduct(jt_pr_j_l, vi_, jt_pr_j_l_vi);
         PrintTimer(_schur_complement_jtpr_jl_vi);
 
 
@@ -490,7 +489,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
         BlockMat< Eigen::Matrix<Scalar, kPrPoseDim, kPrPoseDim>>
               jt_pr_j_l_vi_jt_l_j_pr(num_poses, num_poses);
 
-        Eigen::SparseBlockProduct(jt_pr_j_l_vi, jt_l_j_pr,
+        Eigen::SparseBlockProduct(jt_pr_j_l_vi, jt_l_j_pr_,
                                   jt_pr_j_l_vi_jt_l_j_pr, use_triangular);
         PrintTimer(_schur_complement_jtpr_jl_vi_jtl_jpr);
 
@@ -688,8 +687,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     PrintTimer(_solve_);
 
     // now back substitute the landmarks
-    GetLandmarkDelta(delta.delta_p, rhs_l_,  vi, jt_l_j_pr,
+    GetLandmarkDelta(delta.delta_p, rhs_l_,  vi_, jt_l_j_pr_,
                      num_poses, num_lm, delta.delta_l);
+
 
     // SolveInternal();
 
@@ -826,6 +826,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
   bool gn_computed = false;
   Delta delta_sd;
   Delta delta_dl;
+  Delta delta_gn;
 
   if (do_dogleg_) {
     // Make copies of the initial parameters.
@@ -836,39 +837,92 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
 
     // calculate steepest descent result
     Scalar nominator = rhs_p_.squaredNorm() + rhs_l_.squaredNorm();
+
     VectorXt j_p_rhs_p(ProjectionResidual::kResSize * proj_residuals_.size());
-    Eigen::SparseBlockVectorProductDenseResult(
-          j_pr_,
-          rhs_p_,
-          j_p_rhs_p,
-          kPoseDim);
-
-    VectorXt j_l_rhs_l(ProjectionResidual::kResSize * proj_residuals_.size());
-    Eigen::SparseBlockVectorProductDenseResult(
-          j_l_,
-          rhs_l_,
-          j_l_rhs_l);
-
+    j_p_rhs_p.setZero();
     VectorXt j_i_rhs_p_(ImuResidual::kResSize * inertial_residuals_.size());
-    Eigen::SparseBlockVectorProductDenseResult(
-          j_i_,
-          rhs_p_,
-          j_i_rhs_p_);
+    j_i_rhs_p_.setZero();
+    VectorXt j_l_rhs_l(ProjectionResidual::kResSize * proj_residuals_.size());
+    j_l_rhs_l.setZero();
+
+    if (num_active_poses_ > 0) {
+      Eigen::SparseBlockVectorProductDenseResult(
+            j_pr_,
+            rhs_p_,
+            j_p_rhs_p,
+            kPoseDim);
+      Eigen::SparseBlockVectorProductDenseResult(
+            j_i_,
+            rhs_p_,
+            j_i_rhs_p_);
+    }
+
+    if (num_active_landmarks_ > 0) {
+
+      Eigen::SparseBlockVectorProductDenseResult(
+            j_l_,
+            rhs_l_,
+            j_l_rhs_l);
+    }
 
     Scalar denominator = (j_p_rhs_p + j_l_rhs_l).squaredNorm() +
                           j_i_rhs_p_.squaredNorm();
+
     Scalar factor = nominator/denominator;
     delta_sd.delta_p = rhs_p_ * factor;
     delta_sd.delta_l = rhs_l_ * factor;
 
     // now calculate the steepest descent norm
     Scalar delta_sd_norm = delta_sd.delta_p.norm() + delta_sd.delta_l.norm();
+    std::cout << "sd norm : " << delta_sd_norm << std::endl;
+
     if (delta_sd_norm > trust_region_size_) {
+      std::cout << "sd norm less than trust region of " <<
+                   trust_region_size_ << " chosing sd update " << std::endl;
+
       Scalar factor = trust_region_size_ / delta_sd_norm;
       delta_dl.delta_p = factor * delta_sd.delta_p;
       delta_dl.delta_l = factor * delta_sd.delta_l;
     }else {
-      delta_dl = delta_sd;
+      std::cout << "sd norm larger than trust region of " <<
+                   trust_region_size_ << std::endl;
+      if (!gn_computed) {
+        std::cout << "Computing gauss newton " <<
+                     trust_region_size_ << std::endl;
+        if (num_active_poses_ > 0) {
+          CalculateGn(rhs_p_, delta_gn.delta_p);
+        }
+        // now back substitute the landmarks
+        GetLandmarkDelta(delta_gn.delta_p, rhs_l_,  vi_, jt_l_j_pr_,
+                         num_active_poses_, num_active_landmarks_,
+                         delta_gn.delta_l);
+      }
+
+      Scalar delta_gn_norm = delta_gn.delta_p.norm() + delta_gn.delta_l.norm();
+      if (delta_gn_norm <= trust_region_size_) {
+        std::cout << "Gauss newton delta: " << delta_gn_norm <<
+                     "is smaller than trust region of " <<
+                     trust_region_size_ << std::endl;
+        delta_dl = delta_gn;
+      } else {
+        std::cout << "Gauss newton delta: " << delta_gn_norm <<
+                     "is larger than trust region of " <<
+                     trust_region_size_ << std::endl;
+        VectorXt diff_p = delta_gn.delta_p - delta_sd.delta_p;
+        VectorXt diff_l = delta_gn.delta_l - delta_sd.delta_l;
+        Scalar a = diff_p.squaredNorm() + diff_l.squaredNorm();
+        Scalar b = 2 * (diff_p.transpose() * delta_sd.delta_p +
+                        diff_l.transpose() * delta_sd.delta_l)[0];
+        Scalar c = delta_sd.delta_p.squaredNorm() +
+                   delta_sd.delta_l.squaredNorm() - powi(trust_region_size_,2);
+        Scalar beta = (-(b*b) + sqrt(b*b - 4*a*c)) / (2 * a);
+
+        delta_dl.delta_p = delta_sd.delta_p + beta*(diff_p);
+        delta_dl.delta_l = delta_sd.delta_l + beta*(diff_l);
+
+        std::cout << "Updated gn delta is: " << delta_dl.delta_p.norm() +
+                     delta_dl.delta_l.norm() << std::endl;
+      }
     }
 
     const double prev_error = proj_error_ + inertial_error_ + binary_error_;

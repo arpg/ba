@@ -1162,12 +1162,12 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 //      }
 //    }
 
-    if (kBiasInState) {
+    // if (kBiasInState) {
       // disable bias components
-      root_pose.param_mask[9] = root_pose.param_mask[10] =
-      root_pose.param_mask[11] = root_pose.param_mask[12] =
-      root_pose.param_mask[13] = root_pose.param_mask[14] = false;
-    }
+    //   root_pose.param_mask[9] = root_pose.param_mask[10] =
+    //   root_pose.param_mask[11] = root_pose.param_mask[12] =
+    //   root_pose.param_mask[13] = root_pose.param_mask[14] = false;
+    // }
   }
 
   // used to store errors for robust norm calculation
@@ -2015,7 +2015,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 template class BundleAdjuster<REAL_TYPE, 1,6,0>;
 // template class BundleAdjuster<REAL_TYPE, 3,6,0>;
 //template class BundleAdjuster<REAL_TYPE, 1,15,8>;
-template class BundleAdjuster<REAL_TYPE, 1,9,0>;
+template class BundleAdjuster<REAL_TYPE, 1,15,0>;
 //template class BundleAdjuster<REAL_TYPE, 1,21,2>;
 // template class BundleAdjuster<double, 3,9>;
 

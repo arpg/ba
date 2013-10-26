@@ -40,7 +40,9 @@ struct InterpolationBufferT {
   ScalarType average_dt;
   InterpolationBufferT(unsigned int size = 1000)
       : start_time(-1),
-        end_time(-1) {
+        end_time(-1),
+        average_dt(-1)
+  {
     elements.reserve(size);
   }
   //////////////////////////////////////////////////////////////////////////////
@@ -54,7 +56,8 @@ struct InterpolationBufferT {
     const ScalarType dt = nElems == 0 ? 0 : element.time - elements.back().time;
 
     // update the average dt
-    average_dt = (average_dt * nElems + dt) / (nElems + 1);
+    average_dt = average_dt == -1 ? dt :
+                 (average_dt * nElems + dt) / (nElems + 1);
     // add the element and update the end time
     elements.push_back(element);
     end_time = element.time;

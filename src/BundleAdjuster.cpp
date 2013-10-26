@@ -690,6 +690,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
                      num_poses, num_lm, delta.delta_l);
     */
 
+    // std::cout << "running solve internal with " << use_dogleg << std::endl;
     if (!SolveInternal(rhs_p_sc, gn_damping,
                        error_increase_allowed,
                        use_dogleg)) {
@@ -830,6 +831,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     const bool error_increase_allowed, const bool use_dogleg
     )
 {
+  // std::cout << "ub solve internal with " << use_dogleg << std::endl;
   bool gn_computed = false;
   Delta delta_sd;
   Delta delta_dl;
@@ -919,10 +921,10 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
           std::cout << "Gauss newton delta: " << delta_gn_norm <<
                        " is larger than trust region of " <<
                        trust_region_size_ << std::endl;
-//          std::cout << "delta_sd: " << std::endl << delta_sd.delta_p.transpose() <<
-//                       " " << delta_sd.delta_l.transpose() << std::endl;
-//          std::cout << "delta_gn: " << std::endl << delta_gn.delta_p.transpose() <<
-//                       " " << delta_gn.delta_l.transpose() << std::endl;
+          //std::cout << "delta_sd: " << std::endl << delta_sd.delta_p.transpose() <<
+          //             " " << delta_sd.delta_l.transpose() << std::endl;
+          //std::cout << "delta_gn: " << std::endl << delta_gn.delta_p.transpose() <<
+          //             " " << delta_gn.delta_l.transpose() << std::endl;
 
           VectorXt diff_p = delta_gn.delta_p - delta_sd.delta_p;
           VectorXt diff_l = delta_gn.delta_l - delta_sd.delta_l;
@@ -939,11 +941,11 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
           delta_dl.delta_p = delta_sd.delta_p + beta*(diff_p);
           delta_dl.delta_l = delta_sd.delta_l + beta*(diff_l);
 
-          std::cout << "a: " << a << " b: " << b << " c: " << c <<
-                       " beta: " << beta <<
-                       "Updated dl delta is: " <<
-                       sqrt(delta_dl.delta_p.squaredNorm() +
-                       delta_dl.delta_l.squaredNorm()) << std::endl;
+          //std::cout << "a: " << a << " b: " << b << " c: " << c <<
+          //           " beta: " << beta <<
+          //           "Updated dl delta is: " <<
+          //           sqrt(delta_dl.delta_p.squaredNorm() +
+          //           delta_dl.delta_l.squaredNorm()) << std::endl;
         }
       }
 
@@ -985,17 +987,21 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
       }
     }
   } else {
+    std::cout << "NOT USING DOGLEG" << std::endl;
+
     Delta delta;
     if (num_active_poses_ > 0) {
       CalculateGn(rhs_p_sc, delta.delta_p);
     }
-    PrintTimer(_solve_);
+
 
     // now back substitute the landmarks
     GetLandmarkDelta(delta.delta_p, rhs_l_,  vi_, jt_l_j_pr_,
                      num_active_poses_, num_active_landmarks_, delta.delta_l);
 
+
     ApplyUpdate(delta, false, gn_damping);
+
 
     const double dPrevError = proj_error_ + inertial_error_ + binary_error_;
     std::cout << std::setprecision (15) <<
@@ -1017,10 +1023,12 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
       return false;
     }
 
+
     if (fabs(dPrevError - dPostError)/dPrevError < 0.001) {
       std::cout << "Error decrease less than 0.1%, aborting." << std::endl;
       return false;
     }
+
   }
   return true;
 }

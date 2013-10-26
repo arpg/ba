@@ -328,8 +328,9 @@ public:
   }
 
   void Solve(const unsigned int uMaxIter,
-             const Scalar damping = 1.0,
-             const bool error_increase_allowed = false);
+             const Scalar gn_damping = 1.0,
+             const bool error_increase_allowed = false,
+             const bool use_dogleg = true);
 
   void SetRootPoseId(const unsigned int id) { root_pose_id_ = id; }
 
@@ -352,7 +353,8 @@ public:
   const { return landmarks_[id].is_reliable; }
 
 private:
-  bool SolveInternal(VectorXt rhs_p_sc);
+  bool SolveInternal(VectorXt rhs_p_sc, const Scalar gn_damping,
+                     const bool error_increase_allowed, const bool use_dogleg);
 
   bool _Test_dImuResidual_dX(
       const Pose &pose1, const Pose &pose2,const ImuPose &imu_pose,
@@ -422,8 +424,7 @@ private:
   Scalar trust_region_size_;
 
   bool translation_enabled_;
-  bool is_param_mask_used_;
-  bool do_dogleg_;
+  bool is_param_mask_used_; 
   bool do_sparse_solve_;
   bool do_last_pose_cov_;
   double total_tvs_change_;

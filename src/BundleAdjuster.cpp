@@ -287,9 +287,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
 ////////////////////////////////////////////////////////////////////////////////
 template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
 void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
-    const unsigned int uMaxIter,
-    const Scalar damping,
-    const bool error_increase_allowed)
+    const unsigned int uMaxIter, const Scalar gn_damping,
+    const bool error_increase_allowed, const bool use_dogleg)
 {
   if (proj_residuals_.empty() && binary_residuals_.empty() &&
       unary_residuals_.empty() && inertial_residuals_.empty()) {
@@ -311,7 +310,6 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
   const bool use_triangular = false;
   do_sparse_solve_ = true;
   do_last_pose_cov_ = false;
-  do_dogleg_ = true;
 
   for (unsigned int kk = 0 ; kk < uMaxIter ; ++kk) {
     std::cout << "Building problem." << std::endl;
@@ -692,7 +690,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
                      num_poses, num_lm, delta.delta_l);
     */
 
-    if (!SolveInternal(rhs_p_sc)) {
+    if (!SolveInternal(rhs_p_sc, gn_damping,
+                       error_increase_allowed,
+                       use_dogleg)) {
       break;
     }
 
@@ -826,7 +826,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::CalculateGn(
 ////////////////////////////////////////////////////////////////////////////////
 template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
 bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
-    VectorXt rhs_p_sc
+    VectorXt rhs_p_sc, const Scalar gn_damping,
+    const bool error_increase_allowed, const bool use_dogleg
     )
 {
   bool gn_computed = false;
@@ -834,7 +835,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
   Delta delta_dl;
   Delta delta_gn;
 
-  if (do_dogleg_) {
+  if (use_dogleg) {
     // Make copies of the initial parameters.
     auto landmarks_copy = landmarks_;
     auto poses_copy = poses_;
@@ -897,8 +898,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
         std::cout << "sd norm less than trust region of " <<
                      trust_region_size_ << std::endl;
         if (!gn_computed) {
-          std::cout << "Computing gauss newton " <<
-                       trust_region_size_ << std::endl;
+          std::cout << "Computing gauss newton " << std::endl;
           if (num_active_poses_ > 0) {
             CalculateGn(rhs_p_sc, delta_gn.delta_p);
           }
@@ -917,21 +917,32 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
           delta_dl = delta_gn;
         } else {
           std::cout << "Gauss newton delta: " << delta_gn_norm <<
-                       "is larger than trust region of " <<
+                       " is larger than trust region of " <<
                        trust_region_size_ << std::endl;
+//          std::cout << "delta_sd: " << std::endl << delta_sd.delta_p.transpose() <<
+//                       " " << delta_sd.delta_l.transpose() << std::endl;
+//          std::cout << "delta_gn: " << std::endl << delta_gn.delta_p.transpose() <<
+//                       " " << delta_gn.delta_l.transpose() << std::endl;
+
           VectorXt diff_p = delta_gn.delta_p - delta_sd.delta_p;
           VectorXt diff_l = delta_gn.delta_l - delta_sd.delta_l;
           Scalar a = diff_p.squaredNorm() + diff_l.squaredNorm();
           Scalar b = 2 * (diff_p.transpose() * delta_sd.delta_p +
                           diff_l.transpose() * delta_sd.delta_l)[0];
-          Scalar c = delta_sd.delta_p.squaredNorm() +
-                     delta_sd.delta_l.squaredNorm() - powi(trust_region_size_,2);
+
+          // std::cout << "tr: " << trust_region_size_ << std::endl;
+          Scalar c = (delta_sd.delta_p.squaredNorm() +
+                      delta_sd.delta_l.squaredNorm()) -
+                      trust_region_size_ * trust_region_size_;
           Scalar beta = (-(b*b) + sqrt(b*b - 4*a*c)) / (2 * a);
 
           delta_dl.delta_p = delta_sd.delta_p + beta*(diff_p);
           delta_dl.delta_l = delta_sd.delta_l + beta*(diff_l);
 
-          std::cout << "Updated dl delta is: " << sqrt(delta_dl.delta_p.squaredNorm() +
+          std::cout << "a: " << a << " b: " << b << " c: " << c <<
+                       " beta: " << beta <<
+                       "Updated dl delta is: " <<
+                       sqrt(delta_dl.delta_p.squaredNorm() +
                        delta_dl.delta_l.squaredNorm()) << std::endl;
         }
       }
@@ -972,6 +983,43 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
                      trust_region_size_ << std::endl;
         break;
       }
+    }
+  } else {
+    Delta delta;
+    if (num_active_poses_ > 0) {
+      CalculateGn(rhs_p_sc, delta.delta_p);
+    }
+    PrintTimer(_solve_);
+
+    // now back substitute the landmarks
+    GetLandmarkDelta(delta.delta_p, rhs_l_,  vi_, jt_l_j_pr_,
+                     num_active_poses_, num_active_landmarks_, delta.delta_l);
+
+    ApplyUpdate(delta, false, gn_damping);
+
+    const double dPrevError = proj_error_ + inertial_error_ + binary_error_;
+    std::cout << std::setprecision (15) <<
+                 "Pre-solve norm: " << dPrevError << " with Epr:" <<
+                 proj_error_ << " and Ei:" << inertial_error_ <<
+                 " and Epp: " << binary_error_ << std::endl;
+    EvaluateResiduals(&proj_error_, &binary_error_,
+                      &unary_error_, &inertial_error_);
+    const double dPostError = proj_error_ + inertial_error_ + binary_error_;
+    std::cout << std::setprecision (15) <<
+                 "Post-solve norm: " << dPostError << " with Epr:" <<
+                  proj_error_ << " and Ei:" << inertial_error_ <<
+                 " and Epp: " << binary_error_ << std::endl;
+
+    if (dPostError > dPrevError && !error_increase_allowed) {
+       std::cout << "Error increasing during optimization, rolling back .."<<
+                   std::endl;
+      ApplyUpdate(delta, true, gn_damping);
+      return false;
+    }
+
+    if (fabs(dPrevError - dPostError)/dPrevError < 0.001) {
+      std::cout << "Error decrease less than 0.1%, aborting." << std::endl;
+      return false;
     }
   }
   return true;
@@ -1073,12 +1121,14 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
       // regularize one rotation axis due to gravity null space, depending on the
       // major gravity axis)
-      int max_id = gravity[0] > gravity[1] ? 0 : 1;
-      if (gravity[max_id] < gravity[2]) {
+      int max_id = fabs(gravity[0]) > fabs(gravity[1]) ? 0 : 1;
+      if (fabs(gravity[max_id]) < fabs(gravity[2])) {
         max_id = 2;
       }
-      // root_pose.param_mask[max_id+3] = false;
-      root_pose.param_mask[5] = false;
+      std::cout << "gravity is " << gravity.transpose() <<
+                   " max id is " << max_id << std::endl;
+      root_pose.param_mask[max_id+3] = false;
+      // root_pose.param_mask[5] = false;
     }
 
     // [TEST] - removes velocity optimization

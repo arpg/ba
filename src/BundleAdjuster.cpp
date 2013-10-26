@@ -311,7 +311,6 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
   do_sparse_solve_ = true;
   do_last_pose_cov_ = false;
   do_dogleg_ = true;
-  trust_region_size_ = 1.0;
 
   for (unsigned int kk = 0 ; kk < uMaxIter ; ++kk) {
     std::cout << "Building problem." << std::endl;
@@ -680,6 +679,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     // std::cout << "Dense S matrix is " << s.format(kLongFmt) << std::endl;
     // std::cout << "Dense rhs matrix is " <<
     //               rhs_p.transpose().format(kLongFmt) << std::endl;
+    /*
     Delta delta;
     if (num_poses > 0) {
       CalculateGn(rhs_p_sc, delta.delta_p);
@@ -689,10 +689,13 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     // now back substitute the landmarks
     GetLandmarkDelta(delta.delta_p, rhs_l_,  vi_, jt_l_j_pr_,
                      num_poses, num_lm, delta.delta_l);
+    */
 
+    if (!SolveInternal(rhs_p_sc)) {
+      break;
+    }
 
-    // SolveInternal();
-
+    /*
     ApplyUpdate(delta, false, damping);
 
     const double dPrevError = proj_error_ + inertial_error_ + binary_error_;
@@ -719,6 +722,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       std::cout << "Error decrease less than 0.1%, aborting." << std::endl;
       break;
     }
+    */
   }
 
 
@@ -820,7 +824,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::CalculateGn(
 
 ////////////////////////////////////////////////////////////////////////////////
 template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
-void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
+bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
+    VectorXt rhs_p_sc
     )
 {
   bool gn_computed = false;
@@ -869,147 +874,106 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
                           j_i_rhs_p_.squaredNorm();
 
     Scalar factor = nominator/denominator;
+    std::cout << "factor: " << factor << " nom: " << nominator << " denom: " <<
+                 denominator << std::endl;
     delta_sd.delta_p = rhs_p_ * factor;
     delta_sd.delta_l = rhs_l_ * factor;
 
     // now calculate the steepest descent norm
-    Scalar delta_sd_norm = delta_sd.delta_p.norm() + delta_sd.delta_l.norm();
+    Scalar delta_sd_norm = sqrt(delta_sd.delta_p.squaredNorm() +
+                                delta_sd.delta_l.squaredNorm());
     std::cout << "sd norm : " << delta_sd_norm << std::endl;
 
-    if (delta_sd_norm > trust_region_size_) {
-      std::cout << "sd norm less than trust region of " <<
-                   trust_region_size_ << " chosing sd update " << std::endl;
+    while (1) {
+      if (delta_sd_norm > trust_region_size_) {
+        std::cout << "sd norm larger than trust region of " <<
+                     trust_region_size_ << " chosing sd update " << std::endl;
 
-      Scalar factor = trust_region_size_ / delta_sd_norm;
-      delta_dl.delta_p = factor * delta_sd.delta_p;
-      delta_dl.delta_l = factor * delta_sd.delta_l;
-    }else {
-      std::cout << "sd norm larger than trust region of " <<
-                   trust_region_size_ << std::endl;
-      if (!gn_computed) {
-        std::cout << "Computing gauss newton " <<
+        Scalar factor = trust_region_size_ / delta_sd_norm;
+        delta_dl.delta_p = factor * delta_sd.delta_p;
+        delta_dl.delta_l = factor * delta_sd.delta_l;
+      }else {
+        std::cout << "sd norm less than trust region of " <<
                      trust_region_size_ << std::endl;
-        if (num_active_poses_ > 0) {
-          CalculateGn(rhs_p_, delta_gn.delta_p);
-        }
-        // now back substitute the landmarks
-        GetLandmarkDelta(delta_gn.delta_p, rhs_l_,  vi_, jt_l_j_pr_,
-                         num_active_poses_, num_active_landmarks_,
-                         delta_gn.delta_l);
-      }
-
-      Scalar delta_gn_norm = delta_gn.delta_p.norm() + delta_gn.delta_l.norm();
-      if (delta_gn_norm <= trust_region_size_) {
-        std::cout << "Gauss newton delta: " << delta_gn_norm <<
-                     "is smaller than trust region of " <<
-                     trust_region_size_ << std::endl;
-        delta_dl = delta_gn;
-      } else {
-        std::cout << "Gauss newton delta: " << delta_gn_norm <<
-                     "is larger than trust region of " <<
-                     trust_region_size_ << std::endl;
-        VectorXt diff_p = delta_gn.delta_p - delta_sd.delta_p;
-        VectorXt diff_l = delta_gn.delta_l - delta_sd.delta_l;
-        Scalar a = diff_p.squaredNorm() + diff_l.squaredNorm();
-        Scalar b = 2 * (diff_p.transpose() * delta_sd.delta_p +
-                        diff_l.transpose() * delta_sd.delta_l)[0];
-        Scalar c = delta_sd.delta_p.squaredNorm() +
-                   delta_sd.delta_l.squaredNorm() - powi(trust_region_size_,2);
-        Scalar beta = (-(b*b) + sqrt(b*b - 4*a*c)) / (2 * a);
-
-        delta_dl.delta_p = delta_sd.delta_p + beta*(diff_p);
-        delta_dl.delta_l = delta_sd.delta_l + beta*(diff_l);
-
-        std::cout << "Updated gn delta is: " << delta_dl.delta_p.norm() +
-                     delta_dl.delta_l.norm() << std::endl;
-      }
-    }
-
-    const double prev_error = proj_error_ + inertial_error_ + binary_error_;
-    ApplyUpdate(delta_dl, false);
-
-    std::cout << std::setprecision (15) <<
-                 "Pre-solve norm: " << prev_error << " with Epr:" <<
-                 proj_error_ << " and Ei:" << inertial_error_ <<
-                 " and Epp: " << binary_error_ << std::endl;
-    EvaluateResiduals(&proj_error_, &binary_error_,
-                      &unary_error_, &inertial_error_);
-    const double post_error = proj_error_ + inertial_error_ + binary_error_;
-    std::cout << std::setprecision (15) <<
-                 "Post-solve norm: " << post_error << " with Epr:" <<
-                  proj_error_ << " and Ei:" << inertial_error_ <<
-                 " and Epp: " << binary_error_ << std::endl;
-
-    if (post_error > prev_error) {
-      landmarks_ = landmarks_copy;
-      poses_ = poses_copy;
-      imu_ = imu_copy;
-      rig_ = rig_copy;
-      trust_region_size_ /= 2;
-      std::cout << "Error increased, reducing trust region to " <<
-                   trust_region_size_ << std::endl;
-    } else {
-      trust_region_size_ *= 2;
-      std::cout << "Error decreased, increasing trust region to " <<
-                   trust_region_size_ << std::endl;
-    }
-
-  }
-
-
-    /*double delta_p_sd_norm = delta_p_sd.norm();
-
-    // Make copies of the initial parameters.
-    //auto landmarks = landmarks_;
-    //auto poses = poses_;
-    //auto imu = imu_;
-    //auto rig = rig_;
-
-    do {
-      if (delta_p_sd_norm > trust_region_size_) {
-        delta.delta_p = trust_region_size_ / delta_p_sd_norm * delta_p_sd;
-      } else {
-        // if we haven't computed the gn delta yet, then compute it
-        if (gn_computed == false){
-          delta_p_gn = CalculateGn(rhs_p, delta_p_gn);
-          GetLandmarkDelta(delta_p_gn, rhs_l, vi, jt_l_j_pr, num_poses,
-                           num_lm, delta_l_gn)
-
-          delta_p_gn_norm = delta_p_sd.norm();
+        if (!gn_computed) {
+          std::cout << "Computing gauss newton " <<
+                       trust_region_size_ << std::endl;
+          if (num_active_poses_ > 0) {
+            CalculateGn(rhs_p_sc, delta_gn.delta_p);
+          }
+          // now back substitute the landmarks
+          GetLandmarkDelta(delta_gn.delta_p, rhs_l_,  vi_, jt_l_j_pr_,
+                           num_active_poses_, num_active_landmarks_,
+                           delta_gn.delta_l);
         }
 
-        if (delta_p_gn_norm <= trust_region_size_) {
-          delta_p = delta_p_gn;
+        Scalar delta_gn_norm = sqrt(delta_gn.delta_p.squaredNorm() +
+                                    delta_gn.delta_l.squaredNorm());
+        if (delta_gn_norm <= trust_region_size_) {
+          std::cout << "Gauss newton delta: " << delta_gn_norm <<
+                       "is smaller than trust region of " <<
+                       trust_region_size_ << std::endl;
+          delta_dl = delta_gn;
         } else {
-          delta_p = delta_p_sd + beta*(delta_p_gn - delta_p_sd);
+          std::cout << "Gauss newton delta: " << delta_gn_norm <<
+                       "is larger than trust region of " <<
+                       trust_region_size_ << std::endl;
+          VectorXt diff_p = delta_gn.delta_p - delta_sd.delta_p;
+          VectorXt diff_l = delta_gn.delta_l - delta_sd.delta_l;
+          Scalar a = diff_p.squaredNorm() + diff_l.squaredNorm();
+          Scalar b = 2 * (diff_p.transpose() * delta_sd.delta_p +
+                          diff_l.transpose() * delta_sd.delta_l)[0];
+          Scalar c = delta_sd.delta_p.squaredNorm() +
+                     delta_sd.delta_l.squaredNorm() - powi(trust_region_size_,2);
+          Scalar beta = (-(b*b) + sqrt(b*b - 4*a*c)) / (2 * a);
+
+          delta_dl.delta_p = delta_sd.delta_p + beta*(diff_p);
+          delta_dl.delta_l = delta_sd.delta_l + beta*(diff_l);
+
+          std::cout << "Updated dl delta is: " << sqrt(delta_dl.delta_p.squaredNorm() +
+                       delta_dl.delta_l.squaredNorm()) << std::endl;
         }
       }
 
-      // now compare the change in cost
-      const double prev_cost = binary_error_ + unary_error_ + inertial_error_ +
-                               proj_error_;
-      const double pred_cost = 2 *
-          (0.5 * prev_cost - rhs_p.transpose() * delta_p +  0.5 *
-          delta_p.transpose() * (do_sparse_solve_ ? s_sparse_ : s_) * delta_p);
-
-      const double binary_error, unary_error, inertial_error, proj_error;
-      EvaluateResiduals(proj_error, binary_error, inertial_error, unary_error);
-      const double new_cost = binary_error + unary_error + inertial_error +
-                              proj_error;
-      const double rho = (prev_cost - new_cost)/(prev_cost - pred_cost);
-
-      if (rho > 0) {
-        // then we keep the new parameters
-      } else {
-        // revert the parameters
+      Scalar delta_dl_norm = sqrt(delta_dl.delta_p.squaredNorm() +
+                                  delta_dl.delta_l.squaredNorm());
+      if (delta_dl_norm < 1e-4) {
+        std::cout << "Step size too small, quitting" << std::endl;
+        return false;
       }
 
-      // now update the trust region
-    } while(rho > 0);
-  } else {
-    // calculate gn result
-    delta_p = CalculateGn(rhs_p, delta_p_gn);
-  }*/
+      const double prev_error = proj_error_ + inertial_error_ + binary_error_;
+      ApplyUpdate(delta_dl, false);
+
+      std::cout << std::setprecision (15) <<
+                   "Pre-solve norm: " << prev_error << " with Epr:" <<
+                   proj_error_ << " and Ei:" << inertial_error_ <<
+                   " and Epp: " << binary_error_ << std::endl;
+      EvaluateResiduals(&proj_error_, &binary_error_,
+                        &unary_error_, &inertial_error_);
+      const double post_error = proj_error_ + inertial_error_ + binary_error_;
+      std::cout << std::setprecision (15) <<
+                   "Post-solve norm: " << post_error << " with Epr:" <<
+                    proj_error_ << " and Ei:" << inertial_error_ <<
+                   " and Epp: " << binary_error_ << std::endl;
+
+      if (post_error > prev_error) {
+        landmarks_ = landmarks_copy;
+        poses_ = poses_copy;
+        imu_ = imu_copy;
+        rig_ = rig_copy;
+        trust_region_size_ /= 2;
+        std::cout << "Error increased, reducing trust region to " <<
+                     trust_region_size_ << std::endl;
+      } else {
+        trust_region_size_ *= 2;
+        std::cout << "Error decreased, increasing trust region to " <<
+                     trust_region_size_ << std::endl;
+        break;
+      }
+    }
+  }
+  return true;
 }
 
 

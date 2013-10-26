@@ -76,11 +76,15 @@ public:
   void Init(const unsigned int num_poses,
             const unsigned int num_measurements,
             const unsigned int num_landmarks = 0,
-            const calibu::CameraRigT<Scalar> *rig = 0 )
+            const calibu::CameraRigT<Scalar> *rig = 0,
+            const Scalar trust_region_size = 1.0)
   {
     // if LmSize == 0, there is no need for a camera rig or landmarks
     assert(rig != 0 || LmSize == 0);
     assert(num_landmarks != 0 || LmSize == 0);
+
+    // set the initial trust region size
+    trust_region_size_ = trust_region_size;
 
     root_pose_id_ = 0;
     num_active_poses_ = 0;
@@ -348,7 +352,7 @@ public:
   const { return landmarks_[id].is_reliable; }
 
 private:
-  void SolveInternal();
+  bool SolveInternal(VectorXt rhs_p_sc);
 
   bool _Test_dImuResidual_dX(
       const Pose &pose1, const Pose &pose2,const ImuPose &imu_pose,

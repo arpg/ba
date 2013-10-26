@@ -354,7 +354,6 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     s_.setZero();
     rhs_p_sc.setZero();
 
-    std::cout << "Num active poses: " << num_poses << std::endl;
     if (proj_residuals_.size() > 0 && num_poses > 0) {
       BlockMat< Eigen::Matrix<Scalar, kPrPoseDim, kPrPoseDim>> jt_pr_j_pr(
             num_poses, num_poses);
@@ -414,6 +413,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       Eigen::SparseBlockVectorProductDenseResult(jt_i_, r_i_, jt_i_r_i);
       rhs_p_ += jt_i_r_i;
     }
+
+    std::cout << "rhs_p_ norm after intertial res: " << rhs_p_.squaredNorm() << std::endl;
+
     PrintTimer(_jtj_);
 
     StartTimer(_schur_complement_);
@@ -421,7 +423,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       rhs_l_.resize(num_lm*kLmDim);
       rhs_l_.setZero();
       StartTimer(_schur_complement_v);
-      for (int ii = 0; ii < landmarks_.size() ; ++ii) {
+      for (unsigned int ii = 0; ii < landmarks_.size() ; ++ii) {
         Eigen::Matrix<Scalar,kLmDim,kLmDim> jtj;
         Eigen::Matrix<Scalar,kLmDim,1> jtr;
         jtj.setZero();
@@ -657,7 +659,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     if (is_param_mask_used_) {
       for (Pose& pose : poses_) {
         if (pose.is_active && pose.is_param_mask_used) {
-          for (int ii = 0 ; ii < pose.param_mask.size() ; ++ii) {
+          for (unsigned int ii = 0 ; ii < pose.param_mask.size() ; ++ii) {
             if (!pose.param_mask[ii]) {
               const int idx = pose.opt_id*kPoseDim + ii;
               s_(idx, idx) = 1.0;
@@ -854,6 +856,9 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     VectorXt j_l_rhs_l(ProjectionResidual::kResSize * proj_residuals_.size());
     j_l_rhs_l.setZero();
 
+    std::cout << "rhs_p_ norm: " <<  rhs_p_.squaredNorm() << std::endl;
+    std::cout << "rhs_l_ norm: " <<  rhs_l_.squaredNorm() << std::endl;
+
     if (num_active_poses_ > 0) {
       Eigen::SparseBlockVectorProductDenseResult(
             j_pr_,
@@ -877,6 +882,9 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     Scalar denominator = (j_p_rhs_p + j_l_rhs_l).squaredNorm() +
                           j_i_rhs_p_.squaredNorm();
 
+    std::cout << "j_p_rhs_p norm: " <<  j_p_rhs_p.squaredNorm() << std::endl;
+    std::cout << "j_l_rhs_l norm: " <<  j_l_rhs_l.squaredNorm() << std::endl;
+    std::cout << "j_i_rhs_p norm: " <<  j_i_rhs_p_.squaredNorm() << std::endl;
     Scalar factor = nominator/denominator;
     std::cout << "factor: " << factor << " nom: " << nominator << " denom: " <<
                  denominator << std::endl;
@@ -1620,6 +1628,11 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     //              res.cov_inv.format(kLongFmt) << std::endl;
 
     res.cov_inv = res.cov_inv.inverse();
+
+    std::cout << "i c_imu: " << c_imu_pose.squaredNorm() << std::endl;
+    std::cout << "i dse3t1t2v_dt2: " << dse3t1t2v_dt2.squaredNorm() << std::endl;
+    std::cout << "i cov norm: " << res.cov_inv.squaredNorm() << std::endl;
+
 //    Eigen::VectorXd diag(9);
 //    diag << 123238,
 //            123238,
@@ -1770,6 +1783,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         res.residual;
     inertial_error_ +=
         (res.residual.transpose() * res.cov_inv * res.residual);
+
+
   }  
 
   PrintTimer(_j_evaluation_inertial_);
@@ -1841,7 +1856,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         auto& dz_dx = res.x_meas_id == pose.id ? res.dz_dx_meas : res.dz_dx_ref;
         if (pose.is_param_mask_used) {
           is_param_mask_used_ = true;
-          for (int ii = 0 ; ii < kPrPoseDim ; ++ii) {
+          for (unsigned int ii = 0 ; ii < kPrPoseDim ; ++ii) {
              if (!pose.param_mask[ii]) {
                dz_dx.col(ii).setZero();
              }
@@ -1914,7 +1929,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
         if (pose.is_param_mask_used) {
           is_param_mask_used_ = true;
-          for (int ii = 0 ; ii < kPoseDim ; ++ii) {
+          for (unsigned int ii = 0 ; ii < kPoseDim ; ++ii) {
              if (!pose.param_mask[ii]) {
                dz_dz.col(ii).setZero();
              }

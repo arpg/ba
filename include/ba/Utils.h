@@ -133,7 +133,7 @@ inline Eigen::Matrix<Scalar, 3, 4> dLog_dq(const Eigen::Quaternion<Scalar>& q) {
   const Scalar vec_norm = sqrt(vec_squarednorm);
   // std::cout << "vec norm = " << vec_norm << std::endl;
   if (vec_norm < 1e-9) {
-    std::cout << "Vec norm less than 1e-9" << std::endl;
+    std::cout << "Vec norm less than 1e-9: " << q.coeffs() << std::endl;
     const Scalar s1 = 2 * vec_squarednorm;
     const Scalar s2 = 1.0 / powi(w, 3);
     const Scalar s3 = (3 * s1) / powi(w, 4) - 2 / powi(w, 2);

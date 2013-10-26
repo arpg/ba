@@ -81,7 +81,7 @@ inline Scalar powi(const Scalar x, const int y) {
   } else if (y == 0) {
     return 1.0;
   } else {
-    double ret = x;
+    Scalar ret = x;
     for (int ii = 1; ii < y; ii++) {
       ret *= x;
     }
@@ -140,10 +140,18 @@ inline Eigen::Matrix<Scalar, 3, 4> dLog_dq(const Eigen::Quaternion<Scalar>& q) {
     const Scalar s4 = 2 / w;
 
     return (Eigen::Matrix<Scalar, 3, 4>()
-        << -4 * s2 * powi(x, 2) + s4 - s1 * s2, -4 * x * y * s2, -4 * x * z
-        * s2, x * s3, -4 * x * y * s2, -4 * s2 * powi(y, 2) + s4 - s1 * s2, -4
-        * y * z * s2, y * s3, -4 * x * z * s2, -4 * y * z * s2, -4 * s2
-        * powi(z, 2) + s4 - s1 * s2, z * s3).finished();
+        << -4 * s2 * powi(x, 2) + s4 - s1 * s2,
+           -4 * x * y * s2,
+           -4 * x * z * s2,
+            x * s3,
+           -4 * x * y * s2,
+           -4 * s2 * powi(y, 2) + s4 - s1 * s2,
+           -4 * y * z * s2,
+            y * s3,
+           -4 * x * z * s2,
+           -4 * y * z * s2,
+           -4 * s2 * powi(z, 2) + s4 - s1 * s2,
+            z * s3).finished();
 
   } else {
     const Scalar s1 = vec_squarednorm;

@@ -1629,6 +1629,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
     res.cov_inv = res.cov_inv.inverse();
 
+    std::cout << "i dlog_dse3: " << std::endl << dlog_dse3 << std::endl;
     std::cout << "i c_imu: " << c_imu_pose.squaredNorm() << std::endl;
     std::cout << "i dse3t1t2v_dt2: " << dse3t1t2v_dt2.squaredNorm() << std::endl;
     std::cout << "i cov norm: " << res.cov_inv.squaredNorm() << std::endl;

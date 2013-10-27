@@ -71,7 +71,7 @@ file( RELATIVE_PATH REL_INCLUDE_DIR
 # Export library for easy inclusion from other cmake projects.
 file( REMOVE "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Targets.cmake" )
 export( TARGETS ${LIBRARY_NAME}
-        APPEND FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Targets.cmake" )
+  APPEND FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Targets.cmake" )
 
 # Version information
 configure_file("${PROJECT_NAME}ConfigVersion.cmake.in"
@@ -80,16 +80,17 @@ configure_file("${PROJECT_NAME}ConfigVersion.cmake.in"
 # Build tree config
 set( EXPORT_LIB_INC_DIR "${LIB_INC_DIR}" )
 CONFIGURE_FILE( "${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}Config.cmake.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake" @ONLY IMMEDIATE )
+  "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake" @ONLY IMMEDIATE )
 
 # Install tree config
 set( EXPORT_LIB_INC_DIR "\${${PROJECT_NAME}_CMAKE_DIR}/${REL_INCLUDE_DIR}" )
 configure_file( "${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}Config.cmake.in"
-    "${CMAKE_CURRENT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/${PROJECT_NAME}Config.cmake" @ONLY )
+  "${CMAKE_CURRENT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/${PROJECT_NAME}Config.cmake" @ONLY )
 
 # Add package to CMake package registery for use from the build tree
-export( PACKAGE ${PROJECT_NAME} )
-
+if (EXPORT_BA)
+  export( PACKAGE ${PROJECT_NAME} )
+endif (EXPORT_BA)
 #######################################################
 ## Install headers / targets
 

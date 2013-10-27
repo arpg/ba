@@ -4,6 +4,8 @@ set(BA_VERSION_MAJOR 0)
 set(BA_VERSION_MINOR 1)
 set(BA_VERSION ${BA_VERSION_MAJOR}.${BA_VERSION_MINOR})
 
+option(EXPORT_BA "Should BA be exported." ON)
+
 if( ANDROID )
     add_definitions(-DREAL_TYPE=float)
 else()

@@ -677,20 +677,6 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     if (do_sparse_solve_) {
       s_sparse_ = s_.sparseView();
     }
-    // std::cout << "Dense S matrix is " << s.format(kLongFmt) << std::endl;
-    // std::cout << "Dense rhs matrix is " <<
-    //               rhs_p.transpose().format(kLongFmt) << std::endl;
-    /*
-    Delta delta;
-    if (num_poses > 0) {
-      CalculateGn(rhs_p_sc, delta.delta_p);
-    }
-    PrintTimer(_solve_);
-
-    // now back substitute the landmarks
-    GetLandmarkDelta(delta.delta_p, rhs_l_,  vi_, jt_l_j_pr_,
-                     num_poses, num_lm, delta.delta_l);
-    */
 
     // std::cout << "running solve internal with " << use_dogleg << std::endl;
     if (!SolveInternal(rhs_p_sc, gn_damping,
@@ -699,34 +685,6 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       break;
     }
 
-    /*
-    ApplyUpdate(delta, false, damping);
-
-    const double dPrevError = proj_error_ + inertial_error_ + binary_error_;
-    std::cout << std::setprecision (15) <<
-                 "Pre-solve norm: " << dPrevError << " with Epr:" <<
-                 proj_error_ << " and Ei:" << inertial_error_ <<
-                 " and Epp: " << binary_error_ << std::endl;
-    EvaluateResiduals(&proj_error_, &binary_error_,
-                      &unary_error_, &inertial_error_);
-    const double dPostError = proj_error_ + inertial_error_ + binary_error_;
-    std::cout << std::setprecision (15) <<
-                 "Post-solve norm: " << dPostError << " with Epr:" <<
-                  proj_error_ << " and Ei:" << inertial_error_ <<
-                 " and Epp: " << binary_error_ << std::endl;
-
-    if (dPostError > dPrevError && !error_increase_allowed) {
-       std::cout << "Error increasing during optimization, rolling back .."<<
-                   std::endl;
-      ApplyUpdate(delta, true, damping);
-      break;
-    }
-
-    if (fabs(dPrevError - dPostError)/dPrevError < 0.001) {
-      std::cout << "Error decrease less than 0.1%, aborting." << std::endl;
-      break;
-    }
-    */
   }
 
 

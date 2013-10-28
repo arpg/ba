@@ -372,80 +372,123 @@ inline Eigen::Matrix<Scalar, 6, 7> dLog_dSE3(Sophus::SE3Group<Scalar> t) {
   const Scalar wy = w[1];
   const Scalar wz = w[2];
 
-  const Scalar s1 = powi(wx, 2) + powi(wy, 2) + powi(wz, 2);
-  const Scalar s2 = tan(sqrt(s1) / 2);
-  const Scalar s3 = sqrt(s1) / (2 * s2) - 1;
-  const Scalar s4 = wz / (2 * sqrt(s1) * s2)
-      - (wz * (powi(s2, 2) + 1)) / (4 * powi(s2, 2));
-  const Scalar s5 = wy / (2 * sqrt(s1) * s2)
-      - (wy * (powi(s2, 2) + 1)) / (4 * powi(s2, 2));
-  const Scalar s6 = wx / (2 * sqrt(s1) * s2)
-      - (wx * (powi(s2, 2) + 1)) / (4 * powi(s2, 2));
-  const Scalar s7 = 1 / s1;
-  const Scalar s8 = 1 / powi(s1, 2);
-  const Scalar s9 = powi(wx, 2) + powi(wy, 2);
-  const Scalar s10 = powi(wx, 2) + powi(wz, 2);
-  const Scalar s11 = powi(wy, 2) + powi(wz, 2);
-  const Scalar s12 = 2 * s3 * s8 * wx * wy * wz;
-  const Scalar s13 = -2 * s3 * s8 * wy * powi(wz, 2) + s4 * s7 * wy * wz
-      + s3 * s7 * wy;
-  const Scalar s14 = -2 * s3 * s8 * wx * powi(wz, 2) + s4 * s7 * wx * wz
-      + s3 * s7 * wx;
-  const Scalar s15 = -2 * s3 * s8 * wz * powi(wy, 2) + s5 * s7 * wz * wy
-      + s3 * s7 * wz;
-  const Scalar s16 = -2 * s3 * s8 * wz * powi(wx, 2) + s6 * s7 * wz * wx
-      + s3 * s7 * wz;
-  const Scalar s17 = -2 * s3 * s8 * wx * powi(wy, 2) + s5 * s7 * wx * wy
-      + s3 * s7 * wx;
-  const Scalar s18 = -2 * s3 * s8 * wy * powi(wx, 2) + s6 * s7 * wy * wx
-      + s3 * s7 * wy;
-  const Scalar s19 = 2 * s3 * s7 * wy;
-  const Scalar s20 = 2 * s3 * s7 * wx;
-
-  const Eigen::Matrix<Scalar, 3, 3> dlog_dw(
-      (Eigen::Matrix<Scalar, 3, 3>()
-          << x * (s6 * s7 * s11 - 2 * s3 * s8 * s11 * wx) - s18 * y - s16 * z, x
-          * (s19 + s5 * s7 * s11 - 2 * s3 * s8 * s11 * wy) - s17 * y
-          - z * (s5 * s7 * wx * wz - 2 * s3 * s8 * wx * wy * wz + 0.5),
-
-      x * (s4 * s7 * s11 + 2 * s3 * s7 * wz - 2 * s3 * s8 * s11 * wz) - s14 * z
-          + y * (s12 - s4 * s7 * wx * wy + 0.5),
-
-      y * (s20 + s6 * s7 * s10 - 2 * s3 * s8 * s10 * wx) - s18 * x
-          + z * (s12 - s6 * s7 * wy * wz + 0.5),
-
-      y * (s5 * s7 * s10 - 2 * s3 * s8 * s10 * wy) - s17 * x - s15 * z, y
-          * (s4 * s7 * s10 + 2 * s3 * s7 * wz - 2 * s3 * s8 * s10 * wz)
-          - s13 * z - x * (s4 * s7 * wx * wy - s12 + 0.5),
-
-      z * (s20 + s6 * s7 * s9 - 2 * s3 * s8 * s9 * wx) - s16 * x
-          - y * (s6 * s7 * wy * wz - s12 + 0.5), z
-          * (s19 + s5 * s7 * s9 - 2 * s3 * s8 * s9 * wy) - s15 * y
-          + x * (s12 - s5 * s7 * wx * wz + 0.5), z
-          * (s4 * s7 * s9 - 2 * s3 * s8 * s9 * wz) - s14 * x - s13 * y)
-        .finished());
-
   Eigen::Matrix<Scalar, 3, 1> upsilon_omega;
   Scalar theta;
   upsilon_omega.template tail<3>() = Sophus::SO3Group < Scalar
       > ::logAndTheta(t.so3(), &theta);
   const Eigen::Matrix<Scalar, 3, 3> & omega = Sophus::SO3Group < Scalar
       > ::hat(upsilon_omega.template tail<3>());
-  const Eigen::Matrix<Scalar, 3, 3> & v_inv =
+
+  // avoid division by 0
+  bool close_to_zero = abs(theta) < Sophus::SophusConstants<Scalar>::epsilon();
+
+  const Eigen::Matrix<Scalar,3,3> & v_inv = close_to_zero?
+      Eigen::Matrix<Scalar,3,3>::Identity() -
+      static_cast<Scalar>(0.5) * omega
+      + static_cast<Scalar>(1./12.) * (omega * omega)
+     :
       (Eigen::Matrix<Scalar, 3, 3>::Identity()
-          - static_cast<Scalar>(0.5) * omega
-          + (static_cast<Scalar>(1)
-              - theta / (static_cast<Scalar>(2) * tan(theta / Scalar(2))))
-              / (theta * theta) * (omega * omega));
+      - static_cast<Scalar>(0.5) * omega
+      + (static_cast<Scalar>(1)
+      - theta / (static_cast<Scalar>(2) * tan(theta / Scalar(2))))
+      / (theta * theta) * (omega * omega));
+
 
   Eigen::Matrix<Scalar, 6, 7> dlog;
   dlog.setZero();
   dlog.template block<3, 3>(0, 0) = v_inv;
-  dlog.template block<3, 4>(0, 3) = dlog_dw * dw_dq;
   dlog.template block<3, 4>(3, 3) = dw_dq;
+
+  if ( close_to_zero ) {
+    const Scalar div_12 = 1./12;
+    const Scalar div_6  = 1./6.;
+    const Scalar wx_x   = wx*x;
+    const Scalar wy_x   = wy*x;
+    const Scalar wz_x   = wz*x;
+    const Scalar wx_y   = wx*y;
+    const Scalar wy_y   = wy*y;
+    const Scalar wz_y   = wz*y;
+    const Scalar wx_z   = wx*z;
+    const Scalar wy_z   = wy*z;
+    const Scalar wz_z   = wz*z;
+
+    const Eigen::Matrix<Scalar, 3, 3> dlog_dw(
+          (Eigen::Matrix<Scalar, 3, 3>()
+           << div_12*(wy_y + wz_z),
+              div_12*wx_y - div_6*wy_x - 0.5*z,
+              0.5*y - div_6*wz_x + div_12*wx_z,
+              0.5*z + div_12*wy_x - div_6*wx_y,
+              div_12*(wx_x + wz_z),
+              div_12*wy_z - div_6*wz_y - 0.5*x,
+              div_12*wz_x - div_6*wx_z - 0.5*y,
+              0.5*x + div_12*wz_y - div_6*wy_z,
+              div_12*(wx_x*wy_y))
+          .finished());
+
+    dlog.template block<3, 4>(0, 3) = dlog_dw * dw_dq;
+
+  } else {
+
+    const Scalar s1 = powi(wx, 2) + powi(wy, 2) + powi(wz, 2);
+    const Scalar s2 = tan(sqrt(s1) / 2);
+    const Scalar s3 = sqrt(s1) / (2 * s2) - 1;
+    const Scalar s4 = wz / (2 * sqrt(s1) * s2)
+        - (wz * (powi(s2, 2) + 1)) / (4 * powi(s2, 2));
+    const Scalar s5 = wy / (2 * sqrt(s1) * s2)
+        - (wy * (powi(s2, 2) + 1)) / (4 * powi(s2, 2));
+    const Scalar s6 = wx / (2 * sqrt(s1) * s2)
+        - (wx * (powi(s2, 2) + 1)) / (4 * powi(s2, 2));
+    const Scalar s7 = 1 / s1;
+    const Scalar s8 = 1 / powi(s1, 2);
+    const Scalar s9 = powi(wx, 2) + powi(wy, 2);
+    const Scalar s10 = powi(wx, 2) + powi(wz, 2);
+    const Scalar s11 = powi(wy, 2) + powi(wz, 2);
+    const Scalar s12 = 2 * s3 * s8 * wx * wy * wz;
+    const Scalar s13 = -2 * s3 * s8 * wy * powi(wz, 2) + s4 * s7 * wy * wz
+        + s3 * s7 * wy;
+    const Scalar s14 = -2 * s3 * s8 * wx * powi(wz, 2) + s4 * s7 * wx * wz
+        + s3 * s7 * wx;
+    const Scalar s15 = -2 * s3 * s8 * wz * powi(wy, 2) + s5 * s7 * wz * wy
+        + s3 * s7 * wz;
+    const Scalar s16 = -2 * s3 * s8 * wz * powi(wx, 2) + s6 * s7 * wz * wx
+        + s3 * s7 * wz;
+    const Scalar s17 = -2 * s3 * s8 * wx * powi(wy, 2) + s5 * s7 * wx * wy
+        + s3 * s7 * wx;
+    const Scalar s18 = -2 * s3 * s8 * wy * powi(wx, 2) + s6 * s7 * wy * wx
+        + s3 * s7 * wy;
+    const Scalar s19 = 2 * s3 * s7 * wy;
+    const Scalar s20 = 2 * s3 * s7 * wx;
+
+    const Eigen::Matrix<Scalar, 3, 3> dlog_dw(
+        (Eigen::Matrix<Scalar, 3, 3>()
+        << x * (s6 * s7 * s11 - 2 * s3 * s8 * s11 * wx) - s18 * y - s16 * z, x
+            * (s19 + s5 * s7 * s11 - 2 * s3 * s8 * s11 * wy) - s17 * y
+            - z * (s5 * s7 * wx * wz - 2 * s3 * s8 * wx * wy * wz + 0.5),
+
+       x * (s4 * s7 * s11 + 2 * s3 * s7 * wz - 2 * s3 * s8 * s11 * wz) - s14 * z
+            + y * (s12 - s4 * s7 * wx * wy + 0.5),
+
+        y * (s20 + s6 * s7 * s10 - 2 * s3 * s8 * s10 * wx) - s18 * x
+            + z * (s12 - s6 * s7 * wy * wz + 0.5),
+
+        y * (s5 * s7 * s10 - 2 * s3 * s8 * s10 * wy) - s17 * x - s15 * z, y
+            * (s4 * s7 * s10 + 2 * s3 * s7 * wz - 2 * s3 * s8 * s10 * wz)
+            - s13 * z - x * (s4 * s7 * wx * wy - s12 + 0.5),
+
+        z * (s20 + s6 * s7 * s9 - 2 * s3 * s8 * s9 * wx) - s16 * x
+            - y * (s6 * s7 * wy * wz - s12 + 0.5), z
+            * (s19 + s5 * s7 * s9 - 2 * s3 * s8 * s9 * wy) - s15 * y
+            + x * (s12 - s5 * s7 * wx * wz + 0.5), z
+            * (s4 * s7 * s9 - 2 * s3 * s8 * s9 * wz) - s14 * x - s13 * y)
+          .finished());
+
+    dlog.template block<3, 4>(0, 3) = dlog_dw * dw_dq;
+
+  }
 
   return dlog;
 }
+
 }
 
 #endif

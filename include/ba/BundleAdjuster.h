@@ -184,6 +184,9 @@ public:
     landmark.is_active = is_active;
     landmark.is_reliable = true;
     landmark.id = landmarks_.size();
+
+    poses_[ref_pose_id].landmarks.push_back(landmark.id);
+
     if (is_active) {
       landmark.opt_id = num_active_landmarks_;
       num_active_landmarks_++;
@@ -415,6 +418,7 @@ private:
 
   BlockMat< Eigen::Matrix<Scalar, kLmDim, kLmDim>> vi_;
   BlockMat< Eigen::Matrix<Scalar, kLmDim, kPrPoseDim>> jt_l_j_pr_;
+  BlockMat< Eigen::Matrix<Scalar, kPrPoseDim, kLmDim>> jt_pr_j_l_;
 
   VectorXt rhs_p_;
   VectorXt rhs_l_;

@@ -456,10 +456,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       // we only do this if there are active poses
       if (num_poses > 0) {
         StartTimer(_schur_complement_jtpr_jl);
-        BlockMat< Eigen::Matrix<Scalar, kPrPoseDim, kLmDim> > jt_pr_j_l(
-              num_poses, num_lm);
+        jt_pr_j_l_.resize(num_poses, num_lm);
 
-        Eigen::SparseBlockProduct(jt_pr,j_l_,jt_pr_j_l);
+        Eigen::SparseBlockProduct(jt_pr,j_l_,jt_pr_j_l_);
 
         //MatrixXt dj_pr(j_pr_.rows() * ProjectionResidual::kResSize,
         //               j_pr_.cols() * kPrPoseDim);
@@ -475,13 +474,13 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
         //Eigen::LoadDenseFromSparse(vi,dvi);
         //std::cout << "v_i" << std::endl << dvi.format(kLongFmt) << std::endl;
 
-        decltype(jt_l_j_pr_)::forceTranspose(jt_pr_j_l, jt_l_j_pr_);
+        decltype(jt_l_j_pr_)::forceTranspose(jt_pr_j_l_, jt_l_j_pr_);
         PrintTimer(_schur_complement_jtpr_jl);
 
         // attempt to solve for the poses. W_V_inv is used later on,
         // so we cache it
         StartTimer(_schur_complement_jtpr_jl_vi);
-        Eigen::SparseBlockDiagonalRhsProduct(jt_pr_j_l, vi_, jt_pr_j_l_vi);
+        Eigen::SparseBlockDiagonalRhsProduct(jt_pr_j_l_, vi_, jt_pr_j_l_vi);
         PrintTimer(_schur_complement_jtpr_jl_vi);
 
 
@@ -705,6 +704,68 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
                                          rig_, kTvsInState).inverse() ,lm.x_s);
     }
   }
+
+  bool do_marginalization = true;
+  /*
+  // Do marginalization if required. Note that at least 2 poses are
+  // required for marginalization
+  if (do_marginalization && num_active_poses_ > 1) {
+    const Pose& last_pose = poses_.back();
+    // Count the number of active landmarks for this pose. This is necessary
+    // as not all landmarks might be active.
+    uint32_t active_lm = 0;
+    Eigen::VectorXi w_sizes(last_pose.landmarks.size());
+    for (int ii = 0;  ii < last_pose.landmarks.size() ; ++ii) {
+      const Landmark& lm = landmarks_[ii];
+      if (lm.is_active) {
+        active_lm++;
+        w_sizes[active_lm] = lm.proj_residuals.size();
+        typename decltype(jt_pr_j_l_)::InnerIterator iter(jt_pr_j_l_,
+                                            landmarks_[ii].opt_id);
+        std::cout << "jt_pr_j_l_ size: " << jt_pr_j_l_.rows() <<
+                     " " << jt_pr_j_l_.cols() << std::endl;
+        std::cout << "w_sizes[" << ii << "]: " << w_sizes[ii] << " vs " <<
+                     iter.nonZeros() << std::endl;
+
+        for (typename decltype(jt_pr_j_l_)::InnerIterator iter(
+               jt_pr_j_l_, landmarks_[ii].opt_id); iter; ++iter){
+          std::cout << "item " << iter.index() << "is: " <<
+                       iter.value().transpose() << std::endl;
+        }
+      }
+    }
+
+    // Allocate the W amd W' matrices, based on the number of poses and
+    // also the active landmarks of the marginalized pose.
+    MatrixXt w((num_active_poses_ - 1) * kPoseDim, active_lm * kLmDim);
+    w.setZero();
+
+    // Allocate the V matrix
+    MatrixXt v((num_active_poses_ - 1) * kPoseDim, active_lm * kLmDim);
+    // BlockMat< Eigen::Matrix<Scalar, kPrPoseDim, kLmDim> > w(
+    //       num_active_poses_ - 1, active_lm);
+    // w.reserve(w_sizes.template head<active_lm>());
+
+    uint32_t counter = 0;
+    // fill the matrices
+    for (int ii = 0;  ii < last_pose.landmarks.size() ; ++ii) {
+      const Landmark& lm = landmarks_[ii];
+      // If the landmark is active we want to allocate a column in W
+      if (lm.is_active) {
+        for (typename decltype(jt_pr_j_l_)::InnerIterator iter(
+               jt_pr_j_l_, lm.opt_id); iter; ++iter){
+          // This check is to ensure that we don't add w contributions from the
+          // pose we are marginalizing.
+          if (iter.index() != last_pose.opt_id) {
+            // Insert the block into w.
+            w.template block<kPrPoseDim, kLmDim>(
+                  kPoseDim * iter.index(), lm.opt_id * kLmDim) = iter.value();
+          } else {
+        }
+      }
+
+    }
+  }*/
   // std::cout << "Solve took " << Toc(dTime) << " seconds." << std::endl;
 }
 
@@ -887,10 +948,6 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
           std::cout << "Gauss newton delta: " << delta_gn_norm <<
                        " is larger than trust region of " <<
                        trust_region_size_ << std::endl;
-          //std::cout << "delta_sd: " << std::endl << delta_sd.delta_p.transpose() <<
-          //             " " << delta_sd.delta_l.transpose() << std::endl;
-          //std::cout << "delta_gn: " << std::endl << delta_gn.delta_p.transpose() <<
-          //             " " << delta_gn.delta_l.transpose() << std::endl;
 
           VectorXt diff_p = delta_gn.delta_p - delta_sd.delta_p;
           VectorXt diff_l = delta_gn.delta_l - delta_sd.delta_l;
@@ -906,12 +963,6 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
 
           delta_dl.delta_p = delta_sd.delta_p + beta*(diff_p);
           delta_dl.delta_l = delta_sd.delta_l + beta*(diff_l);
-
-          //std::cout << "a: " << a << " b: " << b << " c: " << c <<
-          //           " beta: " << beta <<
-          //           "Updated dl delta is: " <<
-          //           sqrt(delta_dl.delta_p.squaredNorm() +
-          //           delta_dl.delta_l.squaredNorm()) << std::endl;
         }
       }
 
@@ -953,6 +1004,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
       }
     }
   } else {
+    // If not doing dogleg, just do straight-up Gauss-Newton.
     std::cout << "NOT USING DOGLEG" << std::endl;
 
     Delta delta;

@@ -48,6 +48,7 @@ struct PoseT {
   std::vector<int> inertial_residuals;
   std::vector<int> binary_residuals;
   std::vector<int> unary_residuals;
+  std::vector<int> landmarks;
   std::vector<Sophus::SE3Group<Scalar>> t_sw;
 
   const Sophus::SE3Group<Scalar>& GetTsw(const unsigned int cam_id,

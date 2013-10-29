@@ -1067,7 +1067,7 @@ public:
     inline InnerIterator& operator++() { m_id++; return *this; }
 
     inline const Scalar& value() const { return m_values[m_id]; }
-    inline const int nonZeros() const { return ((int)m_end-(int)m_id); }
+    inline int nonZeros() const { return ((int)m_end-(int)m_id); }
     inline Scalar& valueRef() { return const_cast<Scalar&>(m_values[m_id]); }
 
     inline Index index() const { return m_indices[m_id]; }

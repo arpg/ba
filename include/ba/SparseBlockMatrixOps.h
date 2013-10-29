@@ -10,9 +10,7 @@ namespace Eigen {
       int res_stride = -1)
   {
     // return sparse_sparse_product_with_pruning_impl2(lhs,rhs,res);
-    typedef typename ResultType::Scalar ResultScalar;
     typedef typename Lhs::Scalar LhsScalar;
-    typedef typename Rhs::Scalar RhsScalar;
     typedef typename Rhs::Index Index;
 
     if (res_stride == -1) {
@@ -48,9 +46,7 @@ namespace Eigen {
       const Lhs& lhs, const Rhs& rhs, ResultType& res, int res_stride = -1)
   {
     // return sparse_sparse_product_with_pruning_impl2(lhs,rhs,res);
-    typedef typename ResultType::Scalar ResultScalar;
     typedef typename Lhs::Scalar LhsScalar;
-    typedef typename Rhs::Scalar RhsScalar;
     typedef typename Rhs::Index Index;
 
     if (res_stride == -1) {
@@ -79,8 +75,6 @@ namespace Eigen {
   {
     const typename ResultType::Scalar zero = ResultType::Scalar::Zero();
     typedef typename ResultType::Scalar ResultScalar;
-    typedef typename Lhs::Scalar LhsScalar;
-    typedef typename Rhs::Scalar RhsScalar;
     typedef typename Lhs::Index Index;
 
     // make sure to call innerSize/outerSize since we fake the storage order.
@@ -139,7 +133,6 @@ namespace Eigen {
     // return sparse_sparse_product_with_pruning_impl2(lhs,rhs,res);
     //    const int nBlockRows = ResultType::Scalar::RowsAtCompileTime;
     //    const int nBlockCols = ResultType::Scalar::ColsAtCompileTime;
-    typedef typename ResultType::Scalar ResultScalar;
     typedef typename Lhs::Scalar LhsScalar;
     typedef typename Rhs::Scalar RhsScalar;
     typedef typename Rhs::Index Index;
@@ -200,8 +193,6 @@ namespace Eigen {
     //    const int nBlockRows = ResultType::Scalar::RowsAtCompileTime;
     //    const int nBlockCols = ResultType::Scalar::ColsAtCompileTime;
     typedef typename ResultType::Scalar ResultScalar;
-    typedef typename Lhs::Scalar LhsScalar;
-    typedef typename Rhs::Scalar RhsScalar;
     typedef typename Rhs::Index Index;
 
     // make sure to call innerSize/outerSize since we fake the storage order.

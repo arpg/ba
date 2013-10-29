@@ -2,6 +2,9 @@
 #include <iomanip>
 
 namespace ba {
+// these are declared in Utils.h
+int debug_level = 0;
+int debug_level_threshold = 0;
 // #define DAMPING 0.1
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -22,8 +25,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
     const VectorXt delta_calib = delta.delta_p.template tail(kCalibDim)*coef;
     if (kGravityInCalib) {
       imu_.g -= delta_calib.template head<2>();
-      std::cout << "Gravity delta is " <<
-      delta_calib.template head<2>().transpose() << " gravity is: " <<
+
+      StreamMessage(debug_level) << "Gravity delta is " <<
+        delta_calib.template head<2>().transpose() << " gravity is: " <<
+
       imu_.g.transpose() << std::endl;
       imu_.g_vec = GetGravityVector(imu_.g);
     }
@@ -32,8 +37,11 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
       const auto& update = delta_calib.template block<6,1>(2,0)*coef;
       imu_.t_vs = SE3t::exp(update)*imu_.t_vs;
       rig_.cameras[0].T_wc = imu_.t_vs;
-      std::cout << "Tvs delta is " << (update).transpose() << std::endl;
-      std::cout << "Tvs is :" << std::endl << imu_.t_vs.matrix() << std::endl;
+
+      StreamMessage(debug_level) <<
+        "Tvs delta is " << (update).transpose() << std::endl;
+      StreamMessage(debug_level) <<
+        "Tvs is :" << std::endl << imu_.t_vs.matrix() << std::endl;
     }
   }
 
@@ -41,14 +49,15 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
   if (kCamParamsInCalib && delta_calib.rows() > 8){
     const auto& update = delta_calib.template block<5,1>(8,0)*coef;
 
-    std::cout << "calib delta: " << (update).transpose() << std::endl;
+    StreamMessage(debug_level) <<
+      "calib delta: " << (update).transpose() << std::endl;
 
     const VectorXt params = rig_.cameras[0].camera.GenericParams();
     rig_.cameras[0].camera.SetGenericParams(params-(update*coef));
 
-    std::cout << "new params: " <<
-                 rig_.cameras[0].camera.GenericParams().transpose() <<
-                 std::endl;
+    StreamMessage(debug_level) <<
+      "new params: " << rig_.cameras[0].camera.GenericParams().transpose() <<
+      std::endl;
   }
 
   // update poses
@@ -94,14 +103,16 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
             delta.delta_p.template block<6,1>(p_offset+15,0)*coef;
         poses_[ii].t_vs = SE3t::exp(tvs_update)*poses_[ii].t_vs;
         poses_[ii].t_wp = poses_[ii].t_wp * SE3t::exp(-tvs_update);
-        std::cout << "Tvs of pose " << ii << " after update " <<
-                     (tvs_update).transpose() << " is " << std::endl <<
-                     poses_[ii].t_vs.matrix() << std::endl;
+
+        StreamMessage(debug_level) << "Tvs of pose " << ii <<
+          " after update " << (tvs_update).transpose() << " is "
+          << std::endl << poses_[ii].t_vs.matrix() << std::endl;
       }
 
-        std::cout << "Pose delta for " << ii << " is " <<
-                   (-delta.delta_p.template block<kPoseDim,1>(p_offset,0)*
-                   coef).transpose() << std::endl;
+      StreamMessage(debug_level) << "Pose delta for " << ii << " is " <<
+        (-delta.delta_p.template block<kPoseDim,1>(p_offset,0) *
+        coef).transpose() << std::endl;
+
     } else {
       // if Tvs is being globally adjusted, we must apply the tvs adjustment
       // to the static poses as well, so that reprojection residuals remain
@@ -110,8 +121,11 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
         const auto& delta_twp =
             -delta_calib.template block<6,1>(2,0)*coef;
         poses_[ii].t_wp = poses_[ii].t_wp * SE3t::exp(delta_twp);
-        std::cout << "INACTIVE POSE " << ii << " calib delta is " <<
-                     (delta_twp).transpose() << std::endl;
+
+        StreamMessage(debug_level) <<
+          "INACTIVE POSE " << ii << " calib delta is " <<
+          (delta_twp).transpose() << std::endl;
+
         poses_[ii].t_vs = imu_.t_vs;
       }
     }
@@ -261,20 +275,26 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
         const Scalar log_dif =
             SE3t::log(imu_.t_vs * last_tvs_.inverse()).norm();
 
-        std::cout << "logDif is " << log_dif << std::endl;
+        StreamMessage(debug_level) << "logDif is " << log_dif << std::endl;
+
         if (log_dif < 0.01 && poses_.size() >= 30) {
-          std::cout << "EMABLING TRANSLATION ERRORS" << std::endl;
+          StreamMessage(debug_level) << "EMABLING TRANSLATION ERRORS" <<
+                                        std::endl;
           translation_enabled_ = true;
         }
         last_tvs_ = imu_.t_vs;
       }
 
       if (kTvsInState) {
-        std::cout << "Total tvs change is: " << total_tvs_change << std::endl;
+        StreamMessage(debug_level) << "Total tvs change is: " <<
+                                      total_tvs_change << std::endl;
+
         if (total_tvs_change_ != 0 &&
             total_tvs_change/inertial_residuals_.size() < 0.1 &&
             poses_.size() >= 30) {
-          std::cout << "EMABLING TRANSLATION ERRORS" << std::endl;
+
+          StreamMessage(debug_level) << "EMABLING TRANSLATION ERRORS" <<
+                                        std::endl;
           translation_enabled_ = true;
           total_tvs_change = 0;
         }
@@ -312,7 +332,6 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
   do_last_pose_cov_ = false;
 
   for (unsigned int kk = 0 ; kk < uMaxIter ; ++kk) {
-    std::cout << "Building problem." << std::endl;
     StartTimer(_BuildProblem_);
     BuildProblem();
     PrintTimer(_BuildProblem_);
@@ -321,8 +340,6 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     const unsigned int num_poses = num_active_poses_;
     const unsigned int num_pose_params = num_poses*kPoseDim;
     const unsigned int num_lm = num_active_landmarks_;   
-
-    std::cout << "Problem built" << num_poses << std::endl;
 
     StartTimer(_steup_problem_);
     StartTimer(_rhs_mult_);
@@ -414,7 +431,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       rhs_p_ += jt_i_r_i;
     }
 
-    std::cout << "rhs_p_ norm after intertial res: " << rhs_p_.squaredNorm() << std::endl;
+    StreamMessage(debug_level) << "rhs_p_ norm after intertial res: " <<
+                                  rhs_p_.squaredNorm() << std::endl;
 
     PrintTimer(_jtj_);
 
@@ -705,7 +723,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     }
   }
 
-  bool do_marginalization = true;
+  // bool do_marginalization = true;
   /*
   // Do marginalization if required. Note that at least 2 poses are
   // required for marginalization
@@ -875,8 +893,10 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     VectorXt j_l_rhs_l(ProjectionResidual::kResSize * proj_residuals_.size());
     j_l_rhs_l.setZero();
 
-    std::cout << "rhs_p_ norm: " <<  rhs_p_.squaredNorm() << std::endl;
-    std::cout << "rhs_l_ norm: " <<  rhs_l_.squaredNorm() << std::endl;
+    StreamMessage(debug_level) << "rhs_p_ norm: " <<  rhs_p_.squaredNorm() <<
+                                  std::endl;
+    StreamMessage(debug_level) << "rhs_l_ norm: " <<  rhs_l_.squaredNorm() <<
+                                  std::endl;
 
     if (num_active_poses_ > 0) {
       Eigen::SparseBlockVectorProductDenseResult(
@@ -901,11 +921,15 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     Scalar denominator = (j_p_rhs_p + j_l_rhs_l).squaredNorm() +
                           j_i_rhs_p_.squaredNorm();
 
-    std::cout << "j_p_rhs_p norm: " <<  j_p_rhs_p.squaredNorm() << std::endl;
-    std::cout << "j_l_rhs_l norm: " <<  j_l_rhs_l.squaredNorm() << std::endl;
-    std::cout << "j_i_rhs_p norm: " <<  j_i_rhs_p_.squaredNorm() << std::endl;
+    StreamMessage(debug_level) << "j_p_rhs_p norm: " <<
+                                  j_p_rhs_p.squaredNorm() << std::endl;
+    StreamMessage(debug_level) << "j_l_rhs_l norm: " <<
+                                  j_l_rhs_l.squaredNorm() << std::endl;
+    StreamMessage(debug_level) << "j_i_rhs_p norm: " <<
+                                  j_i_rhs_p_.squaredNorm() << std::endl;
     Scalar factor = nominator/denominator;
-    std::cout << "factor: " << factor << " nom: " << nominator << " denom: " <<
+    StreamMessage(debug_level) << "factor: " << factor <<
+                                  " nom: " << nominator << " denom: " <<
                  denominator << std::endl;
     delta_sd.delta_p = rhs_p_ * factor;
     delta_sd.delta_l = rhs_l_ * factor;
@@ -913,21 +937,26 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     // now calculate the steepest descent norm
     Scalar delta_sd_norm = sqrt(delta_sd.delta_p.squaredNorm() +
                                 delta_sd.delta_l.squaredNorm());
-    std::cout << "sd norm : " << delta_sd_norm << std::endl;
+    StreamMessage(debug_level) << "sd norm : " << delta_sd_norm <<
+                                  std::endl;
 
     while (1) {
       if (delta_sd_norm > trust_region_size_) {
-        std::cout << "sd norm larger than trust region of " <<
-                     trust_region_size_ << " chosing sd update " << std::endl;
+        StreamMessage(debug_level) <<
+          "sd norm larger than trust region of " <<
+          trust_region_size_ << " chosing sd update " << std::endl;
 
         Scalar factor = trust_region_size_ / delta_sd_norm;
         delta_dl.delta_p = factor * delta_sd.delta_p;
         delta_dl.delta_l = factor * delta_sd.delta_l;
       }else {
-        std::cout << "sd norm less than trust region of " <<
-                     trust_region_size_ << std::endl;
+        StreamMessage(debug_level) <<
+          "sd norm less than trust region of " <<
+          trust_region_size_ << std::endl;
+
         if (!gn_computed) {
-          std::cout << "Computing gauss newton " << std::endl;
+          StreamMessage(debug_level) << "Computing gauss newton " <<
+                                        std::endl;
           if (num_active_poses_ > 0) {
             CalculateGn(rhs_p_sc, delta_gn.delta_p);
           }
@@ -940,14 +969,15 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
         Scalar delta_gn_norm = sqrt(delta_gn.delta_p.squaredNorm() +
                                     delta_gn.delta_l.squaredNorm());
         if (delta_gn_norm <= trust_region_size_) {
-          std::cout << "Gauss newton delta: " << delta_gn_norm <<
-                       "is smaller than trust region of " <<
-                       trust_region_size_ << std::endl;
+          StreamMessage(debug_level) <<
+            "Gauss newton delta: " << delta_gn_norm << "is smaller than trust "
+            "region of " << trust_region_size_ << std::endl;
+
           delta_dl = delta_gn;
         } else {
-          std::cout << "Gauss newton delta: " << delta_gn_norm <<
-                       " is larger than trust region of " <<
-                       trust_region_size_ << std::endl;
+          StreamMessage(debug_level) <<
+            "Gauss newton delta: " << delta_gn_norm << " is larger than trust "
+            "region of " << trust_region_size_ << std::endl;
 
           VectorXt diff_p = delta_gn.delta_p - delta_sd.delta_p;
           VectorXt diff_l = delta_gn.delta_l - delta_sd.delta_l;
@@ -969,24 +999,27 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
       Scalar delta_dl_norm = sqrt(delta_dl.delta_p.squaredNorm() +
                                   delta_dl.delta_l.squaredNorm());
       if (delta_dl_norm < 1e-4) {
-        std::cout << "Step size too small, quitting" << std::endl;
+        StreamMessage(debug_level) << "Step size too small, quitting" <<
+                                      std::endl;
         return false;
       }
 
       const double prev_error = proj_error_ + inertial_error_ + binary_error_;
       ApplyUpdate(delta_dl, false);
 
-      std::cout << std::setprecision (15) <<
-                   "Pre-solve norm: " << prev_error << " with Epr:" <<
-                   proj_error_ << " and Ei:" << inertial_error_ <<
-                   " and Epp: " << binary_error_ << std::endl;
+      StreamMessage(debug_level) << std::setprecision (15) <<
+        "Pre-solve norm: " << prev_error << " with Epr:" <<
+        proj_error_ << " and Ei:" << inertial_error_ <<
+        " and Epp: " << binary_error_ << std::endl;
+
       EvaluateResiduals(&proj_error_, &binary_error_,
                         &unary_error_, &inertial_error_);
       const double post_error = proj_error_ + inertial_error_ + binary_error_;
-      std::cout << std::setprecision (15) <<
-                   "Post-solve norm: " << post_error << " with Epr:" <<
-                    proj_error_ << " and Ei:" << inertial_error_ <<
-                   " and Epp: " << binary_error_ << std::endl;
+
+      StreamMessage(debug_level) << std::setprecision (15) <<
+        "Post-solve norm: " << post_error << " with Epr:" <<
+        proj_error_ << " and Ei:" << inertial_error_ <<
+        " and Epp: " << binary_error_ << std::endl;
 
       if (post_error > prev_error) {
         landmarks_ = landmarks_copy;
@@ -994,18 +1027,18 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
         imu_ = imu_copy;
         rig_ = rig_copy;
         trust_region_size_ /= 2;
-        std::cout << "Error increased, reducing trust region to " <<
-                     trust_region_size_ << std::endl;
+        StreamMessage(debug_level) << "Error increased, reducing "
+          "trust region to " << trust_region_size_ << std::endl;
       } else {
         trust_region_size_ *= 2;
-        std::cout << "Error decreased, increasing trust region to " <<
-                     trust_region_size_ << std::endl;
+        StreamMessage(debug_level) << "Error decreased, increasing "
+          "trust region to " << trust_region_size_ << std::endl;
         break;
       }
     }
   } else {
     // If not doing dogleg, just do straight-up Gauss-Newton.
-    std::cout << "NOT USING DOGLEG" << std::endl;
+    StreamMessage(debug_level) << "NOT USING DOGLEG" << std::endl;
 
     Delta delta;
     if (num_active_poses_ > 0) {
@@ -1022,28 +1055,32 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
 
 
     const double dPrevError = proj_error_ + inertial_error_ + binary_error_;
-    std::cout << std::setprecision (15) <<
-                 "Pre-solve norm: " << dPrevError << " with Epr:" <<
-                 proj_error_ << " and Ei:" << inertial_error_ <<
-                 " and Epp: " << binary_error_ << std::endl;
+
+    StreamMessage(debug_level) << std::setprecision (15) <<
+      "Pre-solve norm: " << dPrevError << " with Epr:" <<
+      proj_error_ << " and Ei:" << inertial_error_ <<
+      " and Epp: " << binary_error_ << std::endl;
+
     EvaluateResiduals(&proj_error_, &binary_error_,
                       &unary_error_, &inertial_error_);
     const double dPostError = proj_error_ + inertial_error_ + binary_error_;
-    std::cout << std::setprecision (15) <<
-                 "Post-solve norm: " << dPostError << " with Epr:" <<
-                  proj_error_ << " and Ei:" << inertial_error_ <<
-                 " and Epp: " << binary_error_ << std::endl;
+
+    StreamMessage(debug_level) << std::setprecision (15) <<
+      "Post-solve norm: " << dPostError << " with Epr:" <<
+      proj_error_ << " and Ei:" << inertial_error_ <<
+      " and Epp: " << binary_error_ << std::endl;
 
     if (dPostError > dPrevError && !error_increase_allowed) {
-       std::cout << "Error increasing during optimization, rolling back .."<<
-                   std::endl;
+       StreamMessage(debug_level) << "Error increasing during optimization, "
+                                     " rolling back .." << std::endl;
       ApplyUpdate(delta, true, gn_damping);
       return false;
     }
 
 
     if (fabs(dPrevError - dPostError)/dPrevError < 0.001) {
-      std::cout << "Error decrease less than 0.1%, aborting." << std::endl;
+      StreamMessage(debug_level) << "Error decrease less than 0.1%, "
+                                    "aborting." << std::endl;
       return false;
     }
 
@@ -1112,8 +1149,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   j_l_.setZero();
   // jt_l_.setZero();
 
-  std::cout << "Resizing done..." << std::endl;
-
   is_param_mask_used_ = false;
 
   // go through all the poses to check if they are all active
@@ -1127,8 +1162,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
  // are_all_active = false;
 
   if (are_all_active) {
-    std::cout << "All poses active. Regularizing translation of "
-              " root pose " << root_pose_id_ << std::endl;
+    StreamMessage(debug_level) << "All poses active. Regularizing translation "
+                                  "of root pose " << root_pose_id_ << std::endl;
     Pose& root_pose = poses_[root_pose_id_];
     root_pose.is_param_mask_used = true;
     root_pose.param_mask.assign(kPoseDim, true);
@@ -1151,8 +1186,11 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       if (fabs(gravity[max_id]) < fabs(gravity[2])) {
         max_id = 2;
       }
-      std::cout << "gravity is " << gravity.transpose() <<
-                   " max id is " << max_id << std::endl;
+
+      StreamMessage(debug_level) <<
+        "gravity is " << gravity.transpose() << " max id is " <<
+        max_id << std::endl;
+
       root_pose.param_mask[max_id+3] = false;
       // root_pose.param_mask[5] = false;
     }
@@ -1408,7 +1446,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         res.residual;
   }
 
-  std::cout << "Reprojection done." << std::endl;
 
   // std::cout << "Max dZ_dX norm: " << maxdZ_dX_norm << " with dZ_dX: " <<
   // std::endl << maxdZ_dX << " with dZ_dX_fd: "  << std::endl <<
@@ -1851,8 +1888,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     j_l_.reserve(j_l_sizes);
   }
 
-  std::cout << "Reservation done." << std::endl;
-
   for (Pose& pose : poses_) {
     if (pose.is_active) {
       // sort the measurements by id so the sparse insert is O(1)
@@ -1955,8 +1990,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   }
   PrintTimer(_j_insertion_poses);
 
-  std::cout << "Insertion done." << std::endl;
-
   // fill in calibration jacobians
   StartTimer(_j_insertion_calib);
   if (kCalibDim > 0) {
@@ -2013,9 +2046,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         j_l_.insert( res.residual_id, lm.opt_id ) = res.dz_dlm;
       }
     }
-  }
-
-  std::cout << "Landmark Insertion done." << std::endl;
+  } 
 
   PrintTimer  (_j_insertion_landmarks);
   PrintTimer(_j_insertion_);

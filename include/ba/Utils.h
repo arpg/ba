@@ -34,6 +34,14 @@ typedef Matrix<double, 9, 1> Vector9d;
 ///////////////////////////////////////////////////////////////////////////////
 namespace ba {
 // #define ENABLE_TIMING
+extern int debug_level_threshold;
+extern int debug_level;
+
+/** @todo Add stream message to Android logging */
+#ifndef StreamMessage
+#  define StreamMessage(error_level)                                    \
+  if (((int)error_level) < ba::debug_level_threshold) std::cerr
+#endif
 
 #ifdef ENABLE_TESTING
 #define BA_TEST(x)  assert(x)
@@ -131,9 +139,9 @@ inline Eigen::Matrix<Scalar, 3, 4> dLog_dq(const Eigen::Quaternion<Scalar>& q) {
   const Scalar w = q.w();
   const Scalar vec_squarednorm = powi(x, 2) + powi(y, 2) + powi(z, 2);
   const Scalar vec_norm = sqrt(vec_squarednorm);
-  // std::cout << "vec norm = " << vec_norm << std::endl;
   if (vec_norm < 1e-9) {
-    std::cout << "Vec norm less than 1e-9: " << q.coeffs() << std::endl;
+    StreamMessage(debug_level) << "Vec norm less than 1e-9: " <<
+                                  q.coeffs().transpose() << std::endl;
     const Scalar s1 = 2 * vec_squarednorm;
     const Scalar s2 = 1.0 / powi(w, 3);
     const Scalar s3 = (3 * s1) / powi(w, 4) - 2 / powi(w, 2);

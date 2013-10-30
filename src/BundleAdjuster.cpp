@@ -698,7 +698,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     // std::cout << "running solve internal with " << use_dogleg << std::endl;
     if (!SolveInternal(rhs_p_sc, gn_damping,
                        error_increase_allowed,
-                       use_dogleg)) {
+                       use_dogleg && proj_residuals_.size() > 0)) {
       break;
     }
 
@@ -723,12 +723,14 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     }
   }
 
-  // bool do_marginalization = true;
-  /*
+  bool do_marginalization = false;
+
   // Do marginalization if required. Note that at least 2 poses are
   // required for marginalization
   if (do_marginalization && num_active_poses_ > 1) {
-    const Pose& last_pose = poses_.back();
+    const Pose& last_pose = poses_.front();
+    std::cout << "lase pose id:" << last_pose.id << " num landmarks: " <<
+                 last_pose.landmarks.size();
     // Count the number of active landmarks for this pose. This is necessary
     // as not all landmarks might be active.
     uint32_t active_lm = 0;
@@ -753,18 +755,21 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       }
     }
 
+
     // Allocate the W amd W' matrices, based on the number of poses and
     // also the active landmarks of the marginalized pose.
     MatrixXt w((num_active_poses_ - 1) * kPoseDim, active_lm * kLmDim);
+    std::cout << "w dim: " << (num_active_poses_ - 1) * kPoseDim << " by " <<
+                 active_lm * kLmDim << std::endl;
     w.setZero();
 
     // Allocate the V matrix
-    MatrixXt v((num_active_poses_ - 1) * kPoseDim, active_lm * kLmDim);
+    MatrixXt v(kPoseDim + active_lm+kLmDim,
+               kPoseDim + active_lm+kLmDim);
     // BlockMat< Eigen::Matrix<Scalar, kPrPoseDim, kLmDim> > w(
     //       num_active_poses_ - 1, active_lm);
     // w.reserve(w_sizes.template head<active_lm>());
 
-    uint32_t counter = 0;
     // fill the matrices
     for (int ii = 0;  ii < last_pose.landmarks.size() ; ++ii) {
       const Landmark& lm = landmarks_[ii];
@@ -776,15 +781,32 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
           // pose we are marginalizing.
           if (iter.index() != last_pose.opt_id) {
             // Insert the block into w.
+            std::cout << "Inserting block " << iter.value() << "into w at pos " <<
+                         kPoseDim * iter.index() << " " <<  lm.opt_id * kLmDim << std::endl;
             w.template block<kPrPoseDim, kLmDim>(
                   kPoseDim * iter.index(), lm.opt_id * kLmDim) = iter.value();
           } else {
+            // Then insert this block into V
+            v.template block<kPrPoseDim, kLmDim>(
+                  active_lm * kLmDim, lm.opt_id * kLmDim) = iter.value();
+            v.template block<kLmDim, kPrPoseDim>(
+                  lm.opt_id * kLmDim, active_lm * kLmDim) =
+                iter.value().transpose();
+          }
         }
       }
-
     }
-  }*/
-  // std::cout << "Solve took " << Toc(dTime) << " seconds." << std::endl;
+    // Load the pose section for v.
+    v.template block<kPrPoseDim, kPrPoseDim>(
+      active_lm * kLmDim, active_lm * kLmDim) =
+        s_.template block<kPrPoseDim, kPrPoseDim>(
+          last_pose.opt_id * kPrPoseDim,
+          last_pose.opt_id * kPrPoseDim);
+
+    std::cout << "Dense S matrix is " << std::endl << s_ << std::endl;
+    std::cout << "v matrix is: " << std::endl << v << std::endl;
+    std::cout << "w matrix is " << std::endl << w << std::endl;
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -898,6 +920,8 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     StreamMessage(debug_level) << "rhs_l_ norm: " <<  rhs_l_.squaredNorm() <<
                                   std::endl;
 
+    // TODO: this needs to take into account binary and unary errors. For now
+    // dogleg is disabled
     if (num_active_poses_ > 0) {
       Eigen::SparseBlockVectorProductDenseResult(
             j_pr_,

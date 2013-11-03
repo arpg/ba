@@ -32,7 +32,7 @@ class BundleAdjuster
   typedef ImuMeasurementT<Scalar> ImuMeasurement;
   typedef UnaryResidualT<Scalar> UnaryResidual;
   typedef BinaryResidualT<Scalar> BinaryResidual;
-  typedef ImuResidualT<Scalar, PoseSize, PoseSize> ImuResidual;
+  typedef ImuResidualT<Scalar, kPoseDim, kPoseDim> ImuResidual;
   typedef ImuCalibrationT<Scalar> ImuCalibration;
   typedef ImuPoseT<Scalar> ImuPose;
 
@@ -314,7 +314,7 @@ public:
     assert(pose1_id < poses_.size());
     assert(pose2_id < poses_.size());
     // we must be using 9DOF poses for IMU residuals
-    //assert(PoseSize == 9);
+    //assert(kPoseDim == 9);
 
     ImuResidual residual;
     residual.orig_weight = weight;
@@ -397,18 +397,18 @@ private:
   VectorXt r_pr_;
 
   // pose/pose jacobian for binary constraints
-  BlockMat<Eigen::Matrix<Scalar, BinaryResidual::kResSize, PoseSize>> j_pp_;
-  BlockMat<Eigen::Matrix<Scalar, PoseSize, BinaryResidual::kResSize>> jt_pp_;
+  BlockMat<Eigen::Matrix<Scalar, BinaryResidual::kResSize, kPoseDim>> j_pp_;
+  BlockMat<Eigen::Matrix<Scalar, kPoseDim, BinaryResidual::kResSize>> jt_pp_;
   VectorXt r_pp_;
 
   // pose/pose jacobian for unary constraints
-  BlockMat<Eigen::Matrix<Scalar, UnaryResidual::kResSize, PoseSize>> j_u_;
-  BlockMat<Eigen::Matrix<Scalar, PoseSize, UnaryResidual::kResSize>> jt_u_;
+  BlockMat<Eigen::Matrix<Scalar, UnaryResidual::kResSize, kPoseDim>> j_u_;
+  BlockMat<Eigen::Matrix<Scalar, kPoseDim, UnaryResidual::kResSize>> jt_u_;
   VectorXt r_u_;
 
   // imu jacobian
-  BlockMat<Eigen::Matrix<Scalar, ImuResidual::kResSize, PoseSize>> j_i_;
-  BlockMat<Eigen::Matrix<Scalar, PoseSize, ImuResidual::kResSize>> jt_i_;
+  BlockMat<Eigen::Matrix<Scalar, ImuResidual::kResSize, kPoseDim>> j_i_;
+  BlockMat<Eigen::Matrix<Scalar, kPoseDim, ImuResidual::kResSize>> jt_i_;
 
   BlockMat<Eigen::Matrix<Scalar, ImuResidual::kResSize, CalibSize>> j_ki_;
   BlockMat<Eigen::Matrix<Scalar, CalibSize, ImuResidual::kResSize>> jt_ki_;
@@ -418,13 +418,16 @@ private:
   BlockMat<Eigen::Matrix<Scalar, CalibSize, ProjectionResidual::kResSize>>
                                                                         jt_kpr_;
 
-  BlockMat< Eigen::Matrix<Scalar, kLmDim, kLmDim>> vi_;
-  BlockMat< Eigen::Matrix<Scalar, kLmDim, kPrPoseDim>> jt_l_j_pr_;
-  BlockMat< Eigen::Matrix<Scalar, kPrPoseDim, kLmDim>> jt_pr_j_l_;
+  BlockMat<Eigen::Matrix<Scalar, kPoseDim, kPoseDim>> u_;
+  BlockMat<Eigen::Matrix<Scalar, kLmDim, kLmDim>> vi_;
+  BlockMat<Eigen::Matrix<Scalar, kLmDim, kPrPoseDim>> jt_l_j_pr_;
+  BlockMat<Eigen::Matrix<Scalar, kPrPoseDim, kLmDim>> jt_pr_j_l_;
 
   VectorXt rhs_p_;
   VectorXt rhs_l_;
   VectorXt r_i_;
+  Eigen::Matrix<Scalar,kLmDim,kLmDim> jtj_l_;
+  Eigen::Matrix<Scalar,kLmDim,1> jtr_l_;
   Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic> s_;
   Eigen::SparseMatrix<Scalar> s_sparse_;
   Scalar trust_region_size_;
@@ -456,7 +459,7 @@ private:
   std::vector<UnaryResidual> unary_residuals_;
   std::vector<ImuResidual> inertial_residuals_;
   std::vector<Scalar> errors_;
-  Eigen::Matrix<Scalar,PoseSize+1,PoseSize+1> last_pose_cov_;
+  Eigen::Matrix<Scalar,kPoseDim+1,kPoseDim+1> last_pose_cov_;
 
 };
 

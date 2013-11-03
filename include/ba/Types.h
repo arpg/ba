@@ -30,7 +30,7 @@
 #define IMU_ACCEL_UNCERTAINTY 10 //0.0392266
 
 namespace ba {
-static const double Gravity = 9.80665;
+static const double Gravity = 9.8007;
 template<typename Scalar = double>
 struct PoseT {
   Sophus::SE3Group<Scalar> t_wp;
@@ -80,7 +80,7 @@ struct LandmarkT {
   bool is_reliable;
 };
 
-template<typename T>
+template<typename Scalar>
 ///
 /// \brief GetGravityVector Returns the 3d gravity vector from the 2d
 /// direction vector
@@ -88,13 +88,14 @@ template<typename T>
 /// \param g Gravity of 1 g in m/s^2
 /// \return The 3d gravity vecto
 ///
-static Eigen::Matrix<T, 3, 1> GetGravityVector(
-    const Eigen::Matrix<T, 2, 1>& dir, const T g = (T) ba::Gravity) {
-  T sp = sin(dir[0]);
-  T cp = cos(dir[0]);
-  T sq = sin(dir[1]);
-  T cq = cos(dir[1]);
-  Eigen::Matrix < T, 3, 1 > vec(cp * sq, -sp, cp * cq);
+static Eigen::Matrix<Scalar, 3, 1> GetGravityVector(
+    const Eigen::Matrix<Scalar, 2, 1>& dir,
+    const Scalar g = (Scalar) ba::Gravity) {
+  Scalar sp = sin(dir[0]);
+  Scalar cp = cos(dir[0]);
+  Scalar sq = sin(dir[1]);
+  Scalar cq = cos(dir[1]);
+  Eigen::Matrix < Scalar, 3, 1 > vec(cp * sq, -sp, cp * cq);
   vec *= -g;
   return vec;
 }
@@ -139,7 +140,7 @@ struct ImuCalibrationT {
   Eigen::Matrix<Scalar, 6, 6> r;
 };
 
-template<typename T>
+template<typename Scalar>
 ///
 /// \brief dGravity_dDirection Returns the jacobian associated with getting
 /// the 3d gravity vector from the 2d direction
@@ -147,13 +148,14 @@ template<typename T>
 /// \param g Gravity of 1 g in m/s^2
 /// \return The 3x2 jacobian matrix
 ///
-static Eigen::Matrix<T, 3, 2> dGravity_dDirection(
-    const Eigen::Matrix<T, 2, 1>& dir, const T g = ba::Gravity) {
-  T sp = sin(dir[0]);
-  T cp = cos(dir[0]);
-  T sq = sin(dir[1]);
-  T cq = cos(dir[1]);
-  Eigen::Matrix<T, 3, 2> vec;
+static Eigen::Matrix<Scalar, 3, 2> dGravity_dDirection(
+    const Eigen::Matrix<Scalar, 2, 1>& dir,
+    const Scalar g = ba::Gravity) {
+  Scalar sp = sin(dir[0]);
+  Scalar cp = cos(dir[0]);
+  Scalar sq = sin(dir[1]);
+  Scalar cq = cos(dir[1]);
+  Eigen::Matrix<Scalar, 3, 2> vec;
   vec << -sp * sq, cp * cq, -cp, 0, -cq * sp, -cp * sq;
   vec *= -g;
   return vec;
@@ -292,7 +294,7 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
     // integrate translation
     y.t_wp.translation() += k.template head<3>() * dt;
     // integrate rotation using exp
-    const auto q = (r_v2_v1.unit_quaternion()
+    const Eigen::Quaternion<Scalar> q = (r_v2_v1.unit_quaternion()
         * pose.t_wp.so3().unit_quaternion());
     // unfortunately need to memcpy to avoid normalization
     memcpy(y.t_wp.so3().data(), q.coeffs().data(), sizeof(Scalar) * 4);
@@ -467,10 +469,11 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
             (Eigen::Matrix<Scalar,6,1>() <<
             IMU_GYRO_UNCERTAINTY, IMU_GYRO_UNCERTAINTY,
             IMU_GYRO_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY,
-             IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY).finished();
+             IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY).finished();               
 
-        const auto& c_prop =
+        const Eigen::Matrix<Scalar, 10, 10>& c_prop =
             dy_dy0 * (*c_prior) * dy_dy0.transpose();
+
         *c_prior = c_prop + dy_db * cov_meas.asDiagonal() * dy_db.transpose();
       }
 
@@ -1016,7 +1019,7 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       dexp_dw_fd.col(ii) = (res_Plus - res_Minus) / (2 * eps);
     }
 
-    const auto k_segment = k.template segment < 3 > (3);
+    const Eigen::Matrix<Scalar, 3, 1> k_segment = k.template segment <3>(3);
     std::cout << "dexp_dw_fd= " << std::endl
         << dqExp_dw<Scalar>(k_segment * dt).format(kCleanFmt) << std::endl;
     std::cout << "dexp_dw_fd=" << std::endl << dexp_dw_fd.format(kCleanFmt)

@@ -1,5 +1,6 @@
 #include <ba/BundleAdjuster.h>
 #include <iomanip>
+#include <fstream>
 
 namespace ba {
 // these are declared in Utils.h
@@ -34,7 +35,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
     }
 
     if (kTvsInCalib) {
-      const auto& update = delta_calib.template block<6,1>(2,0)*coef;
+      const Eigen::Matrix<Scalar, 6, 1>& update =
+          delta_calib.template block<6,1>(2,0)*coef;
       imu_.t_vs = SE3t::exp(update)*imu_.t_vs;
       rig_.cameras[0].T_wc = imu_.t_vs;
 
@@ -47,7 +49,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
 
   // update the camera parameters
   if (kCamParamsInCalib && delta_calib.rows() > 8){
-    const auto& update = delta_calib.template block<5,1>(8,0)*coef;
+    const Eigen::Matrix<Scalar, 5, 1>& update =
+        delta_calib.template block<5,1>(8,0)*coef;
 
     StreamMessage(debug_level) <<
       "calib delta: " << (update).transpose() << std::endl;
@@ -67,10 +70,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
     // optimization
     if (poses_[ii].is_active) {
       const unsigned int p_offset = poses_[ii].opt_id*kPoseDim;
-      const auto& p_update =
+      const Eigen::Matrix<Scalar, 6, 1>& p_update =
           -delta.delta_p.template block<6,1>(p_offset,0)*coef;
       if (kTvsInCalib && inertial_residuals_.size() > 0) {
-        const auto& calib_update =
+        const Eigen::Matrix<Scalar ,6, 1>& calib_update =
             -delta_calib.template block<6,1>(2,0)*coef;
 
         if (do_rollback == false) {
@@ -99,7 +102,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
       }
 
       if (kTvsInState) {
-        const auto& tvs_update =
+        const Eigen::Matrix<Scalar, 6, 1>& tvs_update =
             delta.delta_p.template block<6,1>(p_offset+15,0)*coef;
         poses_[ii].t_vs = SE3t::exp(tvs_update)*poses_[ii].t_vs;
         poses_[ii].t_wp = poses_[ii].t_wp * SE3t::exp(-tvs_update);
@@ -118,7 +121,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
       // to the static poses as well, so that reprojection residuals remain
       // the same
       if (kTvsInCalib && inertial_residuals_.size() > 0) {
-        const auto& delta_twp =
+        const Eigen::Matrix<Scalar, 6, 1>& delta_twp =
             -delta_calib.template block<6,1>(2,0)*coef;
         poses_[ii].t_wp = poses_[ii].t_wp * SE3t::exp(delta_twp);
 
@@ -137,7 +140,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
   // update the landmarks
   for (size_t ii = 0 ; ii < landmarks_.size() ; ++ii) {
     if (landmarks_[ii].is_active) {
-      const auto& lm_delta =
+      const Eigen::Matrix<Scalar, kLmDim, 1>& lm_delta =
         delta.delta_l.template segment<kLmDim>(
             landmarks_[ii].opt_id*kLmDim) * coef;
 
@@ -360,13 +363,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
 
     StartTimer(_jtj_);
-    // TODO: suboptimal, the matrices are symmetric. We should only
-    // multipl one half
-    BlockMat<Eigen::Matrix<Scalar, kPoseDim, kPoseDim>> u(
-          num_poses, num_poses);
+    u_.resize(num_poses, num_poses);
 
     vi_.setZero();
-    u.setZero();
+    u_.setZero();
     rhs_p_.setZero();
     s_.setZero();
     rhs_p_sc.setZero();
@@ -376,10 +376,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
             num_poses, num_poses);
       Eigen::SparseBlockProduct(jt_pr, j_pr_, jt_pr_j_pr, use_triangular);
 
-      auto temp_u = u;
+      decltype(u_) temp_u = u_;
       // this is a block add, as jt_pr_j_pr does not have the same block
       // dimensions as u, due to efficiency
-      Eigen::template SparseBlockAdd(temp_u, jt_pr_j_pr, u);
+      Eigen::template SparseBlockAdd(temp_u, jt_pr_j_pr, u_);
 
       VectorXt jt_pr_r_pr(num_pose_params);
       // this is a strided multiplication, as jt_pr_r_pr might have a larger
@@ -395,8 +395,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
             num_poses, num_poses);
 
       Eigen::SparseBlockProduct(jt_pp_ ,j_pp_, jt_pp_j_pp, use_triangular);
-      auto temp_u = u;
-      Eigen::SparseBlockAdd(temp_u,jt_pp_j_pp,u);
+      decltype(u_) temp_u = u_;
+      Eigen::SparseBlockAdd(temp_u,jt_pp_j_pp,u_);
 
       VectorXt jt_pp_r_pp(num_pose_params);
       Eigen::SparseBlockVectorProductDenseResult(jt_pp_, r_pp_, jt_pp_r_pp);
@@ -409,8 +409,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
             num_poses, num_poses);
 
       Eigen::SparseBlockProduct(jt_u_, j_u_, jt_u_j_u, use_triangular);
-      auto temp_u = u;
-      Eigen::SparseBlockAdd(temp_u, jt_u_j_u, u);
+      decltype(u_) temp_u = u_;
+      Eigen::SparseBlockAdd(temp_u, jt_u_j_u, u_);
 
       VectorXt jt_u_r_u(num_pose_params);
       Eigen::SparseBlockVectorProductDenseResult(jt_u_, r_u_, jt_u_r_u);
@@ -423,8 +423,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
             num_poses, num_poses);
 
       Eigen::SparseBlockProduct(jt_i_, j_i_, jt_i_j_i, use_triangular);
-      auto temp_u = u;
-      Eigen::SparseBlockAdd(temp_u, jt_i_j_i, u);
+      decltype(u_) temp_u = u_;
+      Eigen::SparseBlockAdd(temp_u, jt_i_j_i, u_);
 
       VectorXt jt_i_r_i(num_pose_params);
       Eigen::SparseBlockVectorProductDenseResult(jt_i_, r_i_, jt_i_r_i);
@@ -441,32 +441,30 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       rhs_l_.resize(num_lm*kLmDim);
       rhs_l_.setZero();
       StartTimer(_schur_complement_v);
-      for (unsigned int ii = 0; ii < landmarks_.size() ; ++ii) {
-        Eigen::Matrix<Scalar,kLmDim,kLmDim> jtj;
-        Eigen::Matrix<Scalar,kLmDim,1> jtr;
-        jtj.setZero();
-        jtr.setZero();
+      for (unsigned int ii = 0; ii < landmarks_.size() ; ++ii) {        
+        jtj_l_.setZero();
+        jtr_l_.setZero();
         for (const int id : landmarks_[ii].proj_residuals) {
           const ProjectionResidual& res = proj_residuals_[id];
-          jtj += (res.dz_dlm.transpose() * res.dz_dlm) *
+          jtj_l_ += (res.dz_dlm.transpose() * res.dz_dlm) *
               res.weight;
-          jtr += (res.dz_dlm.transpose() *
+          jtr_l_ += (res.dz_dlm.transpose() *
                   r_pr_.template block<ProjectionResidual::kResSize,1>(
                     res.residual_id*ProjectionResidual::kResSize, 0) *
                     res.weight);
         }
-        rhs_l_.template block<kLmDim,1>(landmarks_[ii].opt_id*kLmDim, 0) = jtr;
+        rhs_l_.template block<kLmDim,1>(landmarks_[ii].opt_id*kLmDim, 0) = jtr_l_;
         if (kLmDim == 1) {
-          if (fabs(jtj(0,0)) < 1e-6) {
-            jtj(0,0) += 1e-6;
+          if (fabs(jtj_l_(0,0)) < 1e-6) {
+            jtj_l_(0,0) += 1e-6;
           }
         } else {
-          if (jtj.norm() < 1e-6) {
-            jtj.diagonal() +=
+          if (jtj_l_.norm() < 1e-6) {
+            jtj_l_.diagonal() +=
                 Eigen::Matrix<Scalar, kLmDim, 1>::Constant(1e-6);
           }
         }        
-        vi_.insert(landmarks_[ii].opt_id, landmarks_[ii].opt_id) = jtj.inverse();
+        vi_.insert(landmarks_[ii].opt_id, landmarks_[ii].opt_id) = jtj_l_.inverse();
       }
 
       PrintTimer(_schur_complement_v);
@@ -534,7 +532,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
         */
 
          Eigen::SparseBlockSubtractDenseResult(
-               u, jt_pr_j_l_vi_jt_l_j_pr,
+               u_, jt_pr_j_l_vi_jt_l_j_pr,
                s_.template block(
                  0, 0, num_pose_params,
                  num_pose_params ));
@@ -554,7 +552,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       }
     } else {
       Eigen::LoadDenseFromSparse(
-            u, s_.template block(0, 0, num_pose_params, num_pose_params));
+            u_, s_.template block(0, 0, num_pose_params, num_pose_params));
       rhs_p_sc.template head(num_pose_params) = rhs_p_;
     }
     PrintTimer(_schur_complement_);  
@@ -727,8 +725,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
   // Do marginalization if required. Note that at least 2 poses are
   // required for marginalization
-  if (do_marginalization && num_active_poses_ > 1) {
-    const Pose& last_pose = poses_.front();
+  const Pose& last_pose = poses_.front();
+  if (do_marginalization && num_active_poses_ > 1 && last_pose.is_active) {
     std::cout << "lase pose id:" << last_pose.id << " num landmarks: " <<
                  last_pose.landmarks.size();
     // Count the number of active landmarks for this pose. This is necessary
@@ -761,11 +759,15 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     MatrixXt w((num_active_poses_ - 1) * kPoseDim, active_lm * kLmDim);
     std::cout << "w dim: " << (num_active_poses_ - 1) * kPoseDim << " by " <<
                  active_lm * kLmDim << std::endl;
-    w.setZero();
 
     // Allocate the V matrix
-    MatrixXt v(kPoseDim + active_lm+kLmDim,
-               kPoseDim + active_lm+kLmDim);
+    MatrixXt v(kPoseDim + active_lm * kLmDim,
+               kPoseDim + active_lm * kLmDim);
+
+    w.setZero();
+    v.setZero();
+
+
     // BlockMat< Eigen::Matrix<Scalar, kPrPoseDim, kLmDim> > w(
     //       num_active_poses_ - 1, active_lm);
     // w.reserve(w_sizes.template head<active_lm>());
@@ -781,8 +783,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
           // pose we are marginalizing.
           if (iter.index() != last_pose.opt_id) {
             // Insert the block into w.
-            std::cout << "Inserting block " << iter.value() << "into w at pos " <<
-                         kPoseDim * iter.index() << " " <<  lm.opt_id * kLmDim << std::endl;
+            //std::cout << "Inserting block " << iter.value() << "into w at pos " <<
+            //             kPoseDim * iter.index() << " " <<  lm.opt_id * kLmDim << std::endl;
+            v.template block<kLmDim, kLmDim>(lm.opt_id, lm.opt_id) =
+                (Eigen::Matrix<Scalar,kLmDim, kLmDim>)jtj_l_.coeff(lm.opt_id, lm.opt_id);
             w.template block<kPrPoseDim, kLmDim>(
                   kPoseDim * iter.index(), lm.opt_id * kLmDim) = iter.value();
           } else {
@@ -797,15 +801,40 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       }
     }
     // Load the pose section for v.
-    v.template block<kPrPoseDim, kPrPoseDim>(
+    v.template block<kPoseDim, kPoseDim>(
       active_lm * kLmDim, active_lm * kLmDim) =
-        s_.template block<kPrPoseDim, kPrPoseDim>(
-          last_pose.opt_id * kPrPoseDim,
-          last_pose.opt_id * kPrPoseDim);
+        u_.coeff(last_pose.opt_id, last_pose.opt_id);
 
-    std::cout << "Dense S matrix is " << std::endl << s_ << std::endl;
-    std::cout << "v matrix is: " << std::endl << v << std::endl;
-    std::cout << "w matrix is " << std::endl << w << std::endl;
+    if (last_pose.is_param_mask_used) {
+      for (unsigned int ii = 0 ; ii < last_pose.param_mask.size() ; ++ii) {
+        if (!last_pose.param_mask[ii]) {
+          const int idx = active_lm * kLmDim + ii;
+          v(idx, idx) = 1.0;
+        }
+      }
+    }
+
+    MatrixXt wvwt = w * v.inverse() * w.transpose();
+
+
+    MatrixXt w_dense(
+          jt_pr_j_l_.rows() * decltype(jt_pr_j_l_)::Scalar::RowsAtCompileTime,
+          jt_pr_j_l_.cols() * decltype(jt_pr_j_l_)::Scalar::ColsAtCompileTime);
+    Eigen::LoadDenseFromSparse(jt_pr_j_l_,w_dense);
+
+    MatrixXt u_dense(
+          u_.rows() * decltype(u_)::Scalar::RowsAtCompileTime,
+          u_.cols() * decltype(u_)::Scalar::ColsAtCompileTime);
+    Eigen::LoadDenseFromSparse(u_,u_dense);
+
+    std::ofstream("u_orig.txt", std::ios_base::trunc) << u_dense;
+    std::ofstream("w_orig.txt", std::ios_base::trunc) << w_dense;
+    std::ofstream("v.txt", std::ios_base::trunc) << v;
+    std::ofstream("w.txt", std::ios_base::trunc) << w;
+    std::ofstream("wvwt.txt", std::ios_base::trunc) << wvwt;
+
+    // std::cout << "\n\n\n\n\nv matrix is: " << std::endl << v << std::endl;
+    // std::cout << "\n\n\n\n\nw matrix is " << std::endl << w << std::endl;
   }
 }
 
@@ -882,6 +911,12 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::CalculateGn(
     solver.compute(s_);
     delta_gn = (rhs_p.rows() == 0 ? VectorXt() : solver.solve(rhs_p));
   }
+
+  // Do rank revealing QR
+  // Eigen::FullPivHouseholderQR<Eigen::Matrix<Scalar,
+  //                                          Eigen::Dynamic, Eigen::Dynamic>> qr;
+  // qr.compute(s_);
+  // std::cout << "S dim: " << s_.rows() << " rank: " << qr.rank() << std::endl;
 }
 
 
@@ -898,13 +933,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
   Delta delta_dl;
   Delta delta_gn;
 
-  if (use_dogleg) {
-    // Make copies of the initial parameters.
-    auto landmarks_copy = landmarks_;
-    auto poses_copy = poses_;
-    auto imu_copy = imu_;
-    auto rig_copy = rig_;
-
+  if (use_dogleg) {    
     // calculate steepest descent result
     Scalar nominator = rhs_p_.squaredNorm() + rhs_l_.squaredNorm();
 
@@ -1027,6 +1056,12 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
                                       std::endl;
         return false;
       }
+
+      // Make copies of the initial parameters.
+      decltype(landmarks_) landmarks_copy = landmarks_;
+      decltype(poses_) poses_copy = poses_;
+      decltype(imu_) imu_copy = imu_;
+      decltype(rig_) rig_copy = rig_;
 
       const double prev_error = proj_error_ + inertial_error_ + binary_error_;
       ApplyUpdate(delta_dl, false);
@@ -1589,7 +1624,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     ImuPose imu_pose = ImuResidual::IntegrateResidual(
           pose1, res.measurements, pose1.b.template head<3>(),
           pose1.b.template tail<3>(), gravity, res.poses,
-          &jb_q, NULL, &c_imu_pose);
+          &jb_q, nullptr, &c_imu_pose);
+
 
     Scalar total_dt =
         res.measurements.back().time - res.measurements.front().time;
@@ -1663,23 +1699,13 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     res.residual.template head<6>() = SE3t::log(imu_pose.t_wp*t_2w);
     res.residual.template segment<3>(6) = imu_pose.v_w - pose2.v_w;
 
-    // we always calculate the bias jacobians, as it's used in error prop.
-    Eigen::Matrix<Scalar,10,6> dt_db = jb_q;
+
     // This is the 7x7 jacobian of the quaternion/translation multiplication of
     // two transformations, with respect to the second transformation (as the
     // operation is not commutative.)
     // For this derivation refer to page 22/23 of notes.
     const Eigen::Matrix<Scalar,7,7> dt1t2_dt2 = dt1t2_dt1(imu_pose.t_wp, t_2w);
-    const Eigen::Matrix<Scalar,6,7> dse3t1t2_dt2 = dlog_dse3 * dt1t2_dt2;
-
-    // Transform the bias jacobian for position and rotation through the
-    // jacobian of multiplication by t_2w.
-
-    // dt/dB
-    res.dz_db.template block<6,6>(0,0) =
-        dse3t1t2_dt2 * dt_db.template block<7,6>(0,0);
-    // dV/dB
-    res.dz_db.template block<3,6>(6,0) = dt_db.template block<3,6>(7,0);
+    const Eigen::Matrix<Scalar,6,7> dse3t1t2_dt2 = dlog_dse3 * dt1t2_dt2;    
 
     // Transform the covariance through the multiplication by t_2w as well as
     // the SE3 log
@@ -1695,10 +1721,13 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     res.cov_inv.template topLeftCorner<9,9>() =
         dse3t1t2v_dt2 * c_imu_pose *
         dse3t1t2v_dt2.transpose();
-    // std::cout << "cov: " << std::endl <<
-    //              res.cov_inv.format(kLongFmt) << std::endl;
 
+
+    StreamMessage(debug_level) << "cov:" << std::endl <<
+                                  res.cov_inv << std::endl;
     res.cov_inv = res.cov_inv.inverse();
+    StreamMessage(debug_level) << "inf:" << std::endl <<
+                                  res.cov_inv << std::endl;
 
 //    Eigen::VectorXd diag(9);
 //    diag << 123238,
@@ -1721,12 +1750,22 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
     // bias jacbian, only if bias in the state.
     if (kBiasInState) {
+      Eigen::Matrix<Scalar,10,6> dt_db = jb_q;
+      // Transform the bias jacobian for position and rotation through the
+      // jacobian of multiplication by t_2w.
+      // dt/dB
+      res.dz_db.template block<6,6>(0,0) =
+          dse3t1t2_dt2 * dt_db.template block<7,6>(0,0);
+      // dV/dB
+      res.dz_db.template block<3,6>(6,0) = dt_db.template block<3,6>(7,0);
+
       // dB/dB
       res.dz_db.template block<6,6>(9,0) =
           Eigen::Matrix<Scalar,6,6>::Identity();
 
-      // write the jacobians
+      // The jacboian of the pose error wrt the biases.
       res.dz_dx1.template block<ImuResidual::kResSize,6>(0,9) = res.dz_db;
+      // The process model jacobian of the biases.
       res.dz_dx2.template block<6,6>(9,9) =
           -Eigen::Matrix<Scalar,6,6>::Identity();
 
@@ -1918,7 +1957,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       std::sort(pose.proj_residuals.begin(), pose.proj_residuals.end());
       for (const int id: pose.proj_residuals) {
         ProjectionResidual& res = proj_residuals_[id];
-        auto& dz_dx = res.x_meas_id == pose.id ? res.dz_dx_meas : res.dz_dx_ref;
+        Eigen::Matrix<Scalar, 2, 6>& dz_dx =
+            res.x_meas_id == pose.id ? res.dz_dx_meas : res.dz_dx_ref;
         if (pose.is_param_mask_used) {
           is_param_mask_used_ = true;
           for (unsigned int ii = 0 ; ii < kPrPoseDim ; ++ii) {
@@ -2080,7 +2120,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 template class BundleAdjuster<REAL_TYPE, 1,6,0>;
 // template class BundleAdjuster<REAL_TYPE, 3,6,0>;
 //template class BundleAdjuster<REAL_TYPE, 1,15,8>;
-template class BundleAdjuster<REAL_TYPE, 1,15,0>;
+template class BundleAdjuster<REAL_TYPE, 1,9,0>;
 //template class BundleAdjuster<REAL_TYPE, 1,21,2>;
 // template class BundleAdjuster<double, 3,9>;
 

@@ -207,7 +207,7 @@ static bool _Test_dLog_dq(const Eigen::Quaternion<Scalar>& q) {
 
     dLog_dq_fd.col(ii) = (res_plus - res_minus) / (2 * dEps);
   }
-  const auto dlog = dLog_dq(q);
+  const Eigen::Matrix<Scalar, 3, 4> dlog = dLog_dq(q);
   std::cout << "dlog_dq = [" << dlog.format(kCleanFmt) << "]" << std::endl;
   std::cout << "dlog_dqf = [" << dLog_dq_fd.format(kCleanFmt) << "]"
       << std::endl;

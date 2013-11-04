@@ -1058,11 +1058,13 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
       }
 
       // Make copies of the initial parameters.
-      decltype(landmarks_) landmarks_copy = landmarks_;
+      /*decltype(landmarks_) landmarks_copy = landmarks_;
       decltype(poses_) poses_copy = poses_;
       decltype(imu_) imu_copy = imu_;
-      decltype(rig_) rig_copy = rig_;
+      decltype(rig_) rig_copy = rig_;*/
 
+      EvaluateResiduals(&proj_error_, &binary_error_,
+                        &unary_error_, &inertial_error_);
       const double prev_error = proj_error_ + inertial_error_ + binary_error_;
       ApplyUpdate(delta_dl, false);
 
@@ -1081,13 +1083,15 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
         " and Epp: " << binary_error_ << std::endl;
 
       if (post_error > prev_error) {
-        landmarks_ = landmarks_copy;
+        /*landmarks_ = landmarks_copy;
         poses_ = poses_copy;
         imu_ = imu_copy;
         rig_ = rig_copy;
+        */
         trust_region_size_ /= 2;
         StreamMessage(debug_level) << "Error increased, reducing "
           "trust region to " << trust_region_size_ << std::endl;
+        ApplyUpdate(delta_dl, true);
       } else {
         trust_region_size_ *= 2;
         StreamMessage(debug_level) << "Error decreased, increasing "

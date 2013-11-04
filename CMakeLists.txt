@@ -44,6 +44,7 @@ include_directories(include)
 add_subdirectory( src )
 
 if( BUILD_APPLICATIONS )
-    add_subdirectory( applications )
+  set(BA_DIR ${BA_BINARY_DIR}/src)
+  add_subdirectory( applications )
 endif()
 

@@ -330,6 +330,16 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       // normalize so the ray size is 1
       const double length = lm.x_s.template head<3>().norm();
       lm.x_s = lm.x_s / length;
+
+      // verify that x_s is indeed along the ref ray
+      /*
+      Vector3t ray_xs = lm.x_s.template head<3>() / lm.x_s[3];
+      Vector3t ray = rig_.cameras[lm.ref_cam_id].camera.Unproject(lm.z_ref);
+      StreamMessage(debug_level) <<
+        "Unmapping lm " << lm.id << " with z_ref " << lm.z_ref.transpose() <<
+        " ray: " << ray.transpose() << " xs " << ray_xs.transpose() <<
+        " cross: " << ray.cross(ray_xs).transpose() << std::endl;
+        */
     }
   }
 
@@ -721,6 +731,14 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       lm.x_w = MultHomogeneous(
             poses_[lm.ref_pose_id].GetTsw(lm.ref_cam_id,
                                          rig_, kTvsInState).inverse() ,lm.x_s);
+
+      /*Vector3t ray_xs = lm.x_s.template head<3>() / lm.x_s[3];
+      Vector3t ray = rig_.cameras[lm.ref_cam_id].camera.Unproject(lm.z_ref);
+      StreamMessage(debug_level) <<
+        "OUT: Unmapping lm " << lm.id << " with z_ref " << lm.z_ref.transpose() <<
+        " ray: " << ray.transpose() << " xs " << ray_xs.transpose() <<
+        " cross: " << ray.cross(ray_xs).transpose() << std::endl;
+        */
     }
   }
 
@@ -1061,10 +1079,10 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
       }
 
       // Make copies of the initial parameters.
-      /*decltype(landmarks_) landmarks_copy = landmarks_;
+      decltype(landmarks_) landmarks_copy = landmarks_;
       decltype(poses_) poses_copy = poses_;
       decltype(imu_) imu_copy = imu_;
-      decltype(rig_) rig_copy = rig_;*/
+      decltype(rig_) rig_copy = rig_;
 
       EvaluateResiduals(&proj_error_, &binary_error_,
                         &unary_error_, &inertial_error_);
@@ -1086,15 +1104,15 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
         " and Epp: " << binary_error_ << std::endl;
 
       if (post_error > prev_error) {
-        /*landmarks_ = landmarks_copy;
+        landmarks_ = landmarks_copy;
         poses_ = poses_copy;
         imu_ = imu_copy;
         rig_ = rig_copy;
-        */
+
         trust_region_size_ /= 2;
         StreamMessage(debug_level) << "Error increased, reducing "
           "trust region to " << trust_region_size_ << std::endl;
-        ApplyUpdate(delta_dl, true);
+        //ApplyUpdate(delta_dl, true);
       } else {
         trust_region_size_ *= 2;
         StreamMessage(debug_level) << "Error decreased, increasing "
@@ -1111,6 +1129,10 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
       CalculateGn(rhs_p_sc, delta.delta_p);
     }
 
+    decltype(landmarks_) landmarks_copy = landmarks_;
+    decltype(poses_) poses_copy = poses_;
+    decltype(imu_) imu_copy = imu_;
+    decltype(rig_) rig_copy = rig_;
 
     // now back substitute the landmarks
     GetLandmarkDelta(delta.delta_p, rhs_l_,  vi_, jt_l_j_pr_,
@@ -1139,7 +1161,10 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     if (dPostError > dPrevError && !error_increase_allowed) {
        StreamMessage(debug_level) << "Error increasing during optimization, "
                                      " rolling back .." << std::endl;
-      ApplyUpdate(delta, true, gn_damping);
+       landmarks_ = landmarks_copy;
+       poses_ = poses_copy;
+       imu_ = imu_copy;
+       rig_ = rig_copy;
       return false;
     }
 
@@ -2084,7 +2109,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 }
 // specializations
 template class BundleAdjuster<REAL_TYPE, 1,6,0>;
-template class BundleAdjuster<REAL_TYPE, 3,6,0>;
 template class BundleAdjuster<REAL_TYPE, 1,9,0>;
 
 

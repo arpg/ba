@@ -201,8 +201,11 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
       const SE3t t_ws_r =
           ref_pose.GetTsw(lm.ref_cam_id,rig_, kTvsInState).inverse();
 
-      const Vector2t p = rig_.cameras[res.cam_id].camera.Transfer3D(
-            t_sw_m*t_ws_r, lm.x_s.template head<3>(),lm.x_s(3));
+      const Vector2t p = kLmDim == 3 ?
+            rig_.cameras[res.cam_id].camera.Transfer3D(
+              t_sw_m, lm.x_w.template head<3>(),lm.x_w(3)) :
+            rig_.cameras[res.cam_id].camera.Transfer3D(
+              t_sw_m*t_ws_r, lm.x_s.template head<3>(),lm.x_s(3));
 
       res.residual = res.z - p;
 
@@ -331,7 +334,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
   }
 
   const bool use_triangular = false;
-  do_sparse_solve_ = true;
+  do_sparse_solve_ = false;
   do_last_pose_cov_ = false;
 
   for (unsigned int kk = 0 ; kk < uMaxIter ; ++kk) {
@@ -463,7 +466,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
             jtj_l_.diagonal() +=
                 Eigen::Matrix<Scalar, kLmDim, 1>::Constant(1e-6);
           }
-        }        
+        }
         vi_.insert(landmarks_[ii].opt_id, landmarks_[ii].opt_id) = jtj_l_.inverse();
       }
 
@@ -722,7 +725,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
   }
 
   bool do_marginalization = false;
-
+  /*
   // Do marginalization if required. Note that at least 2 poses are
   // required for marginalization
   const Pose& last_pose = poses_.front();
@@ -835,7 +838,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
     // std::cout << "\n\n\n\n\nv matrix is: " << std::endl << v << std::endl;
     // std::cout << "\n\n\n\n\nw matrix is " << std::endl << w << std::endl;
-  }
+  }*/
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1306,8 +1309,9 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     const SE3t t_ws_r =
         ref_pose.GetTsw(lm.ref_cam_id, rig_, kTvsInState).inverse();
 
-    const Vector2t p = cam.Transfer3D(
-          t_sw_m*t_ws_r, lm.x_s.template head<3>(),lm.x_s(3));
+    const Vector2t p = kLmDim == 3 ?
+          cam.Transfer3D(t_sw_m, lm.x_w.template head<3>(),lm.x_w(3)) :
+          cam.Transfer3D(t_sw_m*t_ws_r, lm.x_s.template head<3>(),lm.x_s(3));;
 
     res.residual = res.z - p;
     // std::cout << "res " << res.residual_id << " : pre" <<
@@ -1351,28 +1355,18 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       // " and refPoseId " << refPose.Id << std::endl;
       // derivative for the measurement pose
       const Vector4t x_v_r = MultHomogeneous(t_vs_r, lm.x_s);
-      const Vector4t x_v_m =
-          MultHomogeneous(pose.t_wp.inverse() * t_ws_r, lm.x_s);
-      const Vector4t x_s_m = MultHomogeneous(t_sw_m*t_ws_r, lm.x_s);
+      const Vector4t x_v_m = kLmDim == 1 ?
+          MultHomogeneous(pose.t_wp.inverse() * t_ws_r, lm.x_s) :
+          MultHomogeneous(pose.t_wp.inverse(), lm.x_w);
+      const Vector4t x_s_m = kLmDim == 1 ?
+          MultHomogeneous(t_sw_m * t_ws_r, lm.x_s) :
+          MultHomogeneous(t_sw_m, lm.x_w);
       const Eigen::Matrix<Scalar,2,4> dt_dp_m = cam.dTransfer3D_dP(
             SE3t(), x_s_m.template head<3>(),x_s_m(3));
 
       const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsv_m =
           dt_dp_m * t_vs_m.inverse().matrix();
 
-      // this is the multiplication by the lie generators unrolled
-//      for (unsigned int ii=0; ii<3; ++ii) {
-//        res.dz_dx_meas.template block<2,1>(0,ii) =
-//            dt_dp_m_tsv_m.col(ii) * x_p[3];
-//      }
-//      res.dz_dx_meas.template block<2,1>(0,3) =
-//          (dt_dp_m_tsv_m.col(2)*x_p[1] - dt_dp_m_tsv_m.col(1)*x_p[2]);
-
-//      res.dz_dx_meas.template block<2,1>(0,4) =
-//          (-dt_dp_m_tsv_m.col(2)*x_p[0] + dt_dp_m_tsv_m.col(0)*x_p[2]);
-
-//      res.dz_dx_meas.template block<2,1>(0,5) =
-//          (dt_dp_m_tsv_m.col(1)*x_p[0] - dt_dp_m_tsv_m.col(0)*x_p[1]);
       for (unsigned int ii=0; ii<6; ++ii) {
        res.dz_dx_meas.template block<2,1>(0,ii) =
           dt_dp_m_tsv_m * Sophus::SE3Group<Scalar>::generator(ii) * x_v_m;
@@ -1419,19 +1413,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
         const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsw_m_twp =
             -dt_dp_m_tsw_m * ref_pose.t_wp.matrix();
-        // this is the multiplication by the lie generators unrolled
-//        for (unsigned int ii=0; ii<3; ++ii) {
-//          res.dz_dx_ref.template block<2,1>(0,ii) =
-//              dt_dp_m_tsw_m_twp.col(ii) * x_v[3];
-//        }
-//        res.dz_dx_ref.template block<2,1>(0,3) =
-//            -(dt_dp_m_tsw_m_twp.col(2)*x_p[1] - dt_dp_m_tsv_m.col(1)*x_v[2]);
-
-//        res.dz_dx_ref.template block<2,1>(0,4) =
-//            -(-dt_dp_m_tsw_m_twp.col(2)*x_p[0] + dt_dp_m_tsv_m.col(0)*x_v[2]);
-
-//        res.dz_dx_ref.template block<2,1>(0,5) =
-//            -(dt_dp_m_tsw_m_twp.col(1)*x_p[0] - dt_dp_m_tsv_m.col(0)*x_v[1]);
 
          for (unsigned int ii=0; ii<6; ++ii) {
           res.dz_dx_ref.template block<2,1>(0,ii) =
@@ -1727,30 +1708,12 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         dse3t1t2v_dt2.transpose();
 
 
-    StreamMessage(debug_level) << "cov:" << std::endl <<
-                                  res.cov_inv << std::endl;
+    // StreamMessage(debug_level) << "cov:" << std::endl <<
+    //                               res.cov_inv << std::endl;
     res.cov_inv = res.cov_inv.inverse();
-    StreamMessage(debug_level) << "inf:" << std::endl <<
-                                  res.cov_inv << std::endl;
-
-//    Eigen::VectorXd diag(9);
-//    diag << 123238,
-//            123238,
-//            123238,
-//            60,
-//            60,
-//            60,
-//            300,
-//            300,
-//            300;
-//    res.cov_inv = diag.asDiagonal();
-    // Eigen::VectorXd diag = res.cov_inv.diagonal();
-    // res.cov_inv = diag.asDiagonal();
-    // res.cov_inv = res.cov_inv.diagonal().asDiagonal();
-    // res.cov_inv.setIdentity();
-
-    // std::cout << "inf: " << std::endl <<
-    //              res.cov_inv.format(kLongFmt) << std::endl;
+    res.cov_inv.setIdentity();
+    // StreamMessage(debug_level) << "inf:" << std::endl <<
+    //                               res.cov_inv << std::endl;
 
     // bias jacbian, only if bias in the state.
     if (kBiasInState) {
@@ -2120,13 +2083,10 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   PrintTimer(_j_insertion_);
 }
 // specializations
-// template class BundleAdjuster<REAL_TYPE, ba::NOT_USED,15,2>;
 template class BundleAdjuster<REAL_TYPE, 1,6,0>;
-// template class BundleAdjuster<REAL_TYPE, 3,6,0>;
-//template class BundleAdjuster<REAL_TYPE, 1,15,8>;
+template class BundleAdjuster<REAL_TYPE, 3,6,0>;
 template class BundleAdjuster<REAL_TYPE, 1,9,0>;
-//template class BundleAdjuster<REAL_TYPE, 1,21,2>;
-// template class BundleAdjuster<double, 3,9>;
+
 
 
 }

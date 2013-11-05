@@ -187,7 +187,8 @@ public:
 
     poses_[ref_pose_id].landmarks.push_back(landmark.id);
     // std::cout << "Adding landmark id " << landmark.id << " to pose " <<
-    //              poses_[ref_pose_id].id << std::endl;
+    //                poses_[ref_pose_id].id << " with x_w: " <<
+    //               landmark.x_w.transpose() << std::endl;
 
     if (is_active) {
       landmark.opt_id = num_active_landmarks_;

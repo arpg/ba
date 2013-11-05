@@ -26,7 +26,7 @@
 #include "Utils.h"
 #include <calibu/Calibu.h>
 
-#define IMU_GYRO_UNCERTAINTY 100 //0.00104719755
+#define IMU_GYRO_UNCERTAINTY 1 //0.00104719755
 #define IMU_ACCEL_UNCERTAINTY 10 //0.0392266
 
 namespace ba {

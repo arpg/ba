@@ -5,6 +5,11 @@
 #include <vector>
 #include <calibu/Calibu.h>
 //#include <cholmod.h>
+
+#ifdef _X
+#undef _X  // Weirdest undef ever. Defined in ctype.h. Conflicts in Eigen.
+#endif
+
 #include <Eigen/Sparse>
 #include "SparseBlockMatrix.h"
 #include "SparseBlockMatrixOps.h"

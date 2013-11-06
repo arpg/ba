@@ -732,13 +732,14 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
             poses_[lm.ref_pose_id].GetTsw(lm.ref_cam_id,
                                          rig_, kTvsInState).inverse() ,lm.x_s);
 
-      /*Vector3t ray_xs = lm.x_s.template head<3>() / lm.x_s[3];
+      /*
+      Vector3t ray_xs = lm.x_s.template head<3>() / lm.x_s[3];
       Vector3t ray = rig_.cameras[lm.ref_cam_id].camera.Unproject(lm.z_ref);
       StreamMessage(debug_level) <<
         "OUT: Unmapping lm " << lm.id << " with z_ref " << lm.z_ref.transpose() <<
         " ray: " << ray.transpose() << " xs " << ray_xs.transpose() <<
         " cross: " << ray.cross(ray_xs).transpose() << std::endl;
-        */
+      */
     }
   }
 
@@ -1736,7 +1737,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     // StreamMessage(debug_level) << "cov:" << std::endl <<
     //                               res.cov_inv << std::endl;
     res.cov_inv = res.cov_inv.inverse();
-    res.cov_inv.setIdentity();
     // StreamMessage(debug_level) << "inf:" << std::endl <<
     //                               res.cov_inv << std::endl;
 
@@ -2109,7 +2109,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 }
 // specializations
 template class BundleAdjuster<REAL_TYPE, 1,6,0>;
-template class BundleAdjuster<REAL_TYPE, 1,9,0>;
+template class BundleAdjuster<REAL_TYPE, 1,15,0>;
 
 
 

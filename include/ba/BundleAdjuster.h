@@ -363,6 +363,17 @@ public:
   bool IsLandmarkReliable(const unsigned int id)
   const { return landmarks_[id].is_reliable; }
 
+  void GetErrors( Scalar &proj_error,
+                  Scalar &unary_error,
+                  Scalar &binary_error,
+                  Scalar &inertial_error)
+  {
+    proj_error = proj_error_;
+    unary_error = unary_error_;
+    binary_error = binary_error_;
+    inertial_error = inertial_error_;
+  }
+
 private:
   bool SolveInternal(VectorXt rhs_p_sc, const Scalar gn_damping,
                      const bool error_increase_allowed, const bool use_dogleg);

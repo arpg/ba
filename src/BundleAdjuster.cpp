@@ -331,6 +331,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
                                          rig_, kTvsInState) ,lm.x_w);
       // normalize so the ray size is 1
       const double length = lm.x_s.template head<3>().norm();
+      //zzzzzzzzzzzzzzz
+      if( length < 1e-8 ) {
+        std::cerr << "WARNING. [BA::Solve::length] possible division by 0" << std::endl;
+      }
       lm.x_s = lm.x_s / length;
 
       // verify that x_s is indeed along the ref ray
@@ -1004,6 +1008,13 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
                                   j_l_rhs_l.squaredNorm() << std::endl;
     StreamMessage(debug_level) << "j_i_rhs_p norm: " <<
                                   j_i_rhs_p_.squaredNorm() << std::endl;
+
+    //zzzzzzzzzzzzzzz
+    if( denominator < 1e-14 ) {
+      std::cerr << "WARNING. [BA::SolveInternal::denominator: "
+                 << denominator <<  " ] possible division by 0" << std::endl;
+    }
+
     Scalar factor = nominator/denominator;
     StreamMessage(debug_level) << "factor: " << factor <<
                                   " nom: " << nominator << " denom: " <<
@@ -1018,6 +1029,13 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
                                   std::endl;
 
     while (1) {
+
+      //zzzzzzzzzzzzzzz
+      if( delta_sd_norm < 1e-14 ) {
+        std::cerr << "WARNING. [BA::SolveInternal::delta_sd_norm: "
+                  << delta_sd_norm << " ] possible division by 0" << std::endl;
+      }
+
       if (delta_sd_norm > trust_region_size_) {
         StreamMessage(debug_level) <<
           "sd norm larger than trust region of " <<
@@ -1066,6 +1084,12 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
           Scalar c = (delta_sd.delta_p.squaredNorm() +
                       delta_sd.delta_l.squaredNorm()) -
                       trust_region_size_ * trust_region_size_;
+          //zzzzzzzzzzzzzzz
+          if( a < 1e-10 ) {
+            std::cerr << "WARNING. [BA::SolveInternal::a] "
+                         "possible division by 0" << std::endl;
+          }
+
           Scalar beta = (-(b*b) + sqrt(b*b - 4*a*c)) / (2 * a);
 
           delta_dl.delta_p = delta_sd.delta_p + beta*(diff_p);
@@ -1087,24 +1111,26 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
       decltype(imu_) imu_copy = imu_;
       decltype(rig_) rig_copy = rig_;
 
-      EvaluateResiduals(&proj_error_, &binary_error_,
-                        &unary_error_, &inertial_error_);
-      const double prev_error = proj_error_ + inertial_error_ + binary_error_;
+      Scalar proj_error, binary_error, unary_error, inertial_error;
+
+      EvaluateResiduals(&proj_error, &binary_error,
+                        &unary_error, &inertial_error);
+      const double prev_error = proj_error + inertial_error + binary_error;
       ApplyUpdate(delta_dl, false);
 
       StreamMessage(debug_level) << std::setprecision (15) <<
         "Pre-solve norm: " << prev_error << " with Epr:" <<
-        proj_error_ << " and Ei:" << inertial_error_ <<
-        " and Epp: " << binary_error_ << std::endl;
+        proj_error << " and Ei:" << inertial_error <<
+        " and Epp: " << binary_error << std::endl;
 
-      EvaluateResiduals(&proj_error_, &binary_error_,
-                        &unary_error_, &inertial_error_);
-      const double post_error = proj_error_ + inertial_error_ + binary_error_;
+      EvaluateResiduals(&proj_error, &binary_error,
+                        &unary_error, &inertial_error);
+      const double post_error = proj_error + inertial_error + binary_error;
 
       StreamMessage(debug_level) << std::setprecision (15) <<
         "Post-solve norm: " << post_error << " with Epr:" <<
-        proj_error_ << " and Ei:" << inertial_error_ <<
-        " and Epp: " << binary_error_ << std::endl;
+        proj_error << " and Ei:" << inertial_error <<
+        " and Epp: " << binary_error << std::endl;
 
       if (post_error > prev_error) {
         landmarks_ = landmarks_copy;
@@ -1117,6 +1143,10 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
           "trust region to " << trust_region_size_ << std::endl;
         //ApplyUpdate(delta_dl, true);
       } else {
+        proj_error_ = proj_error;
+        unary_error_ = unary_error;
+        binary_error_ = binary_error;
+        inertial_error_ = inertial_error;
         trust_region_size_ *= 2;
         StreamMessage(debug_level) << "Error decreased, increasing "
           "trust region to " << trust_region_size_ << std::endl;
@@ -1152,8 +1182,9 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
       proj_error_ << " and Ei:" << inertial_error_ <<
       " and Epp: " << binary_error_ << std::endl;
 
-    EvaluateResiduals(&proj_error_, &binary_error_,
-                      &unary_error_, &inertial_error_);
+    Scalar proj_error, binary_error, unary_error, inertial_error;
+    EvaluateResiduals(&proj_error, &binary_error,
+                      &unary_error, &inertial_error);
     const double dPostError = proj_error_ + inertial_error_ + binary_error_;
 
     StreamMessage(debug_level) << std::setprecision (15) <<
@@ -1169,6 +1200,11 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
        imu_ = imu_copy;
        rig_ = rig_copy;
       return false;
+    } else {
+      proj_error_ = proj_error;
+      unary_error_ = unary_error;
+      binary_error_ = binary_error;
+      inertial_error_ = inertial_error;
     }
 
 
@@ -2250,7 +2286,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 }
 // specializations
 template class BundleAdjuster<REAL_TYPE, 1,6,0>;
-template class BundleAdjuster<REAL_TYPE, 1,9,0>;
+template class BundleAdjuster<REAL_TYPE, 1,15,0>;
 
 
 

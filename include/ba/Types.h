@@ -26,7 +26,7 @@
 #include "Utils.h"
 #include <calibu/Calibu.h>
 
-#define IMU_GYRO_UNCERTAINTY 1 //0.00104719755
+#define IMU_GYRO_UNCERTAINTY 0.1 //0.00104719755
 #define IMU_ACCEL_UNCERTAINTY 10 //0.0392266
 
 namespace ba {
@@ -179,6 +179,15 @@ struct ImuPoseT {
         time(time) {
   }
 
+  operator Eigen::Matrix<Scalar, 10, 1>()
+  {
+    Eigen::Matrix<Scalar, 10, 1> res;
+    res.template head<3>() = t_wp.translation();
+    res.template segment<4>(3) = t_wp.unit_quaternion().coeffs();
+    res.template tail<3>() = v_w;
+    return res;
+  }
+
   /// \brief pose in world coordinates
   Sophus::SE3Group<Scalar> t_wp;
 
@@ -199,23 +208,23 @@ struct ImuMeasurementT {
 
   ImuMeasurementT(const Eigen::Matrix<Scalar, 3, 1>& w,
                   const Eigen::Matrix<Scalar, 3, 1>& a, const double time)
-      : w_i(w),
-        w_a(a),
+      : w(w),
+        a(a),
         time(time) {
   }
 
   /// \brief angular rates in inertial coordinates
-  Eigen::Matrix<Scalar, 3, 1> w_i;
+  Eigen::Matrix<Scalar, 3, 1> w;
   /// \brief accelerations in inertial coordinates
-  Eigen::Matrix<Scalar, 3, 1> w_a;
+  Eigen::Matrix<Scalar, 3, 1> a;
   double time;
 
   ImuMeasurementT operator*(const Scalar &rhs) {
-    return ImuMeasurementT(w_i * rhs, w_a * rhs, time);
+    return ImuMeasurementT(w * rhs, a * rhs, time);
   }
 
   ImuMeasurementT operator+(const ImuMeasurementT &rhs) {
-    return ImuMeasurementT(w_i + rhs.w_i, w_a + rhs.w_a, time);
+    return ImuMeasurementT(w + rhs.w, a + rhs.a, time);
   }
 };
 
@@ -342,10 +351,10 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       Eigen::Matrix<Scalar, 9, 10>* dk_dx = 0) {
     double alpha = (z_end.time - (z_start.time + dt))
         / (z_end.time - z_start.time);
-    Eigen::Matrix<Scalar, 3, 1> zg = z_start.w_i * alpha
-        + z_end.w_i * (1.0 - alpha);
-    Eigen::Matrix<Scalar, 3, 1> za = z_start.w_a * alpha
-        + z_end.w_a * (1.0 - alpha);
+    Eigen::Matrix<Scalar, 3, 1> zg = z_start.w * alpha
+        + z_end.w * (1.0 - alpha);
+    Eigen::Matrix<Scalar, 3, 1> za = z_start.a * alpha
+        + z_end.a * (1.0 - alpha);
 
     // calculate derivatives at this point
     Eigen::Matrix<Scalar, 9, 1> deriv;
@@ -471,7 +480,7 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
             IMU_GYRO_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY,
              IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY).finished();               
 
-        const Eigen::Matrix<Scalar, 10, 10>& c_prop =
+        const Eigen::Matrix<Scalar, 10, 10> c_prop =
             dy_dy0 * (*c_prior) * dy_dy0.transpose();
 
         *c_prior = c_prop + dy_db * cov_meas.asDiagonal() * dy_db.transpose();

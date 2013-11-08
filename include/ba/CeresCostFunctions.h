@@ -54,10 +54,10 @@ static Eigen::Matrix<T, 9, 1> GetPoseDerivativeJet(
     const Eigen::Matrix<T, 3, 1>& bg, const Eigen::Matrix<T, 3, 1>& ba,
     const Scalar dt) {
   double alpha = (z_end.time - (z_tart.time + dt)) / (z_end.time - z_tart.time);
-  Eigen::Matrix<Scalar, 3, 1> zg = z_tart.w_i * alpha
-      + z_end.w_i * (1.0 - alpha);
-  Eigen::Matrix<Scalar, 3, 1> za = z_tart.w_a * alpha
-      + z_end.w_a * (1.0 - alpha);
+  Eigen::Matrix<Scalar, 3, 1> zg = z_tart.w * alpha
+      + z_end.w * (1.0 - alpha);
+  Eigen::Matrix<Scalar, 3, 1> za = z_tart.a * alpha
+      + z_end.a * (1.0 - alpha);
 
   Eigen::Matrix<T, 9, 1> deriv;
   //derivative of position is velocity

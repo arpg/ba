@@ -34,7 +34,7 @@ class BundleAdjuster
   typedef PoseT<Scalar> Pose;
   typedef LandmarkT<Scalar,LmSize> Landmark;
   typedef ProjectionResidualT<Scalar,LmSize> ProjectionResidual;
-  typedef ImuMeasurementT<Scalar> ImuMeasurement;
+  typedef ImuMeasurementT<Scalar>     ImuMeasurement;
   typedef UnaryResidualT<Scalar> UnaryResidual;
   typedef BinaryResidualT<Scalar> BinaryResidual;
   typedef ImuResidualT<Scalar, kPoseDim, kPoseDim> ImuResidual;

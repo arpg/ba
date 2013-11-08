@@ -1,6 +1,8 @@
 #include <ba/BundleAdjuster.h>
 #include <iomanip>
 #include <fstream>
+// Only used for matrix square root.
+#include <unsupported/Eigen/MatrixFunctions>
 
 namespace ba {
 // these are declared in Utils.h
@@ -1631,12 +1633,143 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
     Eigen::Matrix<Scalar,10,6> jb_q;
     Eigen::Matrix<Scalar,10,10> c_imu_pose;
-    c_imu_pose.setZero();    
+    c_imu_pose.setZero();
+
+    /*
+    // Reduce number of measurements to test UT.
+    std::vector<ImuMeasurement> measurements = res.measurements;
+    res.measurements.clear();
+    res.measurements.push_back(measurements[0]);
+    res.measurements.push_back(measurements[1]);
+//    res.measurements.push_back(measurements[2]);
+////    res.measurements.push_back(measurements[3]);
+  */
+
     ImuPose imu_pose = ImuResidual::IntegrateResidual(
           pose1, res.measurements, pose1.b.template head<3>(),
           pose1.b.template tail<3>(), gravity, res.poses,
           &jb_q, nullptr, &c_imu_pose);
 
+    /*
+    // Verify c_imu_pose using the unscented transform.
+    // Construct the original sigma matrix from sensor uncertainties.
+    const Eigen::Matrix<Scalar, 6, 6> r =
+          (Eigen::Matrix<Scalar, 6, 1>() <<
+           IMU_GYRO_UNCERTAINTY,
+           IMU_GYRO_UNCERTAINTY,
+           IMU_GYRO_UNCERTAINTY,
+           IMU_ACCEL_UNCERTAINTY,
+           IMU_ACCEL_UNCERTAINTY,
+           IMU_ACCEL_UNCERTAINTY).finished().asDiagonal();
+    const int n = 6;// * res.measurements.size();
+
+    // Unscented parameters:
+    const Scalar kappa = 3;
+    const Scalar alpha = 0.01;
+    const Scalar lambda = powi(alpha, 2) * (n + kappa) - n;
+    // This value is optimal for gaussians.
+    const Scalar beta = 2;
+    // First calculate the square root sigma matrix.
+    const Eigen::Matrix<Scalar, 6, 6> r_sqrt = ((n + lambda) * r).sqrt();
+
+    std::cout << "r:" << std::endl << r << std::endl << "r_sqrt:" <<
+                 std::endl << r_sqrt << std::endl;
+
+
+
+    // Create the sigma points.
+    const int num_points = 2 * n + 1;
+    std::vector<Eigen::Matrix<Scalar, 10, 1>> y;
+    y.resize(num_points);
+    std::vector<Scalar> w_m(num_points, 0);
+    std::vector<Scalar> w_c(num_points, 0);
+    std::vector<std::vector<ImuMeasurement>> sigma_points;
+    sigma_points.resize(num_points);
+    sigma_points[0] = res.measurements;
+    y[0] = imu_pose;
+
+    w_m[0] = lambda / (n + lambda);
+    w_c[0] = w_m[0] + (1 - powi(alpha, 2) + beta);
+
+    for (int ii = 1 ; ii <= n ; ++ii) {
+      sigma_points[ii] = res.measurements;
+
+//      div_t divresult = div(ii - 1, 6);
+//      sigma_points[ii][divresult.quot].w +=
+//          r_sqrt.col(divresult.rem).template head<3>();
+//      sigma_points[ii][divresult.quot].a +=
+//          r_sqrt.col(divresult.rem).template tail<3>();
+
+      for (int jj = 0 ; jj < sigma_points[ii].size() ; ++jj) {
+        // Perturb this sigma point using the square root sigma.
+        // std::cout << "origin w: " << meas.w.transpose () << " a: " <<
+        //              meas.a.transpose() << " n: " << ii << std::endl;
+        sigma_points[ii][jj].w += r_sqrt.col(ii - 1).template head<3>();
+        sigma_points[ii][jj].a += r_sqrt.col(ii - 1).template tail<3>();
+
+        // std::cout << "new w: " << meas.w.transpose () << " a: " <<
+        //              meas.a.transpose() << " n: " << ii << std::endl;
+      }
+      w_m[ii] = w_c[ii] = 1 / (2 * (n + lambda));
+
+      std::vector<ImuPose> poses;
+      y[ii] = ImuResidual::IntegrateResidual(
+            pose1, sigma_points[ii], pose1.b.template head<3>(),
+            pose1.b.template tail<3>(), gravity, poses,
+            nullptr, nullptr, nullptr);
+    }
+
+    for (int ii = n+1 ; ii < num_points ; ++ii) {
+      sigma_points[ii] = res.measurements;
+//      div_t divresult = div((ii - n) - 1, 6);
+//      sigma_points[ii][divresult.quot].w -=
+//          r_sqrt.col(divresult.rem).template head<3>();
+//      sigma_points[ii][divresult.quot].a -=
+//          r_sqrt.col(divresult.rem).template tail<3>();
+      for (int jj = 0 ; jj < sigma_points[ii].size() ; ++jj) {
+        // Perturb this sigma point using the square root sigma.
+        // std::cout << "origin w: " << meas.w.transpose () << " a: " <<
+        //              meas.a.transpose() << " n: " << ii << std::endl;
+        sigma_points[ii][jj].w -= r_sqrt.col((ii - n) - 1).template head<3>();
+        sigma_points[ii][jj].a -= r_sqrt.col((ii - n) - 1).template tail<3>();
+        // std::cout << "new w: " << meas.w.transpose () << " a: " <<
+        //              meas.a.transpose() << " n: " << ii << std::endl;
+      }
+      w_m[ii] = w_c[ii] = 1 / (2 * (n + lambda));
+
+      std::vector<ImuPose> poses;
+      y[ii] = ImuResidual::IntegrateResidual(
+            pose1, sigma_points[ii], pose1.b.template head<3>(),
+            pose1.b.template tail<3>(), gravity, poses,
+            nullptr, nullptr, nullptr);
+    }
+
+    // Now that we have pushed everything through, recalculate the
+    // mean and covariance. First calculate the mu.
+    Eigen::Matrix<Scalar, 10, 1> mu;
+    mu.setZero();
+    for (int ii = 0 ; ii < num_points ; ++ii) {
+      mu += w_m[ii] * y[ii];
+    }
+
+    Eigen::Matrix<Scalar, 10,10> sigma_ut;
+    sigma_ut.setZero();
+    // Now calculate the covariance.
+    for (int ii = 0 ; ii < num_points ; ++ii) {
+      std::cout << "w_c[" << ii << "] " << w_c[ii] << " y': " <<
+                   y[ii].transpose() << std::endl;
+      Eigen::Matrix<Scalar, 10, 1> diff = y[ii] - mu;
+      sigma_ut += w_c[ii] * (diff * diff.transpose());
+    }
+
+    std::cout << "mu: " << y[0].transpose() << " mu': " <<
+                 mu.transpose() << std::endl;
+
+    std::cout << "sig: " << std::endl << c_imu_pose << std::endl << " sig': " <<
+                 std::endl << sigma_ut << std::endl;
+//    std::cout << "c_prior: " << std::endl << c_prior << std::endl << " sig': " <<
+//                 std::endl << sigma_ut << std::endl;
+    */
 
     Scalar total_dt =
         res.measurements.back().time - res.measurements.front().time;
@@ -1697,13 +1830,17 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
           t_w1.so3().matrix() *
           Sophus::SO3Group<Scalar>::generator(ii) * v_12_0;
     }
+
+    // dr/dv (pose1)
     res.dz_dx1.template block<3,3>(6,6) = Matrix3t::Identity();
+    // dr/dx (pose1)
     res.dz_dx1.template block<6,6>(0,0) =  dlog_dse3*dse3_dx1;    
 
     // the - sign is here because of the exp(-x) within the log
     res.dz_dx2.template block<6,6>(0,0) =
         -dLog_dX(imu_pose.t_wp,t_2w);
 
+    // dr/dv (pose2)
     res.dz_dx2.template block<3,3>(6,6) = -Matrix3t::Identity();
 
     res.weight = res.orig_weight;
@@ -1734,11 +1871,15 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         dse3t1t2v_dt2.transpose();
 
 
-    // StreamMessage(debug_level) << "cov:" << std::endl <<
-    //                               res.cov_inv << std::endl;
+     StreamMessage(debug_level) << "cov:" << std::endl <<
+                                   res.cov_inv << std::endl;
     res.cov_inv = res.cov_inv.inverse();
-    // StreamMessage(debug_level) << "inf:" << std::endl <<
-    //                               res.cov_inv << std::endl;
+    // VectorXt diag = res.cov_inv.diagonal();
+    // res.cov_inv = diag.asDiagonal();
+    // res.cov_inv /= 10;
+    res.cov_inv.setIdentity();
+    StreamMessage(debug_level) << "inf:" << std::endl <<
+                                  res.cov_inv << std::endl;
 
     // bias jacbian, only if bias in the state.
     if (kBiasInState) {
@@ -2109,7 +2250,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 }
 // specializations
 template class BundleAdjuster<REAL_TYPE, 1,6,0>;
-template class BundleAdjuster<REAL_TYPE, 1,15,0>;
+template class BundleAdjuster<REAL_TYPE, 1,9,0>;
 
 
 

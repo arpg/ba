@@ -125,9 +125,10 @@ _Index BlockAmbiVector<_Scalar,_Index>::nonZeros() const
 template<typename _Scalar,typename _Index>
 void BlockAmbiVector<_Scalar,_Index>::init(double estimatedDensity)
 {
-  if (estimatedDensity>0.1)
-    init(IsDense);
-  else
+  // zzzzzzzzzzzzzzzzzzzz
+  // if (estimatedDensity>0.1)
+  //   init(IsDense);
+  // else
     init(IsSparse);
 }
 

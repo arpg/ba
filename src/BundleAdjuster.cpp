@@ -495,7 +495,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
         StartTimer(_schur_complement_jtpr_jl);
         jt_pr_j_l_.resize(num_poses, num_lm);
 
-        Eigen::SparseBlockProduct(jt_pr,j_l_,jt_pr_j_l_);
+         Eigen::SparseBlockProduct(jt_pr,j_l_,jt_pr_j_l_);
 
         //MatrixXt dj_pr(j_pr_.rows() * ProjectionResidual::kResSize,
         //               j_pr_.cols() * kPrPoseDim);
@@ -752,11 +752,12 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
   }
 
   bool do_marginalization = false;
-  /*
+
   // Do marginalization if required. Note that at least 2 poses are
   // required for marginalization
   const Pose& last_pose = poses_.front();
-  if (do_marginalization && num_active_poses_ > 1 && last_pose.is_active) {
+  if (do_marginalization && num_active_poses_ > 1 && last_pose.is_active &&
+      inertial_residuals_.size() > 0) {
     std::cout << "lase pose id:" << last_pose.id << " num landmarks: " <<
                  last_pose.landmarks.size();
     // Count the number of active landmarks for this pose. This is necessary
@@ -769,7 +770,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
         active_lm++;
         w_sizes[active_lm] = lm.proj_residuals.size();
         typename decltype(jt_pr_j_l_)::InnerIterator iter(jt_pr_j_l_,
-                                            landmarks_[ii].opt_id);
+                                            landmarks_[active_lm].opt_id);
         std::cout << "jt_pr_j_l_ size: " << jt_pr_j_l_.rows() <<
                      " " << jt_pr_j_l_.cols() << std::endl;
         std::cout << "w_sizes[" << ii << "]: " << w_sizes[ii] << " vs " <<
@@ -865,7 +866,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
     // std::cout << "\n\n\n\n\nv matrix is: " << std::endl << v << std::endl;
     // std::cout << "\n\n\n\n\nw matrix is " << std::endl << w << std::endl;
-  }*/
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

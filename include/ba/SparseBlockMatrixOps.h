@@ -202,7 +202,10 @@ namespace Eigen {
     eigen_assert(lhs.outerSize() == rhs.innerSize());
 
     // allocate a temporary buffer
-    Eigen::internal::BlockAmbiVector<ResultScalar,Index> tempVector(rows,zero);
+    // TODO: The +10 here is due to an issue with ambivector when the size
+    // is too small (such as 1, used in EstimateRelativePoses Gauss Newton).
+    // This is only an issue in sparse mode.
+    Eigen::internal::BlockAmbiVector<ResultScalar,Index> tempVector(rows+10,zero);
 
     Index estimated_nnz_prod = lhs.nonZeros() + rhs.nonZeros();
 
@@ -221,6 +224,7 @@ namespace Eigen {
       tempVector.init(ratioColRes);
       // tempVector.init(0.01);
       tempVector.setZero();
+
       // this is going down the jth column of the rhs
       for (typename Rhs::InnerIterator rhsIt(rhs, j); rhsIt; ++rhsIt)
       {
@@ -267,7 +271,10 @@ namespace Eigen {
       eigen_assert(lhs.innerSize() == rhs.innerSize() && lhs.outerSize() == rhs.outerSize());
 
       // allocate a temporary buffer
-      Eigen::internal::BlockAmbiVector<BlockType,Index> tempVector(rows,zero);
+      // TODO: The +10 here is due to an issue with ambivector when the size
+      // is too small (such as 1, used in EstimateRelativePoses Gauss Newton).
+      // This is only an issue in sparse mode.
+      Eigen::internal::BlockAmbiVector<BlockType,Index> tempVector(rows+10,zero);
 
       Index estimated_nnz_prod = lhs.nonZeros() + rhs.nonZeros();
 

@@ -414,9 +414,24 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       dy_db.setZero();
       dy_dy0.setIdentity();   // dy0_y0 starts at identity
 
-      const Eigen::Matrix<Scalar, 9, 1> k1 = GetPoseDerivative(pose, g, z_start,
-                                                               z_end, bg, ba, 0,
-                                                               &dk_db, &dk_dy);
+      Eigen::Matrix<Scalar, 9, 9> c_k1, c_k2, c_k3, c_k4, c_k;
+      Eigen::Matrix<Scalar, 10, 10> c_y1, c_y2, c_y3, c_res;
+
+      const Eigen::Matrix<Scalar,6,1> cov_diag =
+          (Eigen::Matrix<Scalar,6,1>() <<
+          IMU_GYRO_UNCERTAINTY, IMU_GYRO_UNCERTAINTY,
+          IMU_GYRO_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY,
+           IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY).finished();
+      const Eigen::Matrix<Scalar,6,6> cov_meas = cov_diag.asDiagonal();
+
+      const Eigen::Matrix<Scalar, 9, 1> k1 =
+          GetPoseDerivative(pose, g, z_start, z_end, bg, ba, 0, &dk_db, &dk_dy);
+
+      // Calculate uncertainty of k1.
+      if (c_prior != 0) {
+        c_k1 = dk_dy * (*c_prior) * dk_dy.transpose() +
+            dk_db * cov_meas * dk_db.transpose();
+      }
 
       BA_TEST( _Test_IntegrateImu_KBiasJacobian( pose, z_start, z_end,
               bg, ba, g, dk_db ) );
@@ -427,6 +442,7 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       const Eigen::Matrix<Scalar, 9, 6> dk1_db = dk_db + dk_dy * dy_db;
       const Eigen::Matrix<Scalar, 9, 10> dk1_dy = dk_dy * dy_dy0;
       const ImuPose y1 = IntegratePose(pose, k1, dt * 0.5, &dy_dk, &dy_dy);
+
       //dy1/db = dInt/db + dInt/dy*dy0/db + dInt/dk*dk/db
       // however dy0/db = 0 (only for y0), therefore we don't
       // need the second term, just dInt/dk and dInt/db.
@@ -434,36 +450,81 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       dy_db = dy_dk * dk1_db;
       dy_dy0 = dy_dy + dy_dk * dk1_dy;  // this is dy1_dy0
 
+      // Calculate uncertainty of y1.
+      if (c_prior != 0) {
+        c_y1 = dy_dy * (*c_prior) * dy_dy.transpose() +
+            dy_dk * c_k1 * dy_dk.transpose();
+      }
+
       BA_TEST( _Test_IntegrateImu_StateStateJacobian( pose, k1, dy_dy, dt ) );
 
       const Eigen::Matrix<Scalar, 9, 1> k2 = GetPoseDerivative(y1, g, z_start,
                                                                z_end, bg, ba,
                                                                dt / 2, &dk_db,
                                                                &dk_dy);
+
+      // Calculate uncertainty of k2.
+      if (c_prior != 0) {
+        c_k2 = dk_dy * c_y1 * dk_dy.transpose() +
+          dk_db * cov_meas * dk_db.transpose();
+      }
+
       const Eigen::Matrix<Scalar, 9, 6> dk2_db = dk_db + dk_dy * dy_db;
       const Eigen::Matrix<Scalar, 9, 10> dk2_dy = dk_dy * dy_dy0;
       const ImuPose y2 = IntegratePose(pose, k2, dt * 0.5, &dy_dk, &dy_dy);
       dy_db = dy_dk * dk2_db;
       dy_dy0 = dy_dy + dy_dk * dk2_dy;  // this is dy2_dy0
 
+      // Calculate uncertainty of y2.
+      if (c_prior != 0) {
+        c_y2 = dy_dy * (*c_prior) * dy_dy.transpose() +
+            dy_dk * c_k2 * dy_dk.transpose();
+      }
+
       const Eigen::Matrix<Scalar, 9, 1> k3 = GetPoseDerivative(y2, g, z_start,
                                                                z_end, bg, ba,
                                                                dt / 2, &dk_db,
                                                                &dk_dy);
+
+      // Calculate uncertainty of k3.
+      if (c_prior != 0) {
+        c_k3 = dk_dy * c_y2 * dk_dy.transpose() +
+            dk_db * cov_meas * dk_db.transpose();
+      }
+
       const Eigen::Matrix<Scalar, 9, 6> dk3_db = dk_db + dk_dy * dy_db;
       const Eigen::Matrix<Scalar, 9, 10> dk3_dy = dk_dy * dy_dy0;
       const ImuPose y3 = IntegratePose(pose, k3, dt, &dy_dk, &dy_dy);
       dy_db = dy_dk * dk3_db;
       dy_dy0 = dy_dy + dy_dk * dk3_dy;  // this is dy3_dy0
 
+      // Calculate uncertainty of y3.
+      if (c_prior != 0) {
+        c_y3 = dy_dy * (*c_prior) * dy_dy.transpose() +
+            dy_dk * c_k3 * dy_dk.transpose();
+      }
+
       const Eigen::Matrix<Scalar, 9, 1> k4 = GetPoseDerivative(y3, g, z_start,
                                                                z_end, bg, ba,
                                                                dt, &dk_db,
                                                                &dk_dy);
+
+      // Calculate uncertainty of k4.
+      if (c_prior != 0) {
+        c_k4 = dk_dy * c_y3 * dk_dy.transpose() +
+          dk_db * cov_meas * dk_db.transpose();
+      }
+
       const Eigen::Matrix<Scalar, 9, 6> dk4_db = dk_db + dk_dy * dy_db;
       const Eigen::Matrix<Scalar, 9, 10> dk4_dy = dk_dy * dy_dy0;
 
       k = (k1 + 2 * k2 + 2 * k3 + k4);
+
+      // Calculate uncertainty of k4.
+      if (c_prior != 0) {
+        c_k = c_k1 + 2 * c_k2 + 2 * c_k3 + c_k4;
+      }
+
       const Eigen::Matrix<Scalar, 9, 6> dk_total_db = dk1_db + 2 * dk2_db
           + 2 * dk3_db + dk4_db;
       const Eigen::Matrix<Scalar, 9, 10> dk_total_dy = dk1_dy + 2 * dk2_dy
@@ -473,18 +534,25 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       dy_db = dy_dk * dk_total_db;
       dy_dy0 = dy_dy + dy_dk * dk_total_dy;
 
+      // Calculate uncertainty of res.
       if (c_prior != 0) {
-        Eigen::Matrix<Scalar,6,1> cov_meas =
-            (Eigen::Matrix<Scalar,6,1>() <<
-            IMU_GYRO_UNCERTAINTY, IMU_GYRO_UNCERTAINTY,
-            IMU_GYRO_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY,
-             IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY).finished();               
-
-        const Eigen::Matrix<Scalar, 10, 10> c_prop =
-            dy_dy0 * (*c_prior) * dy_dy0.transpose();
-
-        *c_prior = c_prop + dy_db * cov_meas.asDiagonal() * dy_db.transpose();
+        c_res = dy_dk * c_k * dy_dk.transpose() +
+            dy_dy * (*c_prior) * dy_dy.transpose();
+        *c_prior = c_res;
       }
+
+//      if (c_prior != 0) {
+//        Eigen::Matrix<Scalar,6,1> cov_meas =
+//            (Eigen::Matrix<Scalar,6,1>() <<
+//            IMU_GYRO_UNCERTAINTY, IMU_GYRO_UNCERTAINTY,
+//            IMU_GYRO_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY,
+//             IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY).finished();
+
+//        const Eigen::Matrix<Scalar, 10, 10> c_prop =
+//            dy_dy0 * (*c_prior) * dy_dy0.transpose();
+
+//        *c_prior = c_prop + dy_db * cov_meas.asDiagonal() * dy_db.transpose();
+//      }
 
     } else {
       const Eigen::Matrix<Scalar, 9, 1> k1 = GetPoseDerivative(pose, g, z_start,

@@ -442,9 +442,7 @@ private:
 
   VectorXt rhs_p_;
   VectorXt rhs_l_;
-  VectorXt r_i_;
-  Eigen::Matrix<Scalar,kLmDim,kLmDim> jtj_l_;
-  Eigen::Matrix<Scalar,kLmDim,1> jtr_l_;
+  VectorXt r_i_;  
   Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic> s_;
   Eigen::SparseMatrix<Scalar> s_sparse_;
   Scalar trust_region_size_;

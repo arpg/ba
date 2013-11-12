@@ -459,33 +459,35 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       rhs_l_.resize(num_lm*kLmDim);
       rhs_l_.setZero();
       StartTimer(_schur_complement_v);
+      Eigen::Matrix<Scalar,kLmDim,kLmDim> jtj_l;
+      Eigen::Matrix<Scalar,kLmDim,1> jtr_l;
       for (unsigned int ii = 0; ii < landmarks_.size() ; ++ii) {
         if ( !landmarks_[ii].is_active) {
           continue;
         }
-        jtj_l_.setZero();
-        jtr_l_.setZero();
+        jtj_l.setZero();
+        jtr_l.setZero();
         for (const int id : landmarks_[ii].proj_residuals) {
           const ProjectionResidual& res = proj_residuals_[id];
-          jtj_l_ += (res.dz_dlm.transpose() * res.dz_dlm) *
+          jtj_l += (res.dz_dlm.transpose() * res.dz_dlm) *
               res.weight;
-          jtr_l_ += (res.dz_dlm.transpose() *
+          jtr_l += (res.dz_dlm.transpose() *
                   r_pr_.template block<ProjectionResidual::kResSize,1>(
                     res.residual_id*ProjectionResidual::kResSize, 0) *
                     res.weight);
         }
-        rhs_l_.template block<kLmDim,1>(landmarks_[ii].opt_id*kLmDim, 0) = jtr_l_;
+        rhs_l_.template block<kLmDim,1>(landmarks_[ii].opt_id*kLmDim, 0) = jtr_l;
         if (kLmDim == 1) {
-          if (fabs(jtj_l_(0,0)) < 1e-6) {
-            jtj_l_(0,0) += 1e-6;
+          if (fabs(jtj_l(0,0)) < 1e-6) {
+            jtj_l(0,0) += 1e-6;
           }
         } else {
-          if (jtj_l_.norm() < 1e-6) {
-            jtj_l_.diagonal() +=
+          if (jtj_l.norm() < 1e-6) {
+            jtj_l.diagonal() +=
                 Eigen::Matrix<Scalar, kLmDim, 1>::Constant(1e-6);
           }
         }
-        vi_.insert(landmarks_[ii].opt_id, landmarks_[ii].opt_id) = jtj_l_.inverse();
+        vi_.insert(landmarks_[ii].opt_id, landmarks_[ii].opt_id) = jtj_l.inverse();
       }
 
       PrintTimer(_schur_complement_v);
@@ -751,7 +753,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     }
   }
 
-  bool do_marginalization = false;
+  bool do_marginalization = true;
 
   // Do marginalization if required. Note that at least 2 poses are
   // required for marginalization
@@ -770,10 +772,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
         active_lm++;
         w_sizes[active_lm] = lm.proj_residuals.size();
         typename decltype(jt_pr_j_l_)::InnerIterator iter(jt_pr_j_l_,
-                                            landmarks_[active_lm].opt_id);
+                                            landmarks_[ii].opt_id);
         std::cout << "jt_pr_j_l_ size: " << jt_pr_j_l_.rows() <<
                      " " << jt_pr_j_l_.cols() << std::endl;
-        std::cout << "w_sizes[" << ii << "]: " << w_sizes[ii] << " vs " <<
+        std::cout << "w_sizes[" << ii << "]: " << w_sizes[active_lm] << " vs " <<
                      iter.nonZeros() << std::endl;
 
         for (typename decltype(jt_pr_j_l_)::InnerIterator iter(
@@ -787,7 +789,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
     // Allocate the W amd W' matrices, based on the number of poses and
     // also the active landmarks of the marginalized pose.
-    MatrixXt w((num_active_poses_ - 1) * kPoseDim, active_lm * kLmDim);
+    MatrixXt w((num_active_poses_ - 1) * kPoseDim,
+               active_lm * kLmDim + kPoseDim);
     std::cout << "w dim: " << (num_active_poses_ - 1) * kPoseDim << " by " <<
                  active_lm * kLmDim << std::endl;
 
@@ -817,9 +820,11 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
             //std::cout << "Inserting block " << iter.value() << "into w at pos " <<
             //             kPoseDim * iter.index() << " " <<  lm.opt_id * kLmDim << std::endl;
             v.template block<kLmDim, kLmDim>(lm.opt_id, lm.opt_id) =
-                (Eigen::Matrix<Scalar,kLmDim, kLmDim>)jtj_l_.coeff(lm.opt_id, lm.opt_id);
+                vi_.coeff(lm.opt_id, lm.opt_id);
+            // We subtract 1 fron iter.index() as the marginalized pose is no
+            // longer included in w, therefore all indices are reduces by 1.
             w.template block<kPrPoseDim, kLmDim>(
-                  kPoseDim * iter.index(), lm.opt_id * kLmDim) = iter.value();
+                  kPoseDim * (iter.index() - 1), lm.opt_id * kLmDim) = iter.value();
           } else {
             // Then insert this block into V
             v.template block<kPrPoseDim, kLmDim>(
@@ -831,6 +836,18 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
         }
       }
     }
+
+    // Populate w_p for pose-pose constraints
+    for (typename decltype(u_)::InnerIterator iter(
+           u_, last_pose.opt_id); iter; ++iter){
+      if (iter.index() != last_pose.opt_id) {
+        // We subtract 1 fron iter.index() as the marginalized pose is no
+        // longer included in w, therefore all indices are reduces by 1.
+        w.template block<kPoseDim, kPoseDim>(
+              kPoseDim * (iter.index() - 1), active_lm * kLmDim) = iter.value();
+      }
+    }
+
     // Load the pose section for v.
     v.template block<kPoseDim, kPoseDim>(
       active_lm * kLmDim, active_lm * kLmDim) =
@@ -845,21 +862,29 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       }
     }
 
-    MatrixXt wvwt = w * v.inverse() * w.transpose();
+    const MatrixXt vinv = v.inverse();
+    const MatrixXt wvwt = w * vinv * w.transpose();
 
 
-    MatrixXt w_dense(
+    const MatrixXt w_dense(
           jt_pr_j_l_.rows() * decltype(jt_pr_j_l_)::Scalar::RowsAtCompileTime,
           jt_pr_j_l_.cols() * decltype(jt_pr_j_l_)::Scalar::ColsAtCompileTime);
     Eigen::LoadDenseFromSparse(jt_pr_j_l_,w_dense);
 
-    MatrixXt u_dense(
+    const MatrixXt u_dense(
           u_.rows() * decltype(u_)::Scalar::RowsAtCompileTime,
           u_.cols() * decltype(u_)::Scalar::ColsAtCompileTime);
     Eigen::LoadDenseFromSparse(u_,u_dense);
 
+    const MatrixXt v_dense(
+          vi_.rows() * decltype(vi_)::Scalar::RowsAtCompileTime,
+          vi_.cols() * decltype(vi_)::Scalar::ColsAtCompileTime);
+    Eigen::LoadDenseFromSparse(vi_,v_dense);
+
     std::ofstream("u_orig.txt", std::ios_base::trunc) << u_dense;
     std::ofstream("w_orig.txt", std::ios_base::trunc) << w_dense;
+    std::ofstream("v_orig.txt", std::ios_base::trunc) << v_dense;
+    std::ofstream("vinv.txt", std::ios_base::trunc) << vinv;
     std::ofstream("v.txt", std::ios_base::trunc) << v;
     std::ofstream("w.txt", std::ios_base::trunc) << w;
     std::ofstream("wvwt.txt", std::ios_base::trunc) << wvwt;

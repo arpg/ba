@@ -753,7 +753,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     }
   }
 
-  bool do_marginalization = true;
+  bool do_marginalization = false;
 
   // Do marginalization if required. Note that at least 2 poses are
   // required for marginalization
@@ -1938,10 +1938,13 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
      StreamMessage(debug_level) << "cov:" << std::endl <<
                                    res.cov_inv << std::endl;
     res.cov_inv = res.cov_inv.inverse();
-    // VectorXt diag = res.cov_inv.diagonal();
+    // const VectorXt diag = res.cov_inv.diagonal();
+    // res.cov_inv = diag.asDiagonal();
     // res.cov_inv = diag.asDiagonal();
     // res.cov_inv /= 10;
-    res.cov_inv.setIdentity();
+    // res.cov_inv.setIdentity();
+
+
     StreamMessage(debug_level) << "inf:" << std::endl <<
                                   res.cov_inv << std::endl;
 
@@ -2314,10 +2317,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 }
 // specializations
 template class BundleAdjuster<REAL_TYPE, 1,6,0>;
-template class BundleAdjuster<REAL_TYPE, 1,15,0>;
-
-
-
+template class BundleAdjuster<REAL_TYPE, 1,9,0>;
 }
 
 

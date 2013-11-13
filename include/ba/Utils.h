@@ -265,6 +265,13 @@ inline Eigen::Matrix<Scalar, 4, 3> dqExp_dw(
 
 ///////////////////////////////////////////////////////////////////////////////
 template<typename Scalar = double>
+inline Eigen::Matrix<Scalar, 4, 4> dqinv_dq() {
+  return ((Eigen::Matrix<Scalar, 4, 1>() << 1, -1, -1, -1).finished())
+      .asDiagonal();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+template<typename Scalar = double>
 inline Eigen::Matrix<Scalar, 4, 4> dq1q2_dq2(
     const Eigen::Quaternion<Scalar>& q1) {
   return (Eigen::Matrix<Scalar, 4, 4>() << q1.w(), -q1.z(), q1.y(), q1.x(),
@@ -328,6 +335,35 @@ inline Eigen::Matrix<Scalar, 6, 1> log_decoupled(
   res.template tail<3>() = (a.so3() * b.so3().inverse()).log();
   return res;
 }
+
+///////////////////////////////////////////////////////////////////////////////
+template<typename Scalar = double>
+inline Eigen::Matrix<Scalar, 6, 7> dlog_decoupled_da(
+    const Sophus::SE3Group<Scalar>& a, const Sophus::SE3Group<Scalar>& b) {
+  Eigen::Matrix<Scalar, 6, 7> res;
+  Eigen::Quaternion<Scalar> qlog =
+      (a.so3() * b.so3().inverse()).unit_quaternion();
+  res.setZero();
+  res.template block<3,3>(0,0).setIdentity();
+  res.template block<3,4>(3,3) =
+      dLog_dq(qlog) *  dq1q2_dq1(b.so3().inverse().unit_quaternion());
+  return res;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+template<typename Scalar = double>
+inline Eigen::Matrix<Scalar, 6, 7> dlog_decoupled_db(
+    const Sophus::SE3Group<Scalar>& a, const Sophus::SE3Group<Scalar>& b) {
+  Eigen::Matrix<Scalar, 6, 7> res;
+  Eigen::Quaternion<Scalar> qlog =
+      (a.so3() * b.so3().inverse()).unit_quaternion();
+  res.setZero();
+  res.template block<3,3>(0,0) = -Eigen::Matrix<Scalar, 3, 3>::Identity();
+  res.template block<3,4>(3,3) =
+      dLog_dq(qlog) *  dq1q2_dq2(a.unit_quaternion()) * dqinv_dq();
+  return res;
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////
 template<typename Scalar = double>

@@ -424,6 +424,8 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
            IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY).finished();
       const Eigen::Matrix<Scalar,6,6> cov_meas = cov_diag.asDiagonal();
 
+      // std::cout << "cov_meas" << std::endl << cov_meas << std::endl;
+
       const Eigen::Matrix<Scalar, 9, 1> k1 =
           GetPoseDerivative(pose, g, z_start, z_end, bg, ba, 0, &dk_db, &dk_dy);
 
@@ -431,6 +433,7 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       if (c_prior != 0) {
         c_k1 = dk_dy * (*c_prior) * dk_dy.transpose() +
             dk_db * cov_meas * dk_db.transpose();
+        // std::cout << "c_k1: " << std::endl << c_k1 << std::endl;
       }
 
       BA_TEST( _Test_IntegrateImu_KBiasJacobian( pose, z_start, z_end,
@@ -454,6 +457,7 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       if (c_prior != 0) {
         c_y1 = dy_dy * (*c_prior) * dy_dy.transpose() +
             dy_dk * c_k1 * dy_dk.transpose();
+        // std::cout << "c_y1: " << std::endl << c_y1 << std::endl;
       }
 
       BA_TEST( _Test_IntegrateImu_StateStateJacobian( pose, k1, dy_dy, dt ) );
@@ -467,6 +471,7 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       if (c_prior != 0) {
         c_k2 = dk_dy * c_y1 * dk_dy.transpose() +
           dk_db * cov_meas * dk_db.transpose();
+        // std::cout << "c_k2: " << std::endl << c_k2 << std::endl;
       }
 
       const Eigen::Matrix<Scalar, 9, 6> dk2_db = dk_db + dk_dy * dy_db;
@@ -479,6 +484,7 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       if (c_prior != 0) {
         c_y2 = dy_dy * (*c_prior) * dy_dy.transpose() +
             dy_dk * c_k2 * dy_dk.transpose();
+        // std::cout << "c_y2: " << std::endl << c_y2 << std::endl;
       }
 
       const Eigen::Matrix<Scalar, 9, 1> k3 = GetPoseDerivative(y2, g, z_start,
@@ -502,6 +508,7 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       if (c_prior != 0) {
         c_y3 = dy_dy * (*c_prior) * dy_dy.transpose() +
             dy_dk * c_k3 * dy_dk.transpose();
+        // std::cout << "c_y3: " << std::endl << c_y3 << std::endl;
       }
 
       const Eigen::Matrix<Scalar, 9, 1> k4 = GetPoseDerivative(y3, g, z_start,
@@ -513,6 +520,7 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       if (c_prior != 0) {
         c_k4 = dk_dy * c_y3 * dk_dy.transpose() +
           dk_db * cov_meas * dk_db.transpose();
+        // std::cout << "c_k4: " << std::endl << c_k4 << std::endl;
       }
 
       const Eigen::Matrix<Scalar, 9, 6> dk4_db = dk_db + dk_dy * dy_db;
@@ -523,6 +531,7 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       // Calculate uncertainty of k4.
       if (c_prior != 0) {
         c_k = c_k1 + 2 * c_k2 + 2 * c_k3 + c_k4;
+        // std::cout << "c_k: " << std::endl << c_k << std::endl;
       }
 
       const Eigen::Matrix<Scalar, 9, 6> dk_total_db = dk1_db + 2 * dk2_db
@@ -538,7 +547,18 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       if (c_prior != 0) {
         c_res = dy_dk * c_k * dy_dk.transpose() +
             dy_dy * (*c_prior) * dy_dy.transpose();
-        *c_prior = c_res;
+
+
+        // *c_prior = c_res;
+
+        const Eigen::Matrix<Scalar, 10, 10> c_prop =
+            dy_dy0 * (*c_prior) * dy_dy0.transpose();
+        *c_prior = c_prop + dy_db * cov_meas * dy_db.transpose();
+
+        // std::cout << "cres: " << std::endl << c_res << std::endl;
+        // std::cout << "c_prior: " << std::endl << *c_prior << std::endl;
+
+        // *c_prior = c_res;
       }
 
 //      if (c_prior != 0) {
@@ -551,7 +571,7 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
 //        const Eigen::Matrix<Scalar, 10, 10> c_prop =
 //            dy_dy0 * (*c_prior) * dy_dy0.transpose();
 
-//        *c_prior = c_prop + dy_db * cov_meas.asDiagonal() * dy_db.transpose();
+//        *c_prior = c_prop + dy_db * cov_meas * dy_db.transpose();
 //      }
 
     } else {

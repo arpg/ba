@@ -336,7 +336,6 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
         std::cerr << "WARNING. [BA::Solve::length] possible division by 0" << std::endl;
       }
       lm.x_s = lm.x_s / length;
-
       // verify that x_s is indeed along the ref ray
       /*
       Vector3t ray_xs = lm.x_s.template head<3>() / lm.x_s[3];
@@ -460,7 +459,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       rhs_l_.resize(num_lm*kLmDim);
       rhs_l_.setZero();
       StartTimer(_schur_complement_v);
-      for (unsigned int ii = 0; ii < landmarks_.size() ; ++ii) {        
+      for (unsigned int ii = 0; ii < landmarks_.size() ; ++ii) {
+        if ( !landmarks_[ii].is_active) {
+          continue;
+        }
         jtj_l_.setZero();
         jtr_l_.setZero();
         for (const int id : landmarks_[ii].proj_residuals) {

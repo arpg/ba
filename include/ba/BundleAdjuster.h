@@ -120,8 +120,8 @@ public:
   void SetGravity(const Vector3t& g){
     if (kGravityInCalib) {
       const Vector3t new_g_norm = g.normalized();
-      const double p = asin(new_g_norm[1]);
-      const double q = acos(std::min(1.0,std::max(-1.0,-new_g_norm[2]/cos(p))));
+      const Scalar p = asin(new_g_norm[1]);
+      const Scalar q = acos(std::min(1.0,std::max(-1.0,-new_g_norm[2]/cos(p))));
       imu_.g << p, q;
     }else {
       imu_.g_vec = g;
@@ -394,8 +394,8 @@ private:
   void ApplyUpdate(const Delta& delta, const bool bRollback,
                    const Scalar damping = 1.0);
   void EvaluateResiduals(
-      double* proj_error = nullptr, double* binary_error = nullptr,
-      double* unary_error = nullptr, double* inertial_error = nullptr);
+      Scalar* proj_error = nullptr, Scalar* binary_error = nullptr,
+      Scalar* unary_error = nullptr, Scalar* inertial_error = nullptr);
   void BuildProblem();
 
   ImuCalibration imu_;
@@ -451,14 +451,14 @@ private:
   bool is_param_mask_used_; 
   bool do_sparse_solve_;
   bool do_last_pose_cov_;
-  double total_tvs_change_;
+  Scalar total_tvs_change_;
   SE3t last_tvs_;
-  double proj_error_;
-  double binary_error_;
-  double unary_error_;
-  double inertial_error_;
-  double tvs_trans_prior_;
-  double tvs_rot_prior_;
+  Scalar proj_error_;
+  Scalar binary_error_;
+  Scalar unary_error_;
+  Scalar inertial_error_;
+  Scalar tvs_trans_prior_;
+  Scalar tvs_rot_prior_;
   unsigned int root_pose_id_;
   unsigned int num_active_poses_;
   unsigned int num_active_landmarks_;

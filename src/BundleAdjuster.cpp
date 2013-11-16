@@ -22,7 +22,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
     // std::cout << "Delta calib: " << deltaCalib.transpose() << std::endl;
   }
 
-  double coef = (do_rollback == true ? -1.0 : 1.0) * damping;
+  Scalar coef = (do_rollback == true ? -1.0 : 1.0) * damping;
   // update gravity terms if necessary
   if (inertial_residuals_.size() > 0) {
     const VectorXt delta_calib = delta.delta_p.template tail(kCalibDim)*coef;
@@ -185,8 +185,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
 ////////////////////////////////////////////////////////////////////////////////
 template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
 void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
-    double* proj_error, double* binary_error,
-    double* unary_error, double* inertial_error)
+    Scalar* proj_error, Scalar* binary_error,
+    Scalar* unary_error, Scalar* inertial_error)
 {
   if (unary_error) {
     *unary_error = 0;
@@ -230,7 +230,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
 
   if (inertial_error) {
     *inertial_error = 0;
-    double total_tvs_change = 0;
+    Scalar total_tvs_change = 0;
     for (ImuResidual& res : inertial_residuals_) {
       // set up the initial pose for the integration
       const Vector3t gravity = kGravityInCalib ? GetGravityVector(imu_.g) :
@@ -330,7 +330,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
             poses_[lm.ref_pose_id].GetTsw(lm.ref_cam_id,
                                          rig_, kTvsInState) ,lm.x_w);
       // normalize so the ray size is 1
-      const double length = lm.x_s.template head<3>().norm();
+      const Scalar length = lm.x_s.template head<3>().norm();
       //zzzzzzzzzzzzzzz
       if( length < 1e-8 ) {
         std::cerr << "WARNING. [BA::Solve::length] possible division by 0" << std::endl;
@@ -462,6 +462,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       Eigen::Matrix<Scalar,kLmDim,kLmDim> jtj_l;
       Eigen::Matrix<Scalar,kLmDim,1> jtr_l;
       for (unsigned int ii = 0; ii < landmarks_.size() ; ++ii) {
+        // Skip inactive landmarks.
         if ( !landmarks_[ii].is_active) {
           continue;
         }
@@ -753,7 +754,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     }
   }
 
-  bool do_marginalization = false;
+  bool do_marginalization = true;
 
   // Do marginalization if required. Note that at least 2 poses are
   // required for marginalization
@@ -1143,7 +1144,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
 
       EvaluateResiduals(&proj_error, &binary_error,
                         &unary_error, &inertial_error);
-      const double prev_error = proj_error + inertial_error + binary_error;
+      const Scalar prev_error = proj_error + inertial_error + binary_error;
       ApplyUpdate(delta_dl, false);
 
       StreamMessage(debug_level) << std::setprecision (15) <<
@@ -1153,7 +1154,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
 
       EvaluateResiduals(&proj_error, &binary_error,
                         &unary_error, &inertial_error);
-      const double post_error = proj_error + inertial_error + binary_error;
+      const Scalar post_error = proj_error + inertial_error + binary_error;
 
       StreamMessage(debug_level) << std::setprecision (15) <<
         "Post-solve norm: " << post_error << " with Epr:" <<
@@ -1203,7 +1204,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     ApplyUpdate(delta, false, gn_damping);
 
 
-    const double dPrevError = proj_error_ + inertial_error_ + binary_error_;
+    const Scalar dPrevError = proj_error_ + inertial_error_ + binary_error_;
 
     StreamMessage(debug_level) << std::setprecision (15) <<
       "Pre-solve norm: " << dPrevError << " with Epr:" <<
@@ -1213,7 +1214,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     Scalar proj_error, binary_error, unary_error, inertial_error;
     EvaluateResiduals(&proj_error, &binary_error,
                       &unary_error, &inertial_error);
-    const double dPostError = proj_error_ + inertial_error_ + binary_error_;
+    const Scalar dPostError = proj_error_ + inertial_error_ + binary_error_;
 
     StreamMessage(debug_level) << std::setprecision (15) <<
       "Post-solve norm: " << dPostError << " with Epr:" <<

@@ -425,7 +425,6 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       const Eigen::Matrix<Scalar,6,6> cov_meas = cov_diag.asDiagonal();
 
       // std::cout << "cov_meas" << std::endl << cov_meas << std::endl;
-
       const Eigen::Matrix<Scalar, 9, 1> k1 =
           GetPoseDerivative(pose, g, z_start, z_end, bg, ba, 0, &dk_db, &dk_dy);
 
@@ -547,8 +546,6 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       if (c_prior != 0) {
         c_res = dy_dk * c_k * dy_dk.transpose() +
             dy_dy * (*c_prior) * dy_dy.transpose();
-
-
         // *c_prior = c_res;
 
         const Eigen::Matrix<Scalar, 10, 10> c_prop =

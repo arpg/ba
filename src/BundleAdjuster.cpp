@@ -767,7 +767,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     // as not all landmarks might be active.
     uint32_t active_lm = 0;
     Eigen::VectorXi w_sizes(last_pose.landmarks.size());
-    for (int ii = 0;  ii < last_pose.landmarks.size() ; ++ii) {
+    for (unsigned int ii = 0;  ii < last_pose.landmarks.size() ; ++ii) {
       const Landmark& lm = landmarks_[ii];
       if (lm.is_active) {
         active_lm++;
@@ -808,7 +808,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     // w.reserve(w_sizes.template head<active_lm>());
 
     // fill the matrices
-    for (int ii = 0;  ii < last_pose.landmarks.size() ; ++ii) {
+    for (unsigned int ii = 0;  ii < last_pose.landmarks.size() ; ++ii) {
       const Landmark& lm = landmarks_[ii];
       // If the landmark is active we want to allocate a column in W
       if (lm.is_active) {

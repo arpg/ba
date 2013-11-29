@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as pp
 def marginalize_pose(hessian, num_poses, pose_size,
                      num_lm, lm_size, pose_id, lm_ids):
     """
@@ -47,7 +48,7 @@ def marginalize_pose(hessian, num_poses, pose_size,
     W = hessian[0 : schur_elems, schur_elems : ]
     V = hessian[schur_elems : , schur_elems :]
     prior = W.dot(np.linalg.inv(V)).dot(W.T);
-    pass
+    return prior
 
 
 

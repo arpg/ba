@@ -449,6 +449,7 @@ private:
   BlockMat<Eigen::Matrix<Scalar, kLmDim, kPrPoseDim>> jt_l_j_pr_;
   BlockMat<Eigen::Matrix<Scalar, kPrPoseDim, kLmDim>> jt_pr_j_l_;
 
+  MatrixXt prior_;
   VectorXt rhs_p_;
   VectorXt rhs_l_;
   VectorXt r_i_;  

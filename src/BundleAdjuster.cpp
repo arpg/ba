@@ -754,11 +754,11 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     }
   }
 
-  bool do_marginalization = true;
+  bool do_marginalization = false;
 
   // Do marginalization if required. Note that at least 2 poses are
   // required for marginalization
-  const Pose& last_pose = poses_.front();
+  const Pose& last_pose = poses_[root_pose_id_];
   if (do_marginalization && num_active_poses_ > 1 && last_pose.is_active &&
       inertial_residuals_.size() > 0) {
     std::cout << "last pose id:" << last_pose.id << " num landmarks: " <<
@@ -777,14 +777,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
         std::cout << "jt_pr_j_l_ size: " << jt_pr_j_l_.rows() <<
                      " " << jt_pr_j_l_.cols() << std::endl;
         std::cout << "w_sizes[" << ii << "]: " << w_sizes[active_lm] << " vs " <<
-                     iter.nonZeros() << std::endl;
-
-        for (typename decltype(jt_pr_j_l_)::InnerIterator iter(
-               jt_pr_j_l_, landmarks_[ii].opt_id); iter; ++iter){
-          std::cout << "item " << iter.index() << "is: " <<
-                       iter.value().transpose() << std::endl;
-        }
-      }
+                     iter.nonZeros() << std::endl;      }
     }
 
 
@@ -817,13 +810,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
           // This check is to ensure that we don't add w contributions from the
           // pose we are marginalizing.
           if (iter.index() != last_pose.opt_id) {
-            // Insert the block into w.
-            //std::cout << "Inserting block " << iter.value() << "into w at pos " <<
-            //             kPoseDim * iter.index() << " " <<  lm.opt_id * kLmDim << std::endl;
             v.template block<kLmDim, kLmDim>(lm.opt_id, lm.opt_id) =
                 vi_.coeff(lm.opt_id, lm.opt_id);
             // We subtract 1 fron iter.index() as the marginalized pose is no
-            // longer included in w, therefore all indices are reduces by 1.
+            // longer included in w, therefore all indices are reduced by 1.
             w.template block<kPrPoseDim, kLmDim>(
                   kPoseDim * (iter.index() - 1), lm.opt_id * kLmDim) = iter.value();
           } else {
@@ -864,7 +854,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     }
 
     const MatrixXt vinv = v.inverse();
-    const MatrixXt wvwt = w * vinv * w.transpose();
+    prior_ = w * vinv * w.transpose();
 
 
     const MatrixXt w_dense(
@@ -882,17 +872,21 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
           vi_.cols() * decltype(vi_)::Scalar::ColsAtCompileTime);
     Eigen::LoadDenseFromSparse(vi_,v_dense);
 
-    std::ofstream("u_orig.txt", std::ios_base::trunc) << u_dense;
-    std::ofstream("w_orig.txt", std::ios_base::trunc) << w_dense;
-    std::ofstream("v_orig.txt", std::ios_base::trunc) << v_dense;
-    std::ofstream("vinv.txt", std::ios_base::trunc) << vinv;
-    std::ofstream("v.txt", std::ios_base::trunc) << v;
-    std::ofstream("w.txt", std::ios_base::trunc) << w;
-    std::ofstream("wvwt.txt", std::ios_base::trunc) << wvwt;
+    std::ofstream("u_orig.txt",
+                  std::ios_base::trunc) << u_dense.format(kLongCsvFmt);
+    std::ofstream("w_orig.txt",
+                  std::ios_base::trunc) << w_dense.format(kLongCsvFmt);
+    std::ofstream("v_orig.txt",
+                  std::ios_base::trunc) << v_dense.format(kLongCsvFmt);
+    std::ofstream("vinv.txt", std::ios_base::trunc) << vinv.format(kLongCsvFmt);
+    std::ofstream("v.txt", std::ios_base::trunc) << v.format(kLongCsvFmt);
+    std::ofstream("w.txt", std::ios_base::trunc) << w.format(kLongCsvFmt);
+    std::ofstream("wvwt.txt",
+                  std::ios_base::trunc) << prior_.format(kLongCsvFmt);
 
     // std::cout << "\n\n\n\n\nv matrix is: " << std::endl << v << std::endl;
     // std::cout << "\n\n\n\n\nw matrix is " << std::endl << w << std::endl;
-  }
+  } 
 }
 
 ////////////////////////////////////////////////////////////////////////////////

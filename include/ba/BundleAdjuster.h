@@ -17,11 +17,13 @@
 #include "Utils.h"
 #include "Types.h"
 
-
 namespace ba {
 
 template<typename Scalar>
 using BlockMat = Eigen::SparseBlockMatrix<Scalar>;
+
+template<typename Scalar>
+using aligned_vector = std::vector<Scalar, Eigen::aligned_allocator<Scalar>>;
 
 template<typename Scalar=double,int LmSize=1, int PoseSize=6, int CalibSize=8>
 class BundleAdjuster
@@ -436,6 +438,7 @@ private:
   BlockMat<Eigen::Matrix<Scalar, ImuResidual::kResSize, kPoseDim>> j_i_;
   BlockMat<Eigen::Matrix<Scalar, kPoseDim, ImuResidual::kResSize>> jt_i_;
 
+  VectorXt r_i_;
   BlockMat<Eigen::Matrix<Scalar, ImuResidual::kResSize, CalibSize>> j_ki_;
   BlockMat<Eigen::Matrix<Scalar, CalibSize, ImuResidual::kResSize>> jt_ki_;
 
@@ -449,14 +452,20 @@ private:
   BlockMat<Eigen::Matrix<Scalar, kLmDim, kPrPoseDim>> jt_l_j_pr_;
   BlockMat<Eigen::Matrix<Scalar, kPrPoseDim, kLmDim>> jt_pr_j_l_;
 
+  aligned_vector<Eigen::Matrix<Scalar, 6, 6>> j_prior_twp_;
+  aligned_vector<Eigen::Matrix<Scalar, 6, 6>> j_prior_update_;
+  std::vector<Pose> prior_poses_;
+  MatrixXt jt_prior_;
   MatrixXt prior_;
   VectorXt rhs_p_;
   VectorXt rhs_l_;
-  VectorXt r_i_;  
+  VectorXt r_pi_;
+
   Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic> s_;
   Eigen::SparseMatrix<Scalar> s_sparse_;
   Scalar trust_region_size_;
 
+  bool do_marginalization_;
   bool translation_enabled_;
   bool is_param_mask_used_; 
   bool do_sparse_solve_;

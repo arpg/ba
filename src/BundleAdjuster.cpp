@@ -22,6 +22,14 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
     // std::cout << "Delta calib: " << deltaCalib.transpose() << std::endl;
   }
 
+  // If we are marginalizing, initialize the array which will hold the jacobian
+  // propagate the prior distribution through this update. The propagation is
+  // only required for lie algebra parameters which will be reparameterized in
+  // a different tangent space
+  if (do_marginalization_) {
+    j_prior_update_.resize(prior_poses_.size());
+  }
+
   Scalar coef = (do_rollback == true ? -1.0 : 1.0) * damping;
   // update gravity terms if necessary
   if (inertial_residuals_.size() > 0) {
@@ -348,6 +356,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     }
   }
 
+  do_marginalization_ = false;
   const bool use_triangular = false;
   do_sparse_solve_ = false;
   do_last_pose_cov_ = false;
@@ -447,6 +456,30 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       VectorXt jt_i_r_i(num_pose_params);
       Eigen::SparseBlockVectorProductDenseResult(jt_i_, r_i_, jt_i_r_i);
       rhs_p_ += jt_i_r_i;
+    }
+
+    // If marginalizing, we must also fix the RHS.
+    if (do_marginalization_) {
+      jt_prior_ = prior_;
+
+      const int prior_count = prior_poses_.size();
+      // To fix the rhs, we require the matrix Jt*C^-1. C^-1 is stored in
+      // prior_, so we use jt_prior_ to store this value
+      for (int ii = 0; ii < prior_count ; ++ii) {
+        for (int jj = 0; jj < prior_count ; ++jj) {
+          // Since Jt is identity for everything except the lie tangent
+          // prior residuals, we only need to multiply Jt by the parameters
+          // that are in the tangent space (i. e.) the first 6 parameters
+          jt_prior_.template block<6, 6>(ii * kPoseDim, jj * kPoseDim) =
+              j_prior_twp_[ii].transpose() * jt_prior_.template block<6, 6>(
+                ii * kPoseDim,jj * kPoseDim);
+        }
+      }
+
+      const int row_id = root_pose_id_ * kPoseDim;
+      // To obtain Jt * C^-1 * r, we use the previously multiplied jt_prior_.
+      rhs_p_.template block(row_id, 0, jt_prior_.rows(), 0) +=
+          jt_prior_ * r_pi_;
     }
 
     StreamMessage(debug_level) << "rhs_p_ norm after intertial res: " <<
@@ -580,6 +613,28 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       rhs_p_sc.template head(num_pose_params) = rhs_p_;
     }
     PrintTimer(_schur_complement_);  
+
+    // At this point, if we're doing marginalization, add in the prior to the
+    // U submatrix of the hessian, based on tne given root_pose_id_.
+    if (do_marginalization_) {
+      const int prior_count = prior_poses_.size();
+      // We need to obtain Jt * C^-1 * J. Previously, we had Jt * C^-1 in
+      // jt_prior_. Here we multiply by J to obtain the full expression.
+      for (int ii = 0; ii < prior_count ; ++ii) {
+        for (int jj = 0; jj < prior_count ; ++jj) {
+          // Since Jt is identity for everything except the lie tangent
+          // prior residuals, we only need to multiply Jt by the parameters
+          // that are in the tangent space (i.e. the first 6 parameters)
+          jt_prior_.template block<6, 6>(ii * kPoseDim, jj * kPoseDim) =
+              jt_prior_.template block<6, 6>(ii * kPoseDim, jj * kPoseDim) *
+              j_prior_twp_[jj];
+        }
+      }
+
+      const int row_col_id = root_pose_id_ * kPoseDim;
+      s_.template block(
+            row_col_id, row_col_id, prior_.rows(), prior_.cols()) += prior_;
+    }
 
     // fill in the calibration components if any
     if (kCalibDim && inertial_residuals_.size() > 0 &&
@@ -754,12 +809,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     }
   }
 
-  bool do_marginalization = false;
-
   // Do marginalization if required. Note that at least 2 poses are
   // required for marginalization
   const Pose& last_pose = poses_[root_pose_id_];
-  if (do_marginalization && num_active_poses_ > 1 && last_pose.is_active &&
+  if (do_marginalization_ && num_active_poses_ > 1 && last_pose.is_active &&
       inertial_residuals_.size() > 0) {
     std::cout << "last pose id:" << last_pose.id << " num landmarks: " <<
                  last_pose.landmarks.size();
@@ -854,8 +907,14 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     }
 
     const MatrixXt vinv = v.inverse();
-    prior_ = w * vinv * w.transpose();
-
+    prior_ = -(w * vinv * w.transpose());
+    prior_poses_.clear();
+    prior_poses_.reserve(prior_.size() - 1);
+    // Also copy the value of the prior poses. This will be used in the next
+    // solve call to form a residual with the new parameter estimates.
+    for (int ii = root_pose_id_ + 1 ; ii < poses_.size() ; ++ii) {
+      prior_poses_.push_back(poses_[ii]);
+    }
 
     const MatrixXt w_dense(
           jt_pr_j_l_.rows() * decltype(jt_pr_j_l_)::Scalar::RowsAtCompileTime,
@@ -985,6 +1044,12 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
   Delta delta_gn;
 
   if (use_dogleg) {    
+    // Refer to:
+    // http://people.csail.mit.edu/kaess/pub/Rosen12icra.pdf
+    // is levenberg-marquardt the most efficient optimization algorithm
+    // for implementing bundle adjustment
+    // TODO: make sure the sd solution here is consistent with the covariances
+
     // calculate steepest descent result
     Scalar nominator = rhs_p_.squaredNorm() + rhs_l_.squaredNorm();
 
@@ -2084,9 +2149,33 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         res.residual;
     inertial_error_ +=
         (res.residual.transpose() * res.cov_inv * res.residual);
-
-
   }  
+
+  // If we are marginalizing, at this point we must form the prior residual
+  // between the previous pose parameters and the current estimate. We also
+  // need to calculate the prior residual jacobian.
+  if (do_marginalization_) {
+    r_pi_.resize(num_active_poses_ * kPoseDim);
+    r_pi_.setZero();
+    int pose_idx = root_pose_id_, prior_idx = 0;
+    while (pose_idx < poses_.size() && prior_idx < prior_poses_.size()) {
+      const int pose_opt_idx = poses_[pose_idx].opt_id;
+      const int offset = pose_opt_idx * kPoseDim;
+      const SE3t error_state =
+          prior_poses_[prior_idx].t_wp.inverse() * poses_[pose_idx].t_wp;
+      // Calculate the prior residual;
+      r_pi_.template block<6, 1>(offset, 0 ) = SE3t::log(error_state);
+
+      // The 6dof lie tangent parameter residual for the prior is defined as
+      // t_prior.inverse() * t_estimate * exp(dx). Therefore the following
+      // calculates the derivative w.r.t. dx.
+      j_prior_twp_[pose_opt_idx] = dLog_dX(error_state, SE3t());
+
+      // Increment indices into the prior and pose arrays.
+      prior_idx++;
+      pose_idx++;
+    }
+  }
 
   PrintTimer(_j_evaluation_inertial_);
   PrintTimer(_j_evaluation_);

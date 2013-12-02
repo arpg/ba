@@ -761,7 +761,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
   const Pose& last_pose = poses_.front();
   if (do_marginalization && num_active_poses_ > 1 && last_pose.is_active &&
       inertial_residuals_.size() > 0) {
-    std::cout << "lase pose id:" << last_pose.id << " num landmarks: " <<
+    std::cout << "last pose id:" << last_pose.id << " num landmarks: " <<
                  last_pose.landmarks.size();
     // Count the number of active landmarks for this pose. This is necessary
     // as not all landmarks might be active.

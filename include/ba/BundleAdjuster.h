@@ -81,7 +81,7 @@ public:
   void Init(const unsigned int num_poses,
             const unsigned int num_measurements,
             const unsigned int num_landmarks = 0,
-            const calibu::CameraRigT<Scalar> *rig = 0,
+            const SE3t& t_vs = SE3t(),
             const Scalar trust_region_size = 1.0)
   {
     // if LmSize == 0, there is no need for a camera rig or landmarks
@@ -98,16 +98,16 @@ public:
     binary_residual_offset_ = 0;
     unary_residual_offset_ = 0;
     inertial_residual_offset_ = 0;
-    if (rig != 0) {
-      rig_ = *rig;
-      imu_.t_vs = rig_.cameras[0].T_wc;
-      last_tvs_ = imu_.t_vs;
-    }
+
+    imu_.t_vs = t_vs;
+    last_tvs_ = imu_.t_vs;
+
     landmarks_.reserve(num_landmarks);
     proj_residuals_.reserve(num_measurements);
     poses_.reserve(num_poses);
 
     // clear all arrays
+    rig_.cameras.clear();
     poses_.clear();
     proj_residuals_.clear();
     binary_residuals_.clear();
@@ -126,6 +126,15 @@ public:
     }else {
       imu_.g_vec = g;
     }
+  }
+
+
+  ////////////////////////////////////////////////////////////////////////////
+  unsigned int AddCamera( const calibu::CameraModelInterfaceT<Scalar>& cam_param,
+                          const SE3t&                        cam_pose)
+  {
+    rig_.Add(cam_param, cam_pose);
+    return rig_.cameras.size()-1;
   }
 
   ////////////////////////////////////////////////////////////////////////////

@@ -453,7 +453,6 @@ private:
   BlockMat<Eigen::Matrix<Scalar, kPrPoseDim, kLmDim>> jt_pr_j_l_;
 
   aligned_vector<Eigen::Matrix<Scalar, 6, 6>> j_prior_twp_;
-  aligned_vector<Eigen::Matrix<Scalar, 6, 6>> j_prior_update_;
   std::vector<Pose> prior_poses_;
   MatrixXt jt_prior_;
   MatrixXt prior_;

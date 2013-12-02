@@ -22,14 +22,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
     // std::cout << "Delta calib: " << deltaCalib.transpose() << std::endl;
   }
 
-  // If we are marginalizing, initialize the array which will hold the jacobian
-  // propagate the prior distribution through this update. The propagation is
-  // only required for lie algebra parameters which will be reparameterized in
-  // a different tangent space.
-  // TODO: t_vs also needs this.
-  if (do_marginalization_) {
-    j_prior_update_.resize(poses_.size());
-  }
+  Eigen::Matrix<Scalar, 6, 6> j_pose_update;
 
   Scalar coef = (do_rollback == true ? -1.0 : 1.0) * damping;
   // update gravity terms if necessary
@@ -80,6 +73,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
     // only update active poses, as inactive ones are not part of the
     // optimization
     if (poses_[ii].is_active) {
+      const int opt_id = poses_[ii].opt_id;
       const unsigned int p_offset = poses_[ii].opt_id*kPoseDim;
       const Eigen::Matrix<Scalar, 6, 1>& p_update =
           -delta.delta_p.template block<6,1>(p_offset,0)*coef;
@@ -93,13 +87,13 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
           poses_[ii].t_wp = poses_[ii].t_wp * p_update_se3;
           poses_[ii].t_wp = poses_[ii].t_wp * calib_update_se3;
           if (do_marginalization_) {
-            j_prior_update_[ii] = (p_update_se3 * calib_update_se3).Adj();
+            j_pose_update = (p_update_se3 * calib_update_se3).Adj();
           }
         } else {
           poses_[ii].t_wp = poses_[ii].t_wp * calib_update_se3;
           poses_[ii].t_wp = poses_[ii].t_wp * p_update_se3;
           if (do_marginalization_) {
-            j_prior_update_[ii] = (calib_update_se3 * p_update_se3).Adj();
+            j_pose_update = (calib_update_se3 * p_update_se3).Adj();
           }
         }
         // std::cout << "Pose " << ii << " calib delta is " <<
@@ -108,7 +102,27 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
       } else {
         poses_[ii].t_wp = poses_[ii].t_wp * p_update_se3;
         if (do_marginalization_) {
-          j_prior_update_[ii] = p_update_se3.Adj();
+          j_pose_update = p_update_se3.Adj();
+        }
+      }
+
+      // Now that we have the prior update jacobian, update this row and column
+      // of the prior matrix.
+      if (do_marginalization_) {
+        if (opt_id < prior_poses_.size()) {
+          // Multiply all the columns of this row by J.
+          for (int jj = 0 ; jj < prior_poses_.size() ; ++jj) {
+            prior_.template block<6, 6>(opt_id * kPoseDim, jj * kPoseDim) =
+                j_pose_update *
+                prior_.template block<6, 6>(opt_id * kPoseDim, jj * kPoseDim);
+          }
+
+          // Multiply all the rows of this column by Jt.
+          for (int jj = 0 ; jj < prior_poses_.size() ; ++jj) {
+            prior_.template block<6, 6>(jj * kPoseDim, opt_id * kPoseDim) =
+                prior_.template block<6, 6>(jj * kPoseDim, opt_id * kPoseDim) *
+                j_pose_update.transpose();
+          }
         }
       }
 
@@ -197,9 +211,6 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
       // std::cout << "to " << m_vLandmarks[ii].Xs.transpose() << std::endl;
     }
   }
-
-  // Now that we have applied the update, propagate the prior by how much
-  // we have moved the parameters in the tangent space.
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1391,7 +1402,11 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   }
  // are_all_active = false;
 
-  if (are_all_active) {
+  // If all poses are active and we are not marginalizing (therefore, we have
+  // no prior) then regularize some parameters by setting the parameter mask.
+  // This in effect removes these parameters from the optimization, by setting
+  // any jacobians to zero and regularizing the hessian diagonal.
+  if (are_all_active && !do_marginalization_) {
     StreamMessage(debug_level) << "All poses active. Regularizing translation "
                                   "of root pose " << root_pose_id_ << std::endl;
     Pose& root_pose = poses_[root_pose_id_];
@@ -2171,6 +2186,9 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     r_pi_.setZero();
     int pose_idx = root_pose_id_, prior_idx = 0;
     while (pose_idx < poses_.size() && prior_idx < prior_poses_.size()) {
+      if (!poses_[pose_idx].is_active) {
+        continue;
+      }
       const int pose_opt_idx = poses_[pose_idx].opt_id;
       const int offset = pose_opt_idx * kPoseDim;
       const SE3t error_state =

@@ -25,9 +25,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
   // If we are marginalizing, initialize the array which will hold the jacobian
   // propagate the prior distribution through this update. The propagation is
   // only required for lie algebra parameters which will be reparameterized in
-  // a different tangent space
+  // a different tangent space.
+  // TODO: t_vs also needs this.
   if (do_marginalization_) {
-    j_prior_update_.resize(prior_poses_.size());
+    j_prior_update_.resize(poses_.size());
   }
 
   Scalar coef = (do_rollback == true ? -1.0 : 1.0) * damping;
@@ -82,22 +83,33 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
       const unsigned int p_offset = poses_[ii].opt_id*kPoseDim;
       const Eigen::Matrix<Scalar, 6, 1>& p_update =
           -delta.delta_p.template block<6,1>(p_offset,0)*coef;
+      const SE3t p_update_se3 = SE3t::exp(p_update);
+
       if (kTvsInCalib && inertial_residuals_.size() > 0) {
         const Eigen::Matrix<Scalar ,6, 1>& calib_update =
             -delta_calib.template block<6,1>(2,0)*coef;
-
+        const SE3t calib_update_se3 = SE3t::exp(calib_update);
         if (do_rollback == false) {
-          poses_[ii].t_wp = poses_[ii].t_wp * SE3t::exp(p_update);
-          poses_[ii].t_wp = poses_[ii].t_wp * SE3t::exp(calib_update);
+          poses_[ii].t_wp = poses_[ii].t_wp * p_update_se3;
+          poses_[ii].t_wp = poses_[ii].t_wp * calib_update_se3;
+          if (do_marginalization_) {
+            j_prior_update_[ii] = (p_update_se3 * calib_update_se3).Adj();
+          }
         } else {
-          poses_[ii].t_wp = poses_[ii].t_wp * SE3t::exp(calib_update);
-          poses_[ii].t_wp = poses_[ii].t_wp * SE3t::exp(p_update);
+          poses_[ii].t_wp = poses_[ii].t_wp * calib_update_se3;
+          poses_[ii].t_wp = poses_[ii].t_wp * p_update_se3;
+          if (do_marginalization_) {
+            j_prior_update_[ii] = (calib_update_se3 * p_update_se3).Adj();
+          }
         }
         // std::cout << "Pose " << ii << " calib delta is " <<
         //              (calib_update).transpose() << std::endl;
         poses_[ii].t_vs = imu_.t_vs;
       } else {
-        poses_[ii].t_wp = poses_[ii].t_wp * SE3t::exp(p_update);
+        poses_[ii].t_wp = poses_[ii].t_wp * p_update_se3;
+        if (do_marginalization_) {
+          j_prior_update_[ii] = p_update_se3.Adj();
+        }
       }
 
       // update the velocities if they are parametrized
@@ -168,26 +180,26 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
       } else {
         landmarks_[ii].x_w.template head<kLmDim>() -= lm_delta;
       }
+      // std::cout << "Adjusting landmark with zref: " <<
+      // m_vLandmarks[ii].Zref.transpose() << " from " <<
+      // m_vLandmarks[ii].Xs.transpose() << std::endl;
 
-        // std::cout << "Adjusting landmark with zref: " <<
-        // m_vLandmarks[ii].Zref.transpose() << " from " <<
-        // m_vLandmarks[ii].Xs.transpose() << std::endl;
-
-        // m_vLandmarks[ii].Xs /= m_vLandmarks[ii].Xs[3];
-        // const Scalar depth = m_vLandmarks[ii].Xs.template head<3>().norm();
-        // reproject this landmark
-        // VectorXt origParams = m_Rig.cameras[0].camera.GenericParams();
-        // m_Rig.cameras[0].camera.SetGenericParams(
-        //    m_vPoses[m_vLandmarks[ii].RefPoseId].CamParams);
-        // Vector3t Xs_reproj =
-        //    m_Rig.cameras[0].camera.Unproject(m_vLandmarks[ii].Zref);
-        // m_vLandmarks[ii].Xs.template head<3>() = Xs_reproj*depth;
-        // m_Rig.cameras[0].camera.SetGenericParams(origParams);
-        // std::cout << "to " << m_vLandmarks[ii].Xs.transpose() << std::endl;
-
-
+      // m_vLandmarks[ii].Xs /= m_vLandmarks[ii].Xs[3];
+      // const Scalar depth = m_vLandmarks[ii].Xs.template head<3>().norm();
+      // reproject this landmark
+      // VectorXt origParams = m_Rig.cameras[0].camera.GenericParams();
+      // m_Rig.cameras[0].camera.SetGenericParams(
+      //    m_vPoses[m_vLandmarks[ii].RefPoseId].CamParams);
+      // Vector3t Xs_reproj =
+      //    m_Rig.cameras[0].camera.Unproject(m_vLandmarks[ii].Zref);
+      // m_vLandmarks[ii].Xs.template head<3>() = Xs_reproj*depth;
+      // m_Rig.cameras[0].camera.SetGenericParams(origParams);
+      // std::cout << "to " << m_vLandmarks[ii].Xs.transpose() << std::endl;
     }
   }
+
+  // Now that we have applied the update, propagate the prior by how much
+  // we have moved the parameters in the tangent space.
 }
 
 ////////////////////////////////////////////////////////////////////////////////

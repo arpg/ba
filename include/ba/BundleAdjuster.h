@@ -385,6 +385,14 @@ public:
     inertial_error = inertial_error_;
   }
 
+  void MarginalizePose(const unsigned int root_pose_id = -1);
+  void TransformPriorSE3(const SE3t& t_a1a2);
+  void ClearPrior()
+  {
+    prior_poses_.clear();
+    prior_.resize(0,0);
+  }
+
 private:
   bool SolveInternal(VectorXt rhs_p_sc, const Scalar gn_damping,
                      const bool error_increase_allowed, const bool use_dogleg);
@@ -464,7 +472,7 @@ private:
   Eigen::SparseMatrix<Scalar> s_sparse_;
   Scalar trust_region_size_;
 
-  bool do_marginalization_;
+  bool use_prior_;
   bool translation_enabled_;
   bool is_param_mask_used_; 
   bool do_sparse_solve_;

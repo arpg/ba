@@ -86,13 +86,13 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
         if (do_rollback == false) {
           poses_[ii].t_wp = poses_[ii].t_wp * p_update_se3;
           poses_[ii].t_wp = poses_[ii].t_wp * calib_update_se3;
-          if (do_marginalization_) {
+          if (use_prior_) {
             j_pose_update = (p_update_se3 * calib_update_se3).Adj();
           }
         } else {
           poses_[ii].t_wp = poses_[ii].t_wp * calib_update_se3;
           poses_[ii].t_wp = poses_[ii].t_wp * p_update_se3;
-          if (do_marginalization_) {
+          if (use_prior_) {
             j_pose_update = (calib_update_se3 * p_update_se3).Adj();
           }
         }
@@ -101,14 +101,14 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
         poses_[ii].t_vs = imu_.t_vs;
       } else {
         poses_[ii].t_wp = poses_[ii].t_wp * p_update_se3;
-        if (do_marginalization_) {
+        if (use_prior_) {
           j_pose_update = p_update_se3.Adj();
         }
       }
 
       // Now that we have the prior update jacobian, update this row and column
       // of the prior matrix.
-      if (do_marginalization_) {
+      if (use_prior_) {
         if (opt_id < prior_poses_.size()) {
           // Multiply all the columns of this row by J.
           for (int jj = 0 ; jj < prior_poses_.size() ; ++jj) {
@@ -379,7 +379,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     }
   }
 
-  do_marginalization_ = false;
+  use_prior_ = false;
   const bool use_triangular = false;
   do_sparse_solve_ = false;
   do_last_pose_cov_ = false;
@@ -482,7 +482,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     }
 
     // If marginalizing, we must also fix the RHS.
-    if (do_marginalization_) {
+    if (use_prior_) {
       jt_prior_ = prior_;
 
       const int prior_count = prior_poses_.size();
@@ -639,7 +639,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
     // At this point, if we're doing marginalization, add in the prior to the
     // U submatrix of the hessian, based on tne given root_pose_id_.
-    if (do_marginalization_) {
+    if (use_prior_) {
       const int prior_count = prior_poses_.size();
       // We need to obtain Jt * C^-1 * J. Previously, we had Jt * C^-1 in
       // jt_prior_. Here we multiply by J to obtain the full expression.
@@ -831,11 +831,21 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       */
     }
   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
+void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
+    unsigned int root_pose_id)
+{
+  if (root_pose_id == -1) {
+    root_pose_id = root_pose_id_;
+  }
 
   // Do marginalization if required. Note that at least 2 poses are
   // required for marginalization
   const Pose& last_pose = poses_[root_pose_id_];
-  if (do_marginalization_ && num_active_poses_ > 1 && last_pose.is_active &&
+  if (use_prior_ && num_active_poses_ > 1 && last_pose.is_active &&
       inertial_residuals_.size() > 0) {
     std::cout << "last pose id:" << last_pose.id << " num landmarks: " <<
                  last_pose.landmarks.size();
@@ -968,7 +978,31 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
     // std::cout << "\n\n\n\n\nv matrix is: " << std::endl << v << std::endl;
     // std::cout << "\n\n\n\n\nw matrix is " << std::endl << w << std::endl;
-  } 
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
+void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::TransformPriorSE3(
+    const SE3t& t_a1a2)
+{
+  typename SE3t::Adjoint adj = t_a1a2.Adj();
+
+  // Now go through all the poses and apply the transformation.
+  const int num_prior_poses = prior_poses_.size();
+
+  for (int ii = 0; ii < num_prior_poses ; ++ii) {
+    // Transform the prior pose itself by the transformation.
+    prior_poses_[ii].t_wp = prior_poses_[ii].t_wp * t_a1a2;
+
+    for (int jj = 0; jj < num_prior_poses ; ++jj) {
+      // Transform the prior distribution.
+      prior_.template block<6, 6>(ii * kPoseDim, jj * kPoseDim) =
+          adj *
+          prior_.template block<6, 6>(ii * kPoseDim, jj * kPoseDim) *
+          adj.transpose();
+    }
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1401,12 +1435,13 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     }
   }
  // are_all_active = false;
+  const bool using_prior = use_prior_ && prior_poses_.size() > 0;
 
   // If all poses are active and we are not marginalizing (therefore, we have
   // no prior) then regularize some parameters by setting the parameter mask.
   // This in effect removes these parameters from the optimization, by setting
   // any jacobians to zero and regularizing the hessian diagonal.
-  if (are_all_active && !do_marginalization_) {
+  if (are_all_active && !using_prior) {
     StreamMessage(debug_level) << "All poses active. Regularizing translation "
                                   "of root pose " << root_pose_id_ << std::endl;
     Pose& root_pose = poses_[root_pose_id_];
@@ -2181,7 +2216,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   // If we are marginalizing, at this point we must form the prior residual
   // between the previous pose parameters and the current estimate. We also
   // need to calculate the prior residual jacobian.
-  if (do_marginalization_) {
+  if (use_prior_) {
     r_pi_.resize(num_active_poses_ * kPoseDim);
     r_pi_.setZero();
     int pose_idx = root_pose_id_, prior_idx = 0;

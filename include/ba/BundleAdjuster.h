@@ -31,7 +31,7 @@ class BundleAdjuster
   static const unsigned int kPrPoseDim = 6;
   static const unsigned int kLmDim = LmSize;
   static const unsigned int kPoseDim = PoseSize;
-  static const unsigned int kCalibDim = CalibSize;  
+  static const unsigned int kCalibDim = CalibSize;
 
   typedef PoseT<Scalar> Pose;
   typedef LandmarkT<Scalar,LmSize> Landmark;
@@ -87,7 +87,6 @@ public:
             const Scalar trust_region_size = 1.0)
   {
     // if LmSize == 0, there is no need for a camera rig or landmarks
-    assert(rig != 0 || LmSize == 0);
     assert(num_landmarks != 0 || LmSize == 0);
 
     // set the initial trust region size
@@ -369,7 +368,7 @@ public:
   const Pose& GetPose(const unsigned int id) const  { return poses_[id]; }
 
   // return the landmark in the world frame
-  const Vector4t& GetLandmark(const unsigned int id)  
+  const Vector4t& GetLandmark(const unsigned int id)
   const { return landmarks_[id].x_w; }
   bool IsLandmarkReliable(const unsigned int id)
   const { return landmarks_[id].is_reliable; }
@@ -474,7 +473,7 @@ private:
 
   bool use_prior_;
   bool translation_enabled_;
-  bool is_param_mask_used_; 
+  bool is_param_mask_used_;
   bool do_sparse_solve_;
   bool do_last_pose_cov_;
   Scalar total_tvs_change_;

@@ -26,8 +26,11 @@
 #include "Utils.h"
 #include <calibu/Calibu.h>
 
-#define IMU_GYRO_UNCERTAINTY 0.1 //0.00104719755
-#define IMU_ACCEL_UNCERTAINTY 10 //0.0392266
+#define IMU_GYRO_UNCERTAINTY 7.15584993e-5  // 0.00104719755 // 0.1 //
+#define IMU_ACCEL_UNCERTAINTY 0.00159855109  // 0.0392266 // 10
+
+//#define IMU_GYRO_UNCERTAINTY 0.1 //0.00104719755
+//#define IMU_ACCEL_UNCERTAINTY 10 //0.0392266
 
 namespace ba {
 static const double Gravity = 9.8007;

@@ -351,7 +351,8 @@ public:
   void Solve(const unsigned int uMaxIter,
              const Scalar gn_damping = 1.0,
              const bool error_increase_allowed = false,
-             const bool use_dogleg = true);
+             const bool use_dogleg = true,
+             const bool use_prior = false);
 
   void SetRootPoseId(const unsigned int id) { root_pose_id_ = id; }
 
@@ -384,7 +385,7 @@ public:
     inertial_error = inertial_error_;
   }
 
-  void MarginalizePose(const unsigned int root_pose_id = -1);
+  void MarginalizePose(const int root_pose_id = -1);
   void TransformPriorSE3(const SE3t& t_a1a2);
   void ClearPrior()
   {

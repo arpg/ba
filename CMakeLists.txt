@@ -5,6 +5,8 @@ set(BA_VERSION_MINOR 1)
 set(BA_VERSION ${BA_VERSION_MAJOR}.${BA_VERSION_MINOR})
 
 option(EXPORT_BA "Should BA be exported." ON)
+list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/CMakeModules/")
+list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake_modules/")
 
 if( ANDROID )
     add_definitions(-DREAL_TYPE=float)
@@ -17,7 +19,7 @@ if( TEST_FLOAT )
     add_definitions(-DREAL_TYPE=float)
 endif()
 
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake_modules/")
+
 
 option( BUILD_APPLICATIONS "Build Applications" ON )
 

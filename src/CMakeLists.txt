@@ -1,4 +1,5 @@
 cmake_minimum_required( VERSION 2.8 )
+include(def_library)
 
 ################################################################################
 # Find required dependencies
@@ -49,8 +50,10 @@ add_custom_target(${PROJECT_NAME} SOURCES ${HEADERS})
 
 include_directories( ${LIB_INC_DIR} )
 include_directories( ${USER_INC} )
-add_library( ${LIBRARY_NAME} ${SOURCES} ${HEADERS} )
-target_link_libraries( ${LIBRARY_NAME} ${LINK_LIBS} )
+def_library(${LIBRARY_NAME}
+  SOURCES ${SOURCES} ${HEADERS}
+  LINK_LIBS ${LINK_LIBS}
+  )
 
 #######################################################
 ## Create configure file for inclusion in library

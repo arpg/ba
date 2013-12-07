@@ -47,7 +47,7 @@ def marginalize_pose(hessian, num_poses, pose_size,
     # U = hessian[0 : num_elems, 0 : num_elems]
     W = hessian[0 : schur_elems, schur_elems : ]
     V = hessian[schur_elems : , schur_elems :]
-    prior = W.dot(np.linalg.inv(V)).dot(W.T);
+    prior = -W.dot(np.linalg.inv(V)).dot(W.T);
     return prior
 
 

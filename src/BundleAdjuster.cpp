@@ -180,14 +180,14 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
         delta.delta_l.template segment<kLmDim>(
             landmarks_[ii].opt_id*kLmDim) * coef;
 
-        // std::cout << "Delta for landmark " << ii << " is " <<
-        //lm_delta.transpose() << std::endl;
+        // std::cerr << "Delta for landmark " << ii << " is " <<
+        //   lm_delta.transpose() << std::endl;
 
       if (kLmDim == 1) {
         landmarks_[ii].x_s.template tail<kLmDim>() -= lm_delta;
         if (landmarks_[ii].x_s[3] < 0) {
-          // std::cout << "Reverting landmark " << ii << " with x_s: " <<
-          //             landmarks_[ii].x_s.transpose() << std::endl;
+          std::cerr << "Reverting landmark " << ii << " with x_s: " <<
+                      landmarks_[ii].x_s.transpose() << std::endl;
           landmarks_[ii].x_s.template tail<kLmDim>() += lm_delta;
           landmarks_[ii].is_reliable = false;
         }
@@ -659,7 +659,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
       const int row_col_id = root_pose_id_ * kPoseDim;
       s_.template block(
-            row_col_id, row_col_id, prior_.rows(), prior_.cols()) += prior_;
+            row_col_id, row_col_id, jt_prior_.rows(), jt_prior_.cols()) +=
+          jt_prior_;
     }
 
     // fill in the calibration components if any
@@ -849,8 +850,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
   // required for marginalization
   const Pose& last_pose = poses_[root_pose_id_];
   if (use_prior_ && num_active_poses_ > 1 && last_pose.is_active) {
-    std::cout << "last pose id:" << last_pose.id << " num landmarks: " <<
-                 last_pose.landmarks.size();
+    StreamMessage(debug_level) <<
+      "last pose id:" << last_pose.id << " num landmarks: " <<
+      last_pose.landmarks.size();
+
     // Count the number of active landmarks for this pose. This is necessary
     // as not all landmarks might be active.
     uint32_t active_lm = 0;
@@ -876,11 +879,12 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
           w_sizes.push_back(num_w_cells);
           active_lm++;
 
-          std::cout << "jt_pr_j_l_ size: " << jt_pr_j_l_.rows() <<
-                       " " << jt_pr_j_l_.cols() << std::endl;
-          std::cout << "w_sizes[" << active_lm - 1 << "]: " <<
-                       w_sizes[active_lm - 1] <<  " vs " <<
-                       lm.proj_residuals.size() << std::endl;
+          StreamMessage(debug_level) <<
+            "jt_pr_j_l_ size: " << jt_pr_j_l_.rows() <<
+            " " << jt_pr_j_l_.cols() << std::endl;
+          StreamMessage(debug_level) <<
+            "w_sizes[" << active_lm - 1 << "]: " << w_sizes[active_lm - 1] <<
+            " vs " << lm.proj_residuals.size() << std::endl;
         } else {
           w_ids[ii] = -1;
         }
@@ -892,8 +896,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
     // also the active landmarks of the marginalized pose.
     MatrixXt w((num_active_poses_ - 1) * kPoseDim,
                active_lm * kLmDim + kPoseDim);
-    std::cout << "w dim: " << (num_active_poses_ - 1) * kPoseDim << " by " <<
-                 active_lm * kLmDim  + kPoseDim << std::endl;
+    StreamMessage(debug_level) <<
+      "w dim: " << (num_active_poses_ - 1) * kPoseDim << " by " <<
+      active_lm * kLmDim  + kPoseDim << std::endl;
 
     // Allocate the V matrix
     MatrixXt v(kPoseDim + active_lm * kLmDim,
@@ -907,7 +912,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
     //       num_active_poses_ - 1, active_lm);
     // w.reserve(w_sizes.template head<active_lm>());
 
-    std::cout << "Filling v and w matrices... " << std::endl;
+    StreamMessage(debug_level) <<
+      "Filling v and w matrices... " << std::endl;
+
     // fill the matrices
     for (unsigned int ii = 0;  ii < last_pose.landmarks.size() ; ++ii) {
       const Landmark& lm = landmarks_[ii];
@@ -937,7 +944,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
       }
     }
 
-    std::cout << "Populating w for pose pose constraints." << std::endl;
+    StreamMessage(debug_level) <<
+      "Populating w for pose pose constraints." << std::endl;
+
     // Populate w_p for pose-pose constraints
     for (typename decltype(u_)::InnerIterator iter(
            u_, last_pose.opt_id); iter; ++iter){
@@ -949,13 +958,13 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
       }
     }
 
-    std::cout << "Loading pose section for v." << std::endl;
+    StreamMessage(debug_level) << "Loading pose section for v." << std::endl;
     // Load the pose section for v.
     v.template block<kPoseDim, kPoseDim>(
       active_lm * kLmDim, active_lm * kLmDim) =
         u_.coeff(last_pose.opt_id, last_pose.opt_id);
 
-    std::cout << "Regularizing V." << std::endl;
+    StreamMessage(debug_level) << "Regularizing V." << std::endl;
     if (last_pose.is_param_mask_used) {
       for (unsigned int ii = 0 ; ii < last_pose.param_mask.size() ; ++ii) {
         if (!last_pose.param_mask[ii]) {
@@ -965,8 +974,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
       }
     }
 
-    std::cout << "Pusing back prior poses between " << root_pose_id_ <<
-                 " and " << poses_.size() << std::endl;
+    StreamMessage(debug_level) <<
+      "Pusing back prior poses between " << root_pose_id_ <<
+      " and " << poses_.size() << std::endl;
+
     const MatrixXt vinv = v.inverse();
     prior_ = -(w * vinv * w.transpose());
     prior_poses_.clear();
@@ -1006,7 +1017,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
           vi_.cols() * decltype(vi_)::Scalar::ColsAtCompileTime);
     Eigen::LoadDenseFromSparse(vi_,v_dense);
 
-    std::cout << "Writing out files... " << std::endl;
+    StreamMessage(debug_level) << "Writing out files... " << std::endl;
 
     std::ofstream("u_orig.txt",
                   std::ios_base::trunc) << u_dense.format(kLongCsvFmt);
@@ -1376,7 +1387,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     Scalar proj_error, binary_error, unary_error, inertial_error;
     EvaluateResiduals(&proj_error, &binary_error,
                       &unary_error, &inertial_error);
-    const Scalar dPostError = proj_error_ + inertial_error_ + binary_error_;
+    const Scalar dPostError = proj_error + inertial_error + binary_error;
 
     StreamMessage(debug_level) << std::setprecision (15) <<
       "Post-solve norm: " << dPostError << " with Epr:" <<
@@ -1584,7 +1595,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
           cam.Transfer3D(t_sw_m*t_ws_r, lm.x_s.template head<3>(),lm.x_s(3));;
 
     res.residual = res.z - p;
-    // std::cout << "res " << res.residual_id << " : pre" <<
+    // std::cerr << "res " << res.residual_id << " : pre" <<
     //                res.residual.norm() << std::endl;
 
     // this array is used to calculate the robust norm

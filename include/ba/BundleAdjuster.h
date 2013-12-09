@@ -141,19 +141,22 @@ public:
   ////////////////////////////////////////////////////////////////////////////
   unsigned int AddPose(const SE3t& t_wp,
                        const bool is_active = true,
-                       const double time = -1)
+                       const double time = -1,
+                       const int external_id = -1)
   {
     return AddPose(t_wp, SE3t(), VectorXt(5).setZero(),
-                   Vector3t::Zero(), Vector6t::Zero(), is_active, time);
+                   Vector3t::Zero(), Vector6t::Zero(), is_active, time,
+                   external_id);
   }
 
   ////////////////////////////////////////////////////////////////////////////
   unsigned int AddPose(const SE3t& t_wp, const SE3t& t_vs,
                        const VectorXt cam_params, const Vector3t& v_w,
                        const Vector6t& b, const bool is_active = true,
-                       const double time = -1)
+                       const double time = -1, const int external_id = -1)
   {
     Pose pose;
+    pose.external_id = external_id;
     pose.time = time;
     pose.t_wp = t_wp;
     pose.t_vs = t_vs;
@@ -185,10 +188,12 @@ public:
   unsigned int AddLandmark(const Vector4t& x_w,
                            const unsigned int ref_pose_id,
                            const unsigned int ref_cam_id,
-                           const bool is_active)
+                           const bool is_active,
+                           const int external_id = -1)
   {
     assert(ref_pose_id < poses_.size());
     Landmark landmark;
+    landmark.external_id = external_id;
     landmark.x_w = x_w;
     // assume equal distribution of measurements amongst landmarks
     landmark.proj_residuals.reserve(

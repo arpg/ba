@@ -44,6 +44,7 @@ struct PoseT {
   std::vector<bool> param_mask;
   bool is_param_mask_used;
   bool is_active;
+  int external_id;
   unsigned int id;
   unsigned int opt_id;
   double time;
@@ -75,6 +76,7 @@ struct LandmarkT {
   Eigen::Matrix<Scalar, 4, 1> x_s;
   Eigen::Matrix<Scalar, 4, 1> x_w;
   std::vector<int> proj_residuals;
+  int external_id;
   unsigned int id;
   unsigned int opt_id;
   unsigned int ref_pose_id;

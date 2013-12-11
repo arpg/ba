@@ -1511,7 +1511,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   // no prior) then regularize some parameters by setting the parameter mask.
   // This in effect removes these parameters from the optimization, by setting
   // any jacobians to zero and regularizing the hessian diagonal.
-  if (are_all_active && !using_prior) {
+  if (are_all_active && !using_prior && num_un_res == 0) {
     StreamMessage(debug_level) <<
       "All poses active. Regularizing translation of root pose " <<
       root_pose_id_ << std::endl;

@@ -108,7 +108,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
 
       // Now that we have the prior update jacobian, update this row and column
       // of the prior matrix.
-      if (use_prior_) {
+      if (use_prior_ && prior_poses_.size() > 0) {
         if (opt_id < prior_poses_.size()) {
           // Multiply all the columns of this row by J.
           for (int jj = 0 ; jj < prior_poses_.size() ; ++jj) {
@@ -150,7 +150,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
 
       StreamMessage(debug_level) << "Pose delta for " << ii << " is " <<
         (-delta.delta_p.template block<kPoseDim,1>(p_offset,0) *
-        coef).transpose() << std::endl;
+         coef).transpose() << " pose is " << std::endl <<
+        poses_[ii].t_wp.matrix() << std::endl;
 
     } else {
       // if Tvs is being globally adjusted, we must apply the tvs adjustment
@@ -186,8 +187,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
       if (kLmDim == 1) {
         landmarks_[ii].x_s.template tail<kLmDim>() -= lm_delta;
         if (landmarks_[ii].x_s[3] < 0) {
-          std::cerr << "Reverting landmark " << ii << " with x_s: " <<
-                      landmarks_[ii].x_s.transpose() << std::endl;
+          // std::cerr << "Reverting landmark " << ii << " with x_s: " <<
+          //             landmarks_[ii].x_s.transpose() << std::endl;
           landmarks_[ii].x_s.template tail<kLmDim>() += lm_delta;
           landmarks_[ii].is_reliable = false;
         }
@@ -219,10 +220,6 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
     Scalar* proj_error, Scalar* binary_error,
     Scalar* unary_error, Scalar* inertial_error)
 {
-  if (unary_error) {
-    *unary_error = 0;
-  }
-
   if (proj_error) {
     *proj_error = 0;
     for (ProjectionResidual& res : proj_residuals_) {
@@ -246,7 +243,15 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
       //               " post " << res.residual.norm() * res.weight << std::endl;
       *proj_error += res.residual.squaredNorm() * res.weight;
     }
+  }
 
+  if (unary_error) {
+    *unary_error = 0;
+    for (UnaryResidual& res : unary_residuals_) {
+      const Pose& pose = poses_[res.pose_id];
+      res.residual = SE3t::log(pose.t_wp * res.t_wp.inverse());
+      *unary_error += res.residual.squaredNorm() * res.weight;
+    }
   }
 
   if (binary_error) {
@@ -382,7 +387,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
   use_prior_ = use_prior;
   const bool use_triangular = false;
-  do_sparse_solve_ = false;
+  do_sparse_solve_ = true;
   do_last_pose_cov_ = false;
 
   for (unsigned int kk = 0 ; kk < uMaxIter ; ++kk) {
@@ -483,10 +488,13 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     }
 
     // If marginalizing, we must also fix the RHS.
-    if (use_prior_) {
+    const int prior_count = prior_poses_.size();
+    if (use_prior_ && prior_count > 0) {
+      StreamMessage(debug_level) << "Adding prior contribution from " <<
+      prior_count << " poses to rhs_p" << std::endl;
+
       jt_prior_ = prior_;
 
-      const int prior_count = prior_poses_.size();
       // To fix the rhs, we require the matrix Jt*C^-1. C^-1 is stored in
       // prior_, so we use jt_prior_ to store this value
       for (int ii = 0; ii < prior_count ; ++ii) {
@@ -642,8 +650,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
     // At this point, if we're doing marginalization, add in the prior to the
     // U submatrix of the hessian, based on tne given root_pose_id_.
-    if (use_prior_) {
-      const int prior_count = prior_poses_.size();
+    if (use_prior_ && prior_count > 0) {
       // We need to obtain Jt * C^-1 * J. Previously, we had Jt * C^-1 in
       // jt_prior_. Here we multiply by J to obtain the full expression.
       for (int ii = 0; ii < prior_count ; ++ii) {
@@ -657,10 +664,12 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
         }
       }
 
-      const int row_col_id = root_pose_id_ * kPoseDim;
-      s_.template block(
-            row_col_id, row_col_id, jt_prior_.rows(), jt_prior_.cols()) +=
-          jt_prior_;
+      if (prior_count > 0) {
+        const int row_col_id = root_pose_id_ * kPoseDim;
+        s_.template block(
+              row_col_id, row_col_id, jt_prior_.rows(), jt_prior_.cols()) +=
+            jt_prior_;
+      }
     }
 
     // fill in the calibration components if any
@@ -1317,22 +1326,24 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
 
       EvaluateResiduals(&proj_error, &binary_error,
                         &unary_error, &inertial_error);
-      const Scalar prev_error = proj_error + inertial_error + binary_error;
+      const Scalar prev_error = proj_error + inertial_error + binary_error +
+                                unary_error;
       ApplyUpdate(delta_dl, false);
 
       StreamMessage(debug_level) << std::setprecision (15) <<
         "Pre-solve norm: " << prev_error << " with Epr:" <<
         proj_error << " and Ei:" << inertial_error <<
-        " and Epp: " << binary_error << std::endl;
+        " and Epp: " << binary_error << " and Eu " << unary_error << std::endl;
 
       EvaluateResiduals(&proj_error, &binary_error,
                         &unary_error, &inertial_error);
-      const Scalar post_error = proj_error + inertial_error + binary_error;
+      const Scalar post_error = proj_error + inertial_error + binary_error +
+                                unary_error;
 
       StreamMessage(debug_level) << std::setprecision (15) <<
         "Post-solve norm: " << post_error << " with Epr:" <<
         proj_error << " and Ei:" << inertial_error <<
-        " and Epp: " << binary_error << std::endl;
+        " and Epp: " << binary_error << " and Eu " << unary_error << std::endl;
 
       if (post_error > prev_error) {
         landmarks_ = landmarks_copy;
@@ -1377,22 +1388,24 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     ApplyUpdate(delta, false, gn_damping);
 
 
-    const Scalar dPrevError = proj_error_ + inertial_error_ + binary_error_;
+    const Scalar dPrevError = proj_error_ + inertial_error_ + binary_error_ +
+        unary_error_;
 
     StreamMessage(debug_level) << std::setprecision (15) <<
       "Pre-solve norm: " << dPrevError << " with Epr:" <<
       proj_error_ << " and Ei:" << inertial_error_ <<
-      " and Epp: " << binary_error_ << std::endl;
+      " and Epp: " << binary_error_ << " and Eu " << unary_error_ << std::endl ;
 
     Scalar proj_error, binary_error, unary_error, inertial_error;
     EvaluateResiduals(&proj_error, &binary_error,
                       &unary_error, &inertial_error);
-    const Scalar dPostError = proj_error + inertial_error + binary_error;
+    const Scalar dPostError = proj_error + inertial_error + binary_error +
+        unary_error;
 
     StreamMessage(debug_level) << std::setprecision (15) <<
       "Post-solve norm: " << dPostError << " with Epr:" <<
       proj_error_ << " and Ei:" << inertial_error_ <<
-      " and Epp: " << binary_error_ << std::endl;
+      " and Epp: " << binary_error_ << " and Eu " << unary_error_ << std::endl;
 
     if (dPostError > dPrevError && !error_increase_allowed) {
        StreamMessage(debug_level) << "Error increasing during optimization, "
@@ -1869,7 +1882,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
     res.weight = res.orig_weight;
     r_u_.template segment<UnaryResidual::kResSize>(res.residual_offset) =
-        log_decoupled(t_wp, res.t_wp);
+        SE3t::log(t_wp * res.t_wp.inverse());
     unary_error_ += res.residual.squaredNorm() * res.weight;
   }
   PrintTimer(_j_evaluation_unary_);
@@ -2283,7 +2296,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   // If we are marginalizing, at this point we must form the prior residual
   // between the previous pose parameters and the current estimate. We also
   // need to calculate the prior residual jacobian.
-  if (use_prior_) {
+  if (use_prior_ && prior_poses_.size() > 0) {
     r_pi_.resize(num_active_poses_ * kPoseDim);
     j_prior_twp_.resize(prior_poses_.size());
 

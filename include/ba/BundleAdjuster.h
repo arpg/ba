@@ -118,6 +118,9 @@ public:
   }
 
   ////////////////////////////////////////////////////////////////////////////
+  /// \brief Sets the direction and magnitude of gravity.
+  /// \param g the 3d gravity vector.
+  ///
   void SetGravity(const Vector3t& g){
     if (kGravityInCalib) {
       const Vector3t new_g_norm = g.normalized();
@@ -150,7 +153,22 @@ public:
   }
 
   ////////////////////////////////////////////////////////////////////////////
-  unsigned int AddPose(const SE3t& t_wp, const SE3t& t_vs,
+  /// \brief Adds a pose to the optimization, the id of the pose can later be
+  /// used to form constraints.
+  /// \param t_wv is the SE3 pose of the vejhicle
+  /// \param t_vs is the vehicle to sensor extrinsics calibration (if required)
+  /// which can be set to identity if not needed.
+  /// \param cam_params is the vector of camera intrinsics used in calibration
+  /// which can be empty if not needed.
+  /// \param v_w is the 3D velocity vector.
+  /// \param b is the 6d gyro/imu bias vector.
+  /// \param is_active defines whether or not this pose is active in the
+  /// optimization.
+  /// \param time timestamp for this pose
+  /// \param external_id external id used for bookkeeping outside of ba
+  /// \return the internal optimization id used to form constraints
+  ///
+  unsigned int AddPose(const SE3t& t_wv, const SE3t& t_vs,
                        const VectorXt cam_params, const Vector3t& v_w,
                        const Vector6t& b, const bool is_active = true,
                        const double time = -1, const int external_id = -1)
@@ -158,7 +176,7 @@ public:
     Pose pose;
     pose.external_id = external_id;
     pose.time = time;
-    pose.t_wp = t_wp;
+    pose.t_wp = t_wv;
     pose.t_vs = t_vs;
     pose.v_w = v_w;
     pose.b = b;
@@ -227,31 +245,36 @@ public:
   }
 
   ////////////////////////////////////////////////////////////////////////////
-  unsigned int AddUnaryConstraint(const unsigned int pos_id,
-                                  const SE3t& t_wp)
+  /// \brief Adds a unary constraint to a pose
+  /// \param pose_id of the pose to which this constraint applies
+  /// \param t_wv is the world to vehicle transform that forms this constraint
+  /// \return
+  ///
+  unsigned int AddUnaryConstraint(const unsigned int pose_id,
+                                  const SE3t& t_wv)
   {
-    assert(pos_id < poses_.size());
+    assert(pose_id < poses_.size());
 
     //now add this constraint to pose A
     UnaryResidual residual;
     residual.orig_weight = 1.0;
-    residual.pose_id = pos_id;
+    residual.pose_id = pose_id;
     residual.residual_id = unary_residuals_.size();
     residual.residual_offset = unary_residual_offset_;
-    residual.t_wp = t_wp;
+    residual.t_wp = t_wv;
 
     unary_residuals_.push_back(residual);
     unary_residual_offset_ += UnaryResidual::kResSize;
 
     // we add this to both poses, as each one has a jacobian cell associated
-    poses_[pos_id].unary_residuals.push_back(residual.residual_id);
+    poses_[pose_id].unary_residuals.push_back(residual.residual_id);
     return residual.residual_id;
   }
 
   ////////////////////////////////////////////////////////////////////////////
   unsigned int AddBinaryConstraint(const unsigned int pose1_id,
                                    const unsigned int pose2_id,
-                                   const SE3t& t_ab)
+                                   const SE3t& t_12)
   {
     assert(pose1_id < poses_.size());
     assert(pose2_id < poses_.size());
@@ -263,7 +286,7 @@ public:
     residual.x2_id = pose2_id;
     residual.residual_id = binary_residuals_.size();
     residual.residual_offset = binary_residual_offset_;
-    residual.t_ab = t_ab;
+    residual.t_ab = t_12;
 
     binary_residuals_.push_back(residual);
     binary_residual_offset_ += BinaryResidual::kResSize;
@@ -371,7 +394,12 @@ public:
 
   const ImuCalibration& GetImuCalibration() const { return imu_; }
   void SetImuCalibration(const ImuCalibration& calib) { imu_ = calib; }
-  const Pose& GetPose(const unsigned int id) const  { return poses_[id]; }
+  const Pose& GetPose(const unsigned int id) const  {
+    if (id >= poses_.size()) {
+      throw 0;
+    }
+    return poses_[id];
+  }
 
   // return the landmark in the world frame
   const Vector4t& GetLandmark(const unsigned int id)

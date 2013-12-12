@@ -1404,8 +1404,8 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
 
     StreamMessage(debug_level) << std::setprecision (15) <<
       "Post-solve norm: " << dPostError << " with Epr:" <<
-      proj_error_ << " and Ei:" << inertial_error_ <<
-      " and Epp: " << binary_error_ << " and Eu " << unary_error_ << std::endl;
+      proj_error << " and Ei:" << inertial_error <<
+      " and Epp: " << binary_error << " and Eu " << unary_error << std::endl;
 
     if (dPostError > dPrevError && !error_increase_allowed) {
        StreamMessage(debug_level) << "Error increasing during optimization, "
@@ -1859,6 +1859,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   PrintTimer(_j_evaluation_binary_);
 
   StartTimer(_j_evaluation_unary_);
+  unary_error_ = 0;
   for( UnaryResidual& res : unary_residuals_ ){
     const SE3t& t_wp = poses_[res.pose_id].t_wp;
     res.dz_dx = dLog_dX(t_wp, res.t_wp.inverse());
@@ -1879,10 +1880,10 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     //}
     //std::cout << "Junary:" << res.dZ_dX << std::endl;
     //std::cout << "Junary_fd:" << J_fd << std::endl;
-
+    res.residual = SE3t::log(t_wp * res.t_wp.inverse());
     res.weight = res.orig_weight;
     r_u_.template segment<UnaryResidual::kResSize>(res.residual_offset) =
-        SE3t::log(t_wp * res.t_wp.inverse());
+        res.residual;
     unary_error_ += res.residual.transpose() * res.cov_inv * res.residual;
   }
   PrintTimer(_j_evaluation_unary_);

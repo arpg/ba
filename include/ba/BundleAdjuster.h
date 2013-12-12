@@ -245,13 +245,17 @@ public:
   }
 
   ////////////////////////////////////////////////////////////////////////////
-  /// \brief Adds a unary constraint to a pose
+  /// \brief Adds a unary constraint to a pose. This unary constraint is
+  /// calcualted as log(t_wv * t_wv'.inverse())
   /// \param pose_id of the pose to which this constraint applies
   /// \param t_wv is the world to vehicle transform that forms this constraint
+  /// \param covariance the 6x6 covariance in the residual space
   /// \return
   ///
   unsigned int AddUnaryConstraint(const unsigned int pose_id,
-                                  const SE3t& t_wv)
+                                  const SE3t& t_wv,
+                                  Eigen::Matrix<Scalar, UnaryResidual::kResSize,
+                                  UnaryResidual::kResSize> covariance)
   {
     assert(pose_id < poses_.size());
 
@@ -262,6 +266,7 @@ public:
     residual.residual_id = unary_residuals_.size();
     residual.residual_offset = unary_residual_offset_;
     residual.t_wp = t_wv;
+    residual.cov_inv = covariance.inverse();
 
     unary_residuals_.push_back(residual);
     unary_residual_offset_ += UnaryResidual::kResSize;

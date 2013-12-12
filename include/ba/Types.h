@@ -247,7 +247,8 @@ struct UnaryResidualT : public ResidualT<Scalar, 6> {
   unsigned int pose_id;
   Sophus::SE3Group<Scalar> t_wp;
   Eigen::Matrix<Scalar, kResSize, 6> dz_dx;
-  Eigen::Matrix<Scalar, 6, 1> residual;
+  Eigen::Matrix<Scalar, kResSize, 1> residual;
+  Eigen::Matrix<Scalar, kResSize, kResSize> cov_inv;
 };
 
 template<typename Scalar = double>
@@ -258,13 +259,13 @@ struct BinaryResidualT : public ResidualT<Scalar, 6> {
   Sophus::SE3Group<Scalar> t_ab;
   Eigen::Matrix<Scalar, kResSize, 6> dz_dx1;
   Eigen::Matrix<Scalar, kResSize, 6> dz_dx2;
-  Eigen::Matrix<Scalar, 6, 1> residual;
+  Eigen::Matrix<Scalar, kResSize, 1> residual;
 };
 
 template<typename Scalar = double, int LmSize = 1>
 struct ProjectionResidualT : public ResidualT<Scalar, 6> {
   static const unsigned int kResSize = 2;
-  Eigen::Matrix<Scalar, 2, 1> z;
+  Eigen::Matrix<Scalar, kResSize, 1> z;
   unsigned int x_meas_id;
   unsigned int x_ref_id;
   unsigned int landmark_id;

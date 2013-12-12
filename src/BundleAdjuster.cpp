@@ -250,7 +250,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
     for (UnaryResidual& res : unary_residuals_) {
       const Pose& pose = poses_[res.pose_id];
       res.residual = SE3t::log(pose.t_wp * res.t_wp.inverse());
-      *unary_error += res.residual.squaredNorm() * res.weight;
+      *unary_error += (res.residual.transpose() * res.cov_inv * res.residual);
     }
   }
 
@@ -1883,7 +1883,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     res.weight = res.orig_weight;
     r_u_.template segment<UnaryResidual::kResSize>(res.residual_offset) =
         SE3t::log(t_wp * res.t_wp.inverse());
-    unary_error_ += res.residual.squaredNorm() * res.weight;
+    unary_error_ += res.residual.transpose() * res.cov_inv * res.residual;
   }
   PrintTimer(_j_evaluation_unary_);
 
@@ -2465,7 +2465,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
         jt_u_.insert(
           pose.opt_id, res.residual_id ).setZero().template block<6,6>(0,0) =
-            res.dz_dx.transpose() * res.weight;
+            res.dz_dx.transpose() * res.cov_inv /** res.weight*/;
       }
 
       std::sort(pose.inertial_residuals.begin(), pose.inertial_residuals.end());

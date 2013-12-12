@@ -283,7 +283,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
       const SE3t& t_wb = pose2.t_wp;
 
       res.residual.setZero();
-      res.residual.template head<6>() = SE3t::log(imu_pose.t_wp*t_wb.inverse());
+      // TODO: This is bad, as the error is taken in the world frame. The order
+      // of these should be swapped
+      res.residual.template head<6>() =
+          SE3t::log(imu_pose.t_wp * t_wb.inverse());
       res.residual.template segment<3>(6) = imu_pose.v_w - pose2.v_w;
 
       if (kBiasInState) {

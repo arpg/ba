@@ -291,7 +291,7 @@ public:
     residual.x2_id = pose2_id;
     residual.residual_id = binary_residuals_.size();
     residual.residual_offset = binary_residual_offset_;
-    residual.t_ab = t_12;
+    residual.t_21 = t_12.inverse();
 
     binary_residuals_.push_back(residual);
     binary_residual_offset_ += BinaryResidual::kResSize;

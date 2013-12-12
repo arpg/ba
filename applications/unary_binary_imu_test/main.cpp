@@ -48,8 +48,6 @@ FILE* differential;
 //=============================================================================
 void update_incremental_pose(double timestamp, double rr, double rl)
 {
-	return;
-
 	static bool firsttime = true;
 	if (firsttime)
 	{
@@ -108,27 +106,34 @@ void f_gps(double timestamp, double utm_e, double utm_n, double altitude)
 	gps.push_back( Eigen::Vector3d(utm_e, utm_n, altitude) );
 
 	// world from vehicle
-	Sophus::SE3d pose(Eigen::Quaterniond::Identity(), Eigen::Vector3d(utm_e, utm_n, altitude) );
-	Sophus::SE3d start_pose(Eigen::Quaterniond::Identity(), Eigen::Vector3d(utm_e+1, utm_n+0.1, altitude-5) );
+  Sophus::SE3d pose(Eigen::Quaterniond::Identity(), Eigen::Vector3d(utm_e, utm_n, altitude) );
+  // Sophus::SE3d start_pose(Eigen::Quaterniond::Identity(), Eigen::Vector3d(utm_e+1, utm_n+0.1, altitude-5) );
 
-	nodes.push_back( slam.AddPose(start_pose, true, timestamp) );
+  Eigen::Vector3d translation = incremental_pose.translation();
+  incremental_pose = incremental_pose * incremental_tfm;
+
+  pose.so3() = incremental_pose.so3();
+  nodes.push_back( slam.AddPose(pose , true, timestamp) );
 
 	Eigen::Matrix<double,6,1> cov_diag;
-	//cov_diag << 30,30,30, DBL_MAX, DBL_MAX, DBL_MAX;
-	
-	cov_diag << 1,1,1,1,1,1;
+  cov_diag << 3,3,30, DBL_MAX, DBL_MAX, DBL_MAX;
 
-	slam.AddUnaryConstraint(nodes.back(), pose, cov_diag.asDiagonal());
+  // cov_diag << 1,1,1,1000,1000,1000;
+
+  pose.so3() = Sophus::SO3();
+  slam.AddUnaryConstraint(nodes.back(), pose, cov_diag.asDiagonal());
 
 	if (nodes.size() >= 2)
 	{
 		unsigned int prev = nodes[nodes.size()-2];
 		unsigned int curr = nodes.back();
- 		//slam.AddBinaryConstraint(prev,curr,incremental_tfm);
+    slam.AddBinaryConstraint(prev,curr,incremental_tfm);
+    std::cerr << "adding binary constraint between " << prev << std::endl <<
+                 slam.GetPose(prev).t_wp.matrix() << std::endl << " and " <<
+                 curr << std::endl << slam.GetPose(curr).t_wp.matrix() <<
+                 std::endl << " with t = " << std::endl <<
+                 incremental_tfm.matrix() << std::endl;
 	}
-
-	Eigen::Vector3d translation = incremental_pose.translation();
-	incremental_pose = incremental_pose * incremental_tfm;
 
 	fprintf(differential, "%f %f\n", translation[0], translation[1]);
 	
@@ -167,8 +172,13 @@ void parse_file(const char* filename)
 		} else if (strncmp(name, "UTM", 3) == 0)
 		{
 			double time, utm_e, utm_n, altitude;
-			if (fscanf(input, "%lf %lf %lf %lf", &time, &utm_e, &utm_n, &altitude) != EOF)
-				f_gps(time, utm_e, utm_n, altitude);
+      if (fscanf(input, "%lf %lf %lf %lf", &time, &utm_e, &utm_n, &altitude) != EOF) {
+        if (nodes.size() < 10000) {
+          f_gps(time, utm_e, utm_n, altitude);
+        } else {
+          break;
+        }
+      }
 		} else if (strncmp(name, "IMU",3)==0)
 		{
 			double time;
@@ -188,7 +198,7 @@ void parse_file(const char* filename)
 void solve()
 {
 	fprintf(stderr, "BA::Solve w [%zu] poses\n", nodes.size());
-	slam.Solve(100,1.0,false,false);
+  slam.Solve(100,0.5,false,false);
 	fprintf(stderr, "finish BA::Solve\n");
 }
 

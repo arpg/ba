@@ -19,6 +19,9 @@ if( TEST_FLOAT )
     add_definitions(-DREAL_TYPE=float)
 endif()
 
+if( BUILD_APPLICATIONS )
+  add_definitions(-DBUILD_APPS)
+endif()
 
 
 option( BUILD_APPLICATIONS "Build Applications" ON )

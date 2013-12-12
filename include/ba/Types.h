@@ -256,7 +256,7 @@ struct BinaryResidualT : public ResidualT<Scalar, 6> {
   static const unsigned int kResSize = 6;
   unsigned int x1_id;
   unsigned int x2_id;
-  Sophus::SE3Group<Scalar> t_ab;
+  Sophus::SE3Group<Scalar> t_21;
   Eigen::Matrix<Scalar, kResSize, 6> dz_dx1;
   Eigen::Matrix<Scalar, kResSize, 6> dz_dx2;
   Eigen::Matrix<Scalar, kResSize, 1> residual;

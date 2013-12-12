@@ -249,7 +249,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
     *unary_error = 0;
     for (UnaryResidual& res : unary_residuals_) {
       const Pose& pose = poses_[res.pose_id];
-      res.residual = SE3t::log(pose.t_wp * res.t_wp.inverse());
+      res.residual = SE3t::log(res.t_wp.inverse() * pose.t_wp);
       *unary_error += (res.residual.transpose() * res.cov_inv * res.residual);
     }
   }
@@ -259,7 +259,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
     for (BinaryResidual& res : binary_residuals_) {
       const Pose& pose1 = poses_[res.x1_id];
       const Pose& pose2 = poses_[res.x2_id];
-      res.residual = SE3t::log(pose1.t_wp*res.t_ab*pose2.t_wp.inverse());
+      res.residual = SE3t::log(pose1.t_wp.inverse() * pose2.t_wp * res.t_21);
       *binary_error += res.residual.squaredNorm() * res.weight;
     }
   }
@@ -1825,36 +1825,62 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   for( BinaryResidual& res : binary_residuals_ ){
     const SE3t& t_w1 = poses_[res.x1_id].t_wp;
     const SE3t& t_w2 = poses_[res.x2_id].t_wp;
-    const SE3t t_2w = t_w2.inverse();
-    res.dz_dx1 = dLog_dX(t_w1, res.t_ab * t_2w);
+    const SE3t t_1w = t_w1.inverse();
     // the negative sign here is because exp(x) is inside the inverse
     // when we invert (Twb*exp(x)).inverse
-    res.dz_dx2 = -dLog_dX(t_w1 * res.t_ab, t_2w);
+    res.dz_dx1 = -dLog_dX(SE3t(), t_1w * t_w2 * res.t_21);
+    res.dz_dx2 = dLog_dX(t_1w * t_w2, res.t_21);
 
-    res.residual = SE3t::log(t_w1*res.t_ab*t_2w);
+    res.residual = SE3t::log(t_1w * t_w2 * res.t_21);
 
     // finite difference checking
-    //Eigen::Matrix<Scalar,6,6> dz_dx2_fd;
-    //Scalar dEps = 1e-10;
+    //Eigen::Matrix<Scalar,6,6> dz_dx1_fd;
+    //Scalar dEps = 1e-6;
     //for (int ii = 0; ii < 6 ; ii++) {
     //  Eigen::Matrix<Scalar,6,1> delta;
     //  delta.setZero();
     //  delta[ii] = dEps;
     //  const Vector6t pPlus =
-    //      SE3t::log(t_w1 * res.t_ab * (t_w2*SE3t::exp(delta)).inverse());
+    //      SE3t::log((t_w1 * SE3t::exp(delta)).inverse() * t_w2 * res.t_21);
     //  delta[ii] = -dEps;
     //  const Vector6t pMinus =
-    //      SE3t::log(t_w1 * res.t_ab * (t_w2*SE3t::exp(delta)).inverse());
+    //      SE3t::log((t_w1 * SE3t::exp(delta)).inverse() * t_w2 * res.t_21);
+    //  dz_dx1_fd.col(ii) = (pPlus-pMinus)/(2*dEps);
+    //}
+    //std::cerr << "dz_dx1:" << res.dz_dx1 << std::endl;
+    //std::cerr << "dz_dx1_fd:" << dz_dx1_fd << std::endl;
+    //std::cerr << "diff:" << res.dz_dx1 - dz_dx1_fd << std::endl << " norm: " <<
+    //             (res.dz_dx1 - dz_dx1_fd).norm() << std::endl;
+
+    //Eigen::Matrix<Scalar,6,6> dz_dx2_fd;
+    //for (int ii = 0; ii < 6 ; ii++) {
+    //  Eigen::Matrix<Scalar,6,1> delta;
+    //  delta.setZero();
+    //  delta[ii] = dEps;
+    //  const Vector6t pPlus =
+    //      SE3t::log(t_1w * t_w2 * SE3t::exp(delta) * res.t_21);
+    //  delta[ii] = -dEps;
+    //  const Vector6t pMinus =
+    //      SE3t::log(t_1w * t_w2 * SE3t::exp(delta) * res.t_21);
     //  dz_dx2_fd.col(ii) = (pPlus-pMinus)/(2*dEps);
     //}
-    //std::cout << "dz_dx2:" << res.dz_dx2 << std::endl;
-    //std::cout << "dz_dx2_fd:" << dz_dx2_fd << std::endl;
+    //std::cerr << "dz_dx2:" << res.dz_dx2 << std::endl;
+    //std::cerr << "dz_dx2_fd:" << dz_dx2_fd << std::endl;
+    //std::cerr << "diff:" << res.dz_dx2 - dz_dx2_fd << std::endl << " norm: " <<
+    //             (res.dz_dx2 - dz_dx2_fd).norm() << std::endl;
 
     res.weight = res.orig_weight;
     r_pp_.template segment<BinaryResidual::kResSize>(res.residual_offset) =
         res.residual;
 
     binary_error_ += res.residual.squaredNorm() * res.weight;
+
+    //std::cerr << "Binary residual " << res.residual_id << " is " <<
+    //             res.residual.transpose() << " with p1:" << std::endl <<
+    //             t_w1.matrix().format(kLongFmt) << std::endl << " with p2: " << std::endl <<
+    //             t_w2.matrix().format(kLongFmt) << std::endl << " with t12: " << std::endl <<
+    //             res.t_21.matrix().format(kLongFmt) << std::endl << " with t_res:" << std::endl <<
+    //             (t_1w * t_w2 * res.t_21).matrix().format(kLongFmt) << std::endl;
   }
   PrintTimer(_j_evaluation_binary_);
 
@@ -1862,25 +1888,25 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   unary_error_ = 0;
   for( UnaryResidual& res : unary_residuals_ ){
     const SE3t& t_wp = poses_[res.pose_id].t_wp;
-    res.dz_dx = dLog_dX(t_wp, res.t_wp.inverse());
+    res.dz_dx = dLog_dX(res.t_wp.inverse() * t_wp, SE3t());
     // res.dz_dx = dLog_decoupled_dX(Twp, res.t_wp);
 
     //Eigen::Matrix<Scalar,6,6> J_fd;
-    //Scalar dEps = 1e-10;
+    //Scalar dEps = 1e-6;
     //for (int ii = 0; ii < 6 ; ii++) {
     //  Eigen::Matrix<Scalar,6,1> delta;
     //  delta.setZero();
     //  delta[ii] = dEps;
     //  const Vector6t pPlus =
-    //    log_decoupled(exp_decoupled(Twp,delta) , res.t_wp);
+    //      SE3t::log(res.t_wp.inverse() * t_wp * SE3t::exp(delta));
     //  delta[ii] = -dEps;
     //  const Vector6t pMinus =
-    //    log_decoupled(exp_decoupled(Twp,delta) , res.t_wp);
+    //      SE3t::log(res.t_wp.inverse() * t_wp * SE3t::exp(delta));
     //  J_fd.col(ii) = (pPlus-pMinus)/(2*dEps);
     //}
-    //std::cout << "Junary:" << res.dZ_dX << std::endl;
-    //std::cout << "Junary_fd:" << J_fd << std::endl;
-    res.residual = SE3t::log(t_wp * res.t_wp.inverse());
+    //std::cerr << "Junary:" << res.dz_dx << std::endl;
+    //std::cerr << "Junary_fd:" << J_fd << std::endl;
+    res.residual = SE3t::log(res.t_wp.inverse() * t_wp);
     res.weight = res.orig_weight;
     r_u_.template segment<UnaryResidual::kResSize>(res.residual_offset) =
         res.residual;
@@ -2561,6 +2587,11 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 // specializations
 template class BundleAdjuster<REAL_TYPE, 1,6,0>;
 template class BundleAdjuster<REAL_TYPE, 1,9,0>;
+
+// specializations required for the applications
+#ifdef BUILD_APPS
+template class BundleAdjuster<REAL_TYPE, 0,6,0>;
+#endif
 }
 
 

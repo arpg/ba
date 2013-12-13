@@ -77,32 +77,36 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
       const unsigned int p_offset = poses_[ii].opt_id*kPoseDim;
       const Eigen::Matrix<Scalar, 6, 1>& p_update =
           -delta.delta_p.template block<6,1>(p_offset,0)*coef;
-      const SE3t p_update_se3 = SE3t::exp(p_update);
+      // const SE3t p_update_se3 = SE3t::exp(p_update);
 
       if (kTvsInCalib && inertial_residuals_.size() > 0) {
-        const Eigen::Matrix<Scalar ,6, 1>& calib_update =
-            -delta_calib.template block<6,1>(2,0)*coef;
-        const SE3t calib_update_se3 = SE3t::exp(calib_update);
-        if (do_rollback == false) {
-          poses_[ii].t_wp = poses_[ii].t_wp * p_update_se3;
-          poses_[ii].t_wp = poses_[ii].t_wp * calib_update_se3;
-          if (use_prior_) {
-            j_pose_update = (p_update_se3 * calib_update_se3).Adj();
-          }
-        } else {
-          poses_[ii].t_wp = poses_[ii].t_wp * calib_update_se3;
-          poses_[ii].t_wp = poses_[ii].t_wp * p_update_se3;
-          if (use_prior_) {
-            j_pose_update = (calib_update_se3 * p_update_se3).Adj();
-          }
-        }
-        // std::cout << "Pose " << ii << " calib delta is " <<
-        //              (calib_update).transpose() << std::endl;
-        poses_[ii].t_vs = imu_.t_vs;
+        //const Eigen::Matrix<Scalar ,6, 1>& calib_update =
+        //    -delta_calib.template block<6,1>(2,0)*coef;
+        //const SE3t calib_update_se3 = SE3t::exp(calib_update);
+        //if (do_rollback == false) {
+        //  poses_[ii].t_wp = poses_[ii].t_wp * p_update_se3;
+        //  poses_[ii].t_wp = poses_[ii].t_wp * calib_update_se3;
+        //  if (use_prior_) {
+        //    j_pose_update = (p_update_se3 * calib_update_se3).Adj();
+        //  }
+        //} else {
+        //  poses_[ii].t_wp = poses_[ii].t_wp * calib_update_se3;
+        //  poses_[ii].t_wp = poses_[ii].t_wp * p_update_se3;
+        //  if (use_prior_) {
+        //    j_pose_update = (calib_update_se3 * p_update_se3).Adj();
+        //  }
+        //}
+        // // std::cout << "Pose " << ii << " calib delta is " <<
+        // //              (calib_update).transpose() << std::endl;
+        //poses_[ii].t_vs = imu_.t_vs;
       } else {
-        poses_[ii].t_wp = poses_[ii].t_wp * p_update_se3;
+        poses_[ii].t_wp = exp_decoupled(poses_[ii].t_wp, p_update);
+        // poses_[ii].t_wp = poses_[ii].t_wp * p_update_se3;
         if (use_prior_) {
-          j_pose_update = p_update_se3.Adj();
+          // j_pose_update = p_update_se3.Adj();
+          j_pose_update.setZero();
+          j_pose_update.template bottomRightCorner<3,3>() =
+              Sophus::SO3Group<Scalar>::exp(p_update.template tail<3>()).Adj();
         }
       }
 
@@ -138,14 +142,14 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
       }
 
       if (kTvsInState) {
-        const Eigen::Matrix<Scalar, 6, 1>& tvs_update =
-            delta.delta_p.template block<6,1>(p_offset+15,0)*coef;
-        poses_[ii].t_vs = SE3t::exp(tvs_update)*poses_[ii].t_vs;
-        poses_[ii].t_wp = poses_[ii].t_wp * SE3t::exp(-tvs_update);
+        //const Eigen::Matrix<Scalar, 6, 1>& tvs_update =
+        //    delta.delta_p.template block<6,1>(p_offset+15,0)*coef;
+        //poses_[ii].t_vs = SE3t::exp(tvs_update)*poses_[ii].t_vs;
+        //poses_[ii].t_wp = poses_[ii].t_wp * SE3t::exp(-tvs_update);
 
-        StreamMessage(debug_level) << "Tvs of pose " << ii <<
-          " after update " << (tvs_update).transpose() << " is "
-          << std::endl << poses_[ii].t_vs.matrix() << std::endl;
+        //StreamMessage(debug_level) << "Tvs of pose " << ii <<
+        //  " after update " << (tvs_update).transpose() << " is "
+        //  << std::endl << poses_[ii].t_vs.matrix() << std::endl;
       }
 
       StreamMessage(debug_level) << "Pose delta for " << ii << " is " <<
@@ -158,15 +162,15 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
       // to the static poses as well, so that reprojection residuals remain
       // the same
       if (kTvsInCalib && inertial_residuals_.size() > 0) {
-        const Eigen::Matrix<Scalar, 6, 1>& delta_twp =
-            -delta_calib.template block<6,1>(2,0)*coef;
-        poses_[ii].t_wp = poses_[ii].t_wp * SE3t::exp(delta_twp);
+        //const Eigen::Matrix<Scalar, 6, 1>& delta_twp =
+        //    -delta_calib.template block<6,1>(2,0)*coef;
+        //poses_[ii].t_wp = poses_[ii].t_wp * SE3t::exp(delta_twp);
 
-        StreamMessage(debug_level) <<
-          "INACTIVE POSE " << ii << " calib delta is " <<
-          (delta_twp).transpose() << std::endl;
+        //StreamMessage(debug_level) <<
+        //  "INACTIVE POSE " << ii << " calib delta is " <<
+        //  (delta_twp).transpose() << std::endl;
 
-        poses_[ii].t_vs = imu_.t_vs;
+        //poses_[ii].t_vs = imu_.t_vs;
       }
     }
 
@@ -249,7 +253,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
     *unary_error = 0;
     for (UnaryResidual& res : unary_residuals_) {
       const Pose& pose = poses_[res.pose_id];
-      res.residual = SE3t::log(res.t_wp.inverse() * pose.t_wp);
+      // res.residual = SE3t::log(res.t_wp.inverse() * pose.t_wp);
+      res.residual = log_decoupled(res.t_wp, pose.t_wp);
       *unary_error += (res.residual.transpose() * res.cov_inv * res.residual);
     }
   }
@@ -259,7 +264,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
     for (BinaryResidual& res : binary_residuals_) {
       const Pose& pose1 = poses_[res.x1_id];
       const Pose& pose2 = poses_[res.x2_id];
-      res.residual = SE3t::log(pose1.t_wp.inverse() * pose2.t_wp * res.t_21);
+      res.residual = log_decoupled(pose1.t_wp.inverse() * pose2.t_wp,
+                                   res.t_21.inverse());
+      // res.residual = SE3t::log(pose1.t_wp.inverse() * pose2.t_wp * res.t_21);
       *binary_error += res.residual.squaredNorm() * res.weight;
     }
   }
@@ -814,7 +821,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     // std::cout << "running solve internal with " << use_dogleg << std::endl;
     if (!SolveInternal(rhs_p_sc, gn_damping,
                        error_increase_allowed,
-                       use_dogleg && proj_residuals_.size() > 0)) {
+                       use_dogleg)) {
       break;
     }
 
@@ -1177,12 +1184,16 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     // TODO: make sure the sd solution here is consistent with the covariances
 
     // calculate steepest descent result
-    Scalar nominator = rhs_p_.squaredNorm() + rhs_l_.squaredNorm();
+    Scalar numerator = rhs_p_.squaredNorm() + rhs_l_.squaredNorm();
 
     VectorXt j_p_rhs_p(ProjectionResidual::kResSize * proj_residuals_.size());
     j_p_rhs_p.setZero();
-    VectorXt j_i_rhs_p_(ImuResidual::kResSize * inertial_residuals_.size());
-    j_i_rhs_p_.setZero();
+    VectorXt j_pp_rhs_p(BinaryResidual::kResSize * binary_residuals_.size());
+    j_pp_rhs_p.setZero();
+    VectorXt j_u_rhs_p(UnaryResidual::kResSize * unary_residuals_.size());
+    j_u_rhs_p.setZero();
+    VectorXt j_i_rhs_p(ImuResidual::kResSize * inertial_residuals_.size());
+    j_i_rhs_p.setZero();
     VectorXt j_l_rhs_l(ProjectionResidual::kResSize * proj_residuals_.size());
     j_l_rhs_l.setZero();
 
@@ -1202,7 +1213,15 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
       Eigen::SparseBlockVectorProductDenseResult(
             j_i_,
             rhs_p_,
-            j_i_rhs_p_);
+            j_i_rhs_p);
+      Eigen::SparseBlockVectorProductDenseResult(
+            j_pp_,
+            rhs_p_,
+            j_pp_rhs_p);
+      Eigen::SparseBlockVectorProductDenseResult(
+            j_u_,
+            rhs_p_,
+            j_u_rhs_p);
     }
 
     if (num_active_landmarks_ > 0) {
@@ -1214,14 +1233,16 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     }
 
     Scalar denominator = (j_p_rhs_p + j_l_rhs_l).squaredNorm() +
-                          j_i_rhs_p_.squaredNorm();
+                          j_pp_rhs_p.squaredNorm() +
+                          j_u_rhs_p.squaredNorm() +
+                          j_i_rhs_p.squaredNorm();
 
     StreamMessage(debug_level) << "j_p_rhs_p norm: " <<
                                   j_p_rhs_p.squaredNorm() << std::endl;
     StreamMessage(debug_level) << "j_l_rhs_l norm: " <<
                                   j_l_rhs_l.squaredNorm() << std::endl;
     StreamMessage(debug_level) << "j_i_rhs_p norm: " <<
-                                  j_i_rhs_p_.squaredNorm() << std::endl;
+                                  j_i_rhs_p.squaredNorm() << std::endl;
 
     //zzzzzzzzzzzzzzz
     if( denominator < 1e-14 ) {
@@ -1229,9 +1250,9 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
                  << denominator <<  " ] possible division by 0" << std::endl;
     }
 
-    Scalar factor = nominator/denominator;
+    Scalar factor = numerator/denominator;
     StreamMessage(debug_level) << "factor: " << factor <<
-                                  " nom: " << nominator << " denom: " <<
+                                  " nom: " << numerator << " denom: " <<
                  denominator << std::endl;
     delta_sd.delta_p = rhs_p_ * factor;
     delta_sd.delta_l = rhs_l_ * factor;
@@ -1831,10 +1852,21 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     const SE3t t_1w = t_w1.inverse();
     // the negative sign here is because exp(x) is inside the inverse
     // when we invert (Twb*exp(x)).inverse
-    res.dz_dx1 = -dLog_dX(SE3t(), t_1w * t_w2 * res.t_21);
-    res.dz_dx2 = dLog_dX(t_1w * t_w2, res.t_21);
+    // res.dz_dx1 = -dLog_dX(SE3t(), t_1w * t_w2 * res.t_21);
+    // res.dz_dx2 = dLog_dX(t_1w * t_w2, res.t_21);
+    const Sophus::SE3Group<Scalar> t_12 = t_1w * t_w2;
 
-    res.residual = SE3t::log(t_1w * t_w2 * res.t_21);
+    // res.residual = SE3t::log(t_1w * t_w2 * res.t_21);
+    res.residual = log_decoupled(t_12, res.t_21.inverse());
+
+    res.dz_dx1 = dLog_decoupled_dT1(t_12, res.t_21.inverse()) *
+        dt1_t2_dt1(t_1w, t_w2) *
+        dInvExp_decoupled_dX<Scalar>(t_w1);
+
+    res.dz_dx2 = dLog_decoupled_dT1(t_12, res.t_21.inverse()) *
+        dt1_t2_dt2(t_1w, t_w2) *
+        dExp_decoupled_dX<Scalar>(t_w2);
+
 
     // finite difference checking
     //Eigen::Matrix<Scalar,6,6> dz_dx1_fd;
@@ -1872,6 +1904,44 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     //std::cerr << "diff:" << res.dz_dx2 - dz_dx2_fd << std::endl << " norm: " <<
     //             (res.dz_dx2 - dz_dx2_fd).norm() << std::endl;
 
+    // finite difference checking
+    //Eigen::Matrix<Scalar,6,6> dz_dx1_fd;
+    //Scalar deps = 1e-6;
+    //for (int ii = 0; ii < 6 ; ii++) {
+    //  Eigen::Matrix<Scalar,6,1> delta;
+    //  delta.setZero();
+    //  delta[ii] = deps;
+    //  const Vector6t pPlus =
+    //      log_decoupled(exp_decoupled(t_w1, delta).inverse() * t_w2,
+    //                    res.t_21.inverse());
+    //  delta[ii] = -deps;
+    //  const Vector6t pMinus =
+    //      log_decoupled(exp_decoupled(t_w1, delta).inverse() * t_w2,
+    //                    res.t_21.inverse());
+    //  dz_dx1_fd.col(ii) = (pPlus-pMinus)/(2*deps);
+    //}
+    //std::cerr << "dz_dx1:" << res.dz_dx1 << std::endl;
+    //std::cerr << "dz_dx1_fd:" << dz_dx1_fd << std::endl;
+    //std::cerr << "diff:" << res.dz_dx1 - dz_dx1_fd << std::endl << " norm: " <<
+    //             (res.dz_dx1 - dz_dx1_fd).norm() << std::endl;
+
+    //Eigen::Matrix<Scalar,6,6> dz_dx2_fd;
+    //for (int ii = 0; ii < 6 ; ii++) {
+    //  Eigen::Matrix<Scalar,6,1> delta;
+    //  delta.setZero();
+    //  delta[ii] = deps;
+    //  const Vector6t pPlus =
+    //      log_decoupled(t_1w * exp_decoupled(t_w2, delta), res.t_21.inverse());
+    //  delta[ii] = -deps;
+    //  const Vector6t pMinus =
+    //      log_decoupled(t_1w * exp_decoupled(t_w2, delta), res.t_21.inverse());
+    //  dz_dx2_fd.col(ii) = (pPlus-pMinus)/(2*deps);
+    //}
+    //std::cerr << "dz_dx2:" << res.dz_dx2 << std::endl;
+    //std::cerr << "dz_dx2_fd:" << dz_dx2_fd << std::endl;
+    //std::cerr << "diff:" << res.dz_dx2 - dz_dx2_fd << std::endl << " norm: " <<
+    //             (res.dz_dx2 - dz_dx2_fd).norm() << std::endl;
+
     res.weight = res.orig_weight;
     r_pp_.template segment<BinaryResidual::kResSize>(res.residual_offset) =
         res.residual;
@@ -1891,7 +1961,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   unary_error_ = 0;
   for( UnaryResidual& res : unary_residuals_ ){
     const SE3t& t_wp = poses_[res.pose_id].t_wp;
-    res.dz_dx = dLog_dX(res.t_wp.inverse() * t_wp, SE3t());
+    res.dz_dx = dLog_decoupled_dX(t_wp, res.t_wp);
+    // res.dz_dx = dLog_dX(res.t_wp.inverse() * t_wp, SE3t());
     // res.dz_dx = dLog_decoupled_dX(Twp, res.t_wp);
 
     //Eigen::Matrix<Scalar,6,6> J_fd;
@@ -1909,7 +1980,25 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     //}
     //std::cerr << "Junary:" << res.dz_dx << std::endl;
     //std::cerr << "Junary_fd:" << J_fd << std::endl;
-    res.residual = SE3t::log(res.t_wp.inverse() * t_wp);
+
+    //Eigen::Matrix<Scalar,6,6> J_fd;
+    //Scalar dEps = 1e-6;
+    //for (int ii = 0; ii < 6 ; ii++) {
+    //  Eigen::Matrix<Scalar,6,1> delta;
+    //  delta.setZero();
+    //  delta[ii] = dEps;
+    //  const Vector6t pPlus =
+    //      log_decoupled(exp_decoupled(t_wp, delta), res.t_wp);
+    //  delta[ii] = -dEps;
+    //  const Vector6t pMinus =
+    //      log_decoupled(exp_decoupled(t_wp, delta), res.t_wp);
+    //  J_fd.col(ii) = (pPlus-pMinus)/(2*dEps);
+    //}
+    //std::cerr << "Junary:" << res.dz_dx << std::endl;
+    //std::cerr << "Junary_fd:" << J_fd << std::endl;
+
+    // res.residual = SE3t::log(res.t_wp.inverse() * t_wp);
+    res.residual = log_decoupled(t_wp, res.t_wp);
     res.weight = res.orig_weight;
     r_u_.template segment<UnaryResidual::kResSize>(res.residual_offset) =
         res.residual;

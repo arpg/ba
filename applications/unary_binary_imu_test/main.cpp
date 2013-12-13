@@ -128,11 +128,11 @@ void f_gps(double timestamp, double utm_e, double utm_n, double altitude)
 		unsigned int prev = nodes[nodes.size()-2];
 		unsigned int curr = nodes.back();
     slam.AddBinaryConstraint(prev,curr,incremental_tfm);
-    std::cerr << "adding binary constraint between " << prev << std::endl <<
-                 slam.GetPose(prev).t_wp.matrix() << std::endl << " and " <<
-                 curr << std::endl << slam.GetPose(curr).t_wp.matrix() <<
-                 std::endl << " with t = " << std::endl <<
-                 incremental_tfm.matrix() << std::endl;
+  //std::cerr << "adding binary constraint between " << prev << std::endl <<
+  //             slam.GetPose(prev).t_wp.matrix() << std::endl << " and " <<
+  //             curr << std::endl << slam.GetPose(curr).t_wp.matrix() <<
+  //             std::endl << " with t = " << std::endl <<
+  //             incremental_tfm.matrix() << std::endl;
 	}
 
 	fprintf(differential, "%f %f\n", translation[0], translation[1]);
@@ -198,7 +198,7 @@ void parse_file(const char* filename)
 void solve()
 {
 	fprintf(stderr, "BA::Solve w [%zu] poses\n", nodes.size());
-  slam.Solve(100,0.5,false,false);
+  slam.Solve(100, 1.0);
 	fprintf(stderr, "finish BA::Solve\n");
 }
 
@@ -212,7 +212,7 @@ int main(int argc, char** argv)
 	
 	fclose(differential);
 
-	ba::debug_level_threshold = 1;
+  ba::debug_level_threshold = 1;
 
 	solve();
 }

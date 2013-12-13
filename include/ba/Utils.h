@@ -313,6 +313,27 @@ inline Eigen::Matrix<Scalar, 3, 4> dqx_dq(
 
 ///////////////////////////////////////////////////////////////////////////////
 template<typename Scalar = double>
+inline Eigen::Matrix<Scalar, 3, 3> dqx_dx(
+    const Eigen::Quaternion<Scalar>& q,
+    const Eigen::Matrix<Scalar, 3, 1>& vec) {
+  const Scalar x = vec[0], y = vec[1], z = vec[2];
+  const Scalar s1 = 2 * q.y() * q.z();
+  const Scalar s2 = 2 * q.x() * q.z();
+  const Scalar s3 = 2 * q.x() * q.y();
+  const Scalar s4 = powi(q.y(), 2);
+  const Scalar s5 = powi(q.x(), 2);
+  const Scalar s6 = powi(q.z(), 2);
+  const Scalar s7 = 2 * q.w() * q.y();
+
+  return (Eigen::Matrix<Scalar, 3, 3>() <<
+             1 - 2*s6 - 2*s4,    s3 - 2*q.w()*q.z(),               s2 + s7,
+          s3 + 2*q.w()*q.z(),       1 - 2*s6 - 2*s5,    s1 - 2*q.w()*q.x(),
+                     s2 - s7,    s1 + 2*q.w()*q.x(),       1 - 2*s5 - 2*s4)
+      .finished();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+template<typename Scalar = double>
 inline Eigen::Matrix<Scalar, 7, 7> dt1t2_dt1(
     const Sophus::SE3Group<Scalar>& t1,
     const Sophus::SE3Group<Scalar>& t2) {
@@ -381,29 +402,229 @@ inline Sophus::SE3Group<Scalar> exp_decoupled(
 template<typename Scalar = double>
 inline Eigen::Matrix<Scalar, 6, 6> dLog_decoupled_dX(
     const Sophus::SE3Group<Scalar>& a, const Sophus::SE3Group<Scalar>& b) {
-  const Eigen::Matrix<Scalar, 6, 1> d_2 = Sophus::SE3Group < Scalar
-      > ::log(a * b.inverse()) / 2;
-  const Scalar d1 = d_2[3], d2 = d_2[4], d3 = d_2[5], dx = d_2[0], dy = d_2[1],
-      dz = d_2[2];
-
-  // this is using the 2nd order cbh expansion, to evaluate
-  // (I + 0.5 [Adj*x, log(AB)])*Adj
-  // refer to the thesis by Hauke Strasdat, Appendix 3.
-  const Eigen::Matrix<Scalar, 6, 6> d_log(
-      (Eigen::Matrix<Scalar, 6, 6>() <<
-       1, d3, -d2, 0, dz, -dy,
-       -d3, 1, d1, -dz, 0, dx,
-       d2, -d1, 1, dy, -dx, 0,
-       0, 0, 0, 1, d3, -d2,
-       0, 0, 0, -d3, 1, d1,
-       0, 0, 0, d2, -d1, 1)
-          .finished() * a.Adj());
-
   Eigen::Matrix<Scalar, 6, 6> dLog_decoupled =
       Eigen::Matrix<Scalar, 6, 6>::Identity();
-  dLog_decoupled.template block<3, 3>(3, 3) = d_log.template block<3, 3>(3, 3);
+  dLog_decoupled.template block<3, 3>(3, 3) =
+      dLog_dq((a*b.inverse()).unit_quaternion()) *
+      dq1q2_dq2(a.unit_quaternion()) *
+      dq1q2_dq1(b.inverse().unit_quaternion()) *
+      dqExp_dw<Scalar>(Eigen::Matrix<Scalar, 3, 1>::Zero());
   return dLog_decoupled;
 }
+
+///////////////////////////////////////////////////////////////////////////////
+template<typename Scalar = double>
+inline Eigen::Matrix<Scalar, 6, 7> dLog_decoupled_dT1(
+    const Sophus::SE3Group<Scalar>& a, const Sophus::SE3Group<Scalar>& b) {
+  Eigen::Matrix<Scalar, 6, 7> dLog_decoupled;
+  dLog_decoupled.setZero();
+  dLog_decoupled.template block<3, 3>(0, 0).setIdentity();
+  dLog_decoupled.template block<3, 4>(3, 3) =
+      dLog_dq((a*b.inverse()).unit_quaternion()) *
+      dq1q2_dq1(b.inverse().unit_quaternion());
+  return dLog_decoupled;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+template<typename Scalar = double>
+inline Eigen::Matrix<Scalar, 7, 6> dExp_decoupled_dX(
+    const Sophus::SE3Group<Scalar>& t) {
+  Eigen::Matrix<Scalar, 7, 6> dexp;
+  dexp.setZero();
+  dexp.template block<3, 3>(0, 0).setIdentity();
+  dexp.template block<4, 3>(3, 3) =
+      dq1q2_dq2(t.unit_quaternion()) *
+      dqExp_dw<Scalar>(Eigen::Matrix<Scalar, 3, 1>::Zero());
+
+  // Check the dExp
+  /*{
+    Eigen::Matrix<Scalar,7,6> dz_exp_fd;
+    Scalar deps = 1e-6;
+    for (int ii = 0; ii < 6 ; ii++) {
+      Eigen::Matrix<Scalar,6,1> delta;
+      delta.setZero();
+      delta[ii] = deps;
+      const SE3t se3_plus = exp_decoupled(t_w2, delta).inverse();
+      Vector7t p_plus;
+      p_plus.template head<3>() = se3_plus.translation();
+      p_plus.template tail<4>() = se3_plus.unit_quaternion().coeffs();
+
+      delta[ii] = -deps;
+      const SE3t se3_minus = exp_decoupled(t_w2, delta).inverse();
+      Vector7t p_minus;
+      p_minus.template head<3>() = se3_minus.translation();
+      p_minus.template tail<4>() = se3_minus.unit_quaternion().coeffs();
+
+      dz_exp_fd.col(ii) = (p_plus - p_minus)/(2*deps);
+    }
+
+    std::cerr << "dz_exp:" <<
+                 dInvExp_decoupled_dX<Scalar>(t_w2) <<
+                 std::endl;
+    std::cerr << "dz_exp_fd:" << dz_exp_fd << std::endl;
+  }*/
+
+  return dexp;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+template<typename Scalar = double>
+inline Eigen::Matrix<Scalar, 7, 6> dInvExp_decoupled_dX(
+    const Sophus::SE3Group<Scalar>& t) {
+  const Eigen::Matrix<Scalar, 4, 3> dq_exp =
+      dqExp_dw<Scalar>(Eigen::Matrix<Scalar, 3, 1>::Zero());
+  const Eigen::Quaternion<Scalar> qt_inv = t.so3().inverse().unit_quaternion();
+  const Eigen::Matrix<Scalar, 4, 4> dq1q2_dq_exp = dq1q2_dq1(qt_inv);
+
+  Eigen::Matrix<Scalar, 7, 6> dexp;
+  dexp.setZero();
+  dexp.template block<3, 3>(0, 0) = -t.so3().inverse().matrix();
+  dexp.template block<3, 3>(0, 3) =
+      dqx_dq(qt_inv, t.translation()) * dq1q2_dq_exp * dq_exp;
+  dexp.template block<4, 3>(3, 3) = dq1q2_dq_exp * -dq_exp;
+
+  // Check the dExp
+  /*{
+    Eigen::Matrix<Scalar,7,6> dz_exp_fd;
+    Scalar deps = 1e-6;
+    for (int ii = 0; ii < 6 ; ii++) {
+      Eigen::Matrix<Scalar,6,1> delta;
+      delta.setZero();
+      delta[ii] = deps;
+      const SE3t se3_plus = exp_decoupled(t_w2, delta).inverse();
+      Vector7t p_plus;
+      p_plus.template head<3>() = se3_plus.translation();
+      p_plus.template tail<4>() = se3_plus.unit_quaternion().coeffs();
+
+      delta[ii] = -deps;
+      const SE3t se3_minus = exp_decoupled(t_w2, delta).inverse();
+      Vector7t p_minus;
+      p_minus.template head<3>() = se3_minus.translation();
+      p_minus.template tail<4>() = se3_minus.unit_quaternion().coeffs();
+
+      dz_exp_fd.col(ii) = (p_plus - p_minus)/(2*deps);
+    }
+
+    std::cerr << "dz_exp:" <<
+                 dInvExp_decoupled_dX<Scalar>(t_w2) <<
+                 std::endl;
+    std::cerr << "dz_exp_fd:" << dz_exp_fd << std::endl;
+  }*/
+
+  return dexp;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+template<typename Scalar = double>
+inline Eigen::Matrix<Scalar, 7, 7> dt1_t2_dt1(
+    const Sophus::SE3Group<Scalar>& t1, const Sophus::SE3Group<Scalar>& t2)
+{
+  Eigen::Matrix<Scalar, 7, 7> dt1t2;
+  dt1t2.setZero();
+  // dt/dt1
+  dt1t2.template topLeftCorner<3, 3>().setIdentity();
+  // dt/dR1
+  dt1t2.template topRightCorner<3, 4>() = dqx_dq(t1.unit_quaternion(),
+                                                 t2.translation());
+  // dR/dR1
+  dt1t2.template bottomRightCorner<4, 4>() = dq1q2_dq1(t2.unit_quaternion());
+
+  // Check the dt1_t2_dt1
+  /*{
+    Eigen::Matrix<double, 7, 7>  dt1_t2_dt1_fd;
+    Scalar deps = 1e-6;
+    for(int ii = 0; ii < 7 ; ++ii){
+        Eigen::Matrix<double, 7, 1> eps_vec;
+        eps_vec.setZero();
+        eps_vec[ii] = deps;
+
+        Sophus::SE3d t_plus = t_1w;
+        t_plus.translation() += eps_vec.head<3>();
+        Eigen::Quaterniond q_plus = t_plus.so3().unit_quaternion();
+        q_plus.coeffs() += eps_vec.tail<4>();
+        memcpy(t_plus.so3().data(),q_plus.coeffs().data(),4*sizeof(Scalar));
+
+        Eigen::Matrix<double, 7, 1> y_plus;
+        y_plus.template head<3>() = (t_plus * t_w2).translation();
+        y_plus.template tail<4>() =
+            (t_1w.unit_quaternion() * t_plus.unit_quaternion()).coeffs();
+
+        eps_vec[ii] = -deps;
+        Sophus::SE3d t_minus = t_1w;
+        t_minus.translation() += eps_vec.head<3>();
+        Eigen::Quaterniond q_minus = t_minus.so3().unit_quaternion();
+        q_minus.coeffs() += eps_vec.tail<4>();
+        memcpy(t_minus.so3().data(),q_minus.coeffs().data(),4*sizeof(Scalar));
+
+        Eigen::Matrix<double, 7, 1> y_minus;
+        y_minus.template head<3>() = (t_minus * t_w2).translation();
+        y_minus.template tail<4>() =
+            (t_1w.unit_quaternion() * t_minus.unit_quaternion()).coeffs();
+
+        dt1_t2_dt1_fd.col(ii) = (y_plus - y_minus) / (2 * deps);
+    }
+    std::cerr << "dt1_t2_dt1:" << dt1_t2_dt1(t_1w, t_w2) << std::endl;
+    std::cerr << "dt1_t2_dt1_fd:" << dt1_t2_dt1_fd << std::endl;
+  }*/
+
+  return dt1t2;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+template<typename Scalar = double>
+inline Eigen::Matrix<Scalar, 7, 7> dt1_t2_dt2(
+    const Sophus::SE3Group<Scalar>& t1, const Sophus::SE3Group<Scalar>& t2)
+{
+  Eigen::Matrix<Scalar, 7, 7> dt1t2;
+  dt1t2.setZero();
+  // dt/dt2
+  dt1t2.template topLeftCorner<3, 3>() = t1.rotationMatrix();
+  // dR/dR2
+  dt1t2.template bottomRightCorner<4, 4>() = dq1q2_dq2(t1.unit_quaternion());
+
+  /*
+  // Check the dt1_t2_dt2
+  {
+    Eigen::Matrix<double, 7, 7>  dt1_t2_dt2_fd;
+    Scalar deps = 1e-6;
+    for(int ii = 0; ii < 7 ; ++ii){
+        Eigen::Matrix<double, 7, 1> eps_vec;
+        eps_vec.setZero();
+        eps_vec[ii] = deps;
+
+        Sophus::SE3d t_plus = t_w2;
+        t_plus.translation() += eps_vec.head<3>();
+        Eigen::Quaterniond q_plus = t_plus.so3().unit_quaternion();
+        q_plus.coeffs() += eps_vec.tail<4>();
+        memcpy(t_plus.so3().data(),q_plus.coeffs().data(),4*sizeof(Scalar));
+
+        Eigen::Matrix<double, 7, 1> y_plus;
+        y_plus.template head<3>() = (t_1w * t_plus).translation();
+        y_plus.template tail<4>() =
+            (t_1w.unit_quaternion() * t_plus.unit_quaternion()).coeffs();
+
+        eps_vec[ii] = -deps;
+        Sophus::SE3d t_minus = t_w2;
+        t_minus.translation() += eps_vec.head<3>();
+        Eigen::Quaterniond q_minus = t_minus.so3().unit_quaternion();
+        q_minus.coeffs() += eps_vec.tail<4>();
+        memcpy(t_minus.so3().data(),q_minus.coeffs().data(),4*sizeof(Scalar));
+
+        Eigen::Matrix<double, 7, 1> y_minus;
+        y_minus.template head<3>() = (t_1w * t_minus).translation();
+        y_minus.template tail<4>() =
+            (t_1w.unit_quaternion() * t_minus.unit_quaternion()).coeffs();
+
+        dt1_t2_dt2_fd.col(ii) = (y_plus - y_minus) / (2 * deps);
+    }
+    std::cerr << "dt1_t2_dt2:" << dt1_t2_dt2(t_1w, t_w2) << std::endl;
+    std::cerr << "dt1_t2_dt2_fd:" << dt1_t2_dt2_fd << std::endl;
+  }
+  */
+
+  return dt1t2;
+}
+
 
 template<typename Scalar = double>
 inline Eigen::Matrix<Scalar, 6, 7> dLog_dSE3(Sophus::SE3Group<Scalar> t) {

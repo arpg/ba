@@ -516,6 +516,53 @@ inline Eigen::Matrix<Scalar, 7, 6> dInvExp_decoupled_dX(
 
 ///////////////////////////////////////////////////////////////////////////////
 template<typename Scalar = double>
+inline Eigen::Matrix<Scalar, 4, 7> dt_x_dt(
+    const Sophus::SE3Group<Scalar>& t, const Eigen::Matrix<Scalar, 4, 1>& x)
+{
+  Eigen::Matrix<Scalar, 4, 7> dt_x;
+  dt_x.setZero();
+  dt_x.template topLeftCorner<3, 3>() =
+      Eigen::Matrix<Scalar, 3, 3>::Identity() * x[3];
+  dt_x.template topRightCorner<3, 4>() = dqx_dq<Scalar>(t.unit_quaternion(),
+                                                       x.template head<3>());
+
+  // Check the dt1_t2_dt1
+  //{
+  //  Eigen::Matrix<double, 4, 7>  dt_x_fd;
+  //  Scalar deps = 1e-6;
+  //  for(int ii = 0; ii < 7 ; ++ii){
+  //      Eigen::Matrix<double, 7, 1> eps_vec;
+  //      eps_vec.setZero();
+  //      eps_vec[ii] = deps;
+
+  //      Sophus::SE3d t_plus = t;
+  //      t_plus.translation() += eps_vec.head<3>();
+  //      Eigen::Quaterniond q_plus = t_plus.so3().unit_quaternion();
+  //      q_plus.coeffs() += eps_vec.tail<4>();
+  //      memcpy(t_plus.so3().data(),q_plus.coeffs().data(),4*sizeof(Scalar));
+
+  //      Eigen::Matrix<double, 4, 1> y_plus = t_plus.matrix() * x;
+
+  //      eps_vec[ii] = -deps;
+  //      Sophus::SE3d t_minus = t;
+  //      t_minus.translation() += eps_vec.head<3>();
+  //      Eigen::Quaterniond q_minus = t_minus.so3().unit_quaternion();
+  //      q_minus.coeffs() += eps_vec.tail<4>();
+  //      memcpy(t_minus.so3().data(),q_minus.coeffs().data(),4*sizeof(Scalar));
+
+  //      Eigen::Matrix<double, 4, 1> y_minus = t_minus.matrix() * x;
+
+  //      dt_x_fd.col(ii) = (y_plus - y_minus) / (2 * deps);
+  //  }
+  //  std::cerr << "dt_x:" << dt_x << std::endl;
+  //  std::cerr << "dt_x_fd:" << dt_x_fd << std::endl;
+  //}
+
+  return dt_x;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+template<typename Scalar = double>
 inline Eigen::Matrix<Scalar, 7, 7> dt1_t2_dt1(
     const Sophus::SE3Group<Scalar>& t1, const Sophus::SE3Group<Scalar>& t2)
 {

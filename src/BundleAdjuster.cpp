@@ -1685,10 +1685,16 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsv_m =
           dt_dp_m * t_vs_m.inverse().matrix();
 
-      for (unsigned int ii=0; ii<6; ++ii) {
-       res.dz_dx_meas.template block<2,1>(0,ii) =
-          dt_dp_m_tsv_m * Sophus::SE3Group<Scalar>::generator(ii) * x_v_m;
-      }
+//      for (unsigned int ii=0; ii<6; ++ii) {
+//       res.dz_dx_meas.template block<2,1>(0,ii) =
+//          dt_dp_m_tsv_m * Sophus::SE3Group<Scalar>::generator(ii) * x_v_m;
+//      }
+
+      res.dz_dx_meas =
+          -dt_dp_m *
+          dt_x_dt<Scalar>(t_sw_m, t_ws_r.matrix() * lm.x_s) *
+          dt1_t2_dt2(t_vs_m.inverse(), pose.t_wp.inverse()) *
+          dInvExp_decoupled_dX(pose.t_wp);
 
       //Eigen::Matrix<Scalar,2,6> dz_dx_fd;
       //double eps = 1e-9;
@@ -1696,7 +1702,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       //    Eigen::Matrix<Scalar,6,1> delta;
       //    delta.setZero();
       //    delta[ii] = eps;
-      //    SE3t Tss = (pose.t_wp * SE3t::exp(delta)*
+      //    SE3t Tss = (exp_decoupled(pose.t_wp, delta) *
+      //        //(pose.t_wp * SE3t::exp(delta)*
       //                rig_.cameras[res.cam_id].T_wc).inverse() *
       //                ref_pose.t_wp * rig_.cameras[lm.ref_cam_id].T_wc;
 
@@ -1705,7 +1712,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       //          Tss,lm.x_s.template head(3),lm.x_s[3]);
 
       //    delta[ii] = -eps;
-      //    Tss = (pose.t_wp *SE3t::exp(delta) *
+      //    // Tss = (pose.t_wp *SE3t::exp(delta) *
+      //    Tss = (exp_decoupled(pose.t_wp, delta) *
       //           rig_.cameras[res.cam_id].T_wc).inverse() *
       //           ref_pose.t_wp * rig_.cameras[lm.ref_cam_id].T_wc;
 
@@ -1715,8 +1723,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
       //    dz_dx_fd.col(ii) = -(pPlus-pMinus)/(2*eps);
       //}
-      //std::cout << "dz_dx   :" << std::endl << res.dz_dx_meas << std::endl;
-      //std::cout << "dz_dx_fd:" << std::endl <<
+      //std::cerr << "dz_dx   :" << std::endl << res.dz_dx_meas << std::endl;
+      //std::cerr << "dz_dx_fd:" << std::endl <<
       //             dz_dx_fd << " norm: " <<
       //             (res.dz_dx_meas - dz_dx_fd).norm() <<  std::endl;
 
@@ -1732,10 +1740,17 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsw_m_twp =
             -dt_dp_m_tsw_m * ref_pose.t_wp.matrix();
 
-         for (unsigned int ii=0; ii<6; ++ii) {
-          res.dz_dx_ref.template block<2,1>(0,ii) =
-             dt_dp_m_tsw_m_twp * Sophus::SE3Group<Scalar>::generator(ii) * x_v_r;
-        }
+
+        //for (unsigned int ii=0; ii<6; ++ii) {
+        //  res.dz_dx_ref.template block<2,1>(0,ii) =
+        //     dt_dp_m_tsw_m_twp * Sophus::SE3Group<Scalar>::generator(ii) * x_v_r;
+        //}
+
+        res.dz_dx_ref =
+            -dt_dp_m *
+            dt_x_dt<Scalar>(t_sw_m * ref_pose.t_wp, t_vs_r.matrix() * lm.x_s) *
+            dt1_t2_dt2(t_sw_m, ref_pose.t_wp) *
+            dExp_decoupled_dX(ref_pose.t_wp);
 
         //Eigen::Matrix<Scalar,2,6> dz_dx_ref_fd;
         //double eps = 1e-9;
@@ -1744,7 +1759,9 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         //    delta.setZero();
         //    delta[ii] = eps;
         //    SE3t Tss = (pose.t_wp * rig_.cameras[res.cam_id].T_wc).inverse() *
-        //    (ref_pose.t_wp*SE3t::exp(delta)) * rig_.cameras[lm.ref_cam_id].T_wc;
+        //        exp_decoupled(ref_pose.t_wp, delta) *
+        //        // (ref_pose.t_wp*SE3t::exp(delta)) *
+        //        rig_.cameras[lm.ref_cam_id].T_wc;
 
         //    const Vector2t pPlus =
         //    rig_.cameras[res.cam_id].camera.Transfer3D(
@@ -1752,7 +1769,9 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
         //    delta[ii] = -eps;
         //    Tss = (pose.t_wp * rig_.cameras[res.cam_id].T_wc).inverse() *
-        //    (ref_pose.t_wp*SE3t::exp(delta)) * rig_.cameras[lm.ref_cam_id].T_wc;
+        //        exp_decoupled(ref_pose.t_wp, delta) *
+        //        // (ref_pose.t_wp*SE3t::exp(delta)) *
+        //        rig_.cameras[lm.ref_cam_id].T_wc;
 
         //    const Vector2t pMinus =
         //    rig_.cameras[res.cam_id].camera.Transfer3D(
@@ -1760,8 +1779,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
         //    dz_dx_ref_fd.col(ii) = -(pPlus-pMinus)/(2*eps);
         //}
-        //std::cout << "dz_dx_ref   :" << std::endl << res.dz_dx_ref << std::endl;
-        //std::cout << "dz_dx_ref_fd:" << std::endl <<
+        //std::cerr << "dz_dx_ref   :" << std::endl << res.dz_dx_ref << std::endl;
+        //std::cerr << "dz_dx_ref_fd:" << std::endl <<
         //             dz_dx_ref_fd << " norm: " <<
         //             (res.dz_dx_ref - dz_dx_ref_fd).norm() <<  std::endl;
       }

@@ -21,6 +21,7 @@
 
 #include <BA/BundleAdjuster.h>
 #include <BA/Types.h>
+#include <BA/InterpolationBuffer.h>
 #include <Eigen/Eigen>
 
 using std::vector;
@@ -31,6 +32,10 @@ ba::BundleAdjuster<double,0,6,0>  slam;
 
 vector<unsigned int> nodes;
 
+double offset_e;
+double offset_n;
+double offset_u;
+
 vector<Eigen::Vector3d> gps;
 
 /* 2D coordinate transformations */
@@ -39,12 +44,45 @@ double incremental_y = 0;
 double incremental_yaw = 0;
 double incremental_timestamp = 0;
 
-Sophus::SE3d incremental_tfm;
-Sophus::SE3d incremental_pose;
+Sophus::SE3d incremental_differential_update;
+Sophus::SE3d incremental_differential_pose;
 
-FILE* differential;
+double speed = 0;
+Sophus::SE3d incremental_gyro_pose;
+Sophus::SE3d incremental_gyro_update;
+
+typedef ba::ImuMeasurementT<double>     ImuMeasurement;
+ba::InterpolationBufferT<ImuMeasurement, double> imu_buffer;
 
 //=============================================================================
+void add_imu(double timestamp, double* angleRates, double* accels)
+{
+	Eigen::Vector3d w(angleRates[0], angleRates[1], angleRates[2]);
+	Eigen::Vector3d a(accels[0], accels[1], accels[2]);
+
+	ImuMeasurement imu(w,a,timestamp);
+	imu_buffer.AddElement(imu);
+}
+
+//=============================================================================
+void add_gyro_and_speed(double timestamp, double xAngleRate, double yAngleRate, double zAngleRate, double speed)
+{
+	static double last_timestamp = 0;
+	if (last_timestamp != 0)
+	{
+		double dt = timestamp - last_timestamp;
+		double distance = speed * dt;
+
+		Eigen::AngleAxisd aaZ(zAngleRate*dt, Eigen::Vector3d::UnitZ());
+		Eigen::AngleAxisd aaY(yAngleRate*dt, Eigen::Vector3d::UnitY());
+		Eigen::AngleAxisd aaX(xAngleRate*dt, Eigen::Vector3d::UnitX());
+		Eigen::Quaterniond q = aaZ * aaY * aaX;
+		Sophus::SE3d update(q, Eigen::Vector3d(0,distance,0));
+		incremental_gyro_update = incremental_gyro_update * update;
+	}
+	last_timestamp = timestamp;
+}
+
 //=============================================================================
 void update_incremental_pose(double timestamp, double rr, double rl)
 {
@@ -56,6 +94,8 @@ void update_incremental_pose(double timestamp, double rr, double rl)
 		return;
 	}
 
+	speed = 0.5 * (rr + rl);
+
 	double dt = timestamp - incremental_timestamp;
 	
 	const double trackwidth = 1.5;
@@ -65,8 +105,6 @@ void update_incremental_pose(double timestamp, double rr, double rl)
 	{
 		if (fabs(rr-rl) < TINY)
 		{
-			//incremental_x -= sin(incremental_yaw) * rr * dt;
-			//incremental_y += cos(incremental_yaw) * rr * dt;
 			incremental_x += cos(incremental_yaw) * rr * dt;
 			incremental_y += sin(incremental_yaw) * rr * dt;
 		} else {
@@ -83,9 +121,7 @@ void update_incremental_pose(double timestamp, double rr, double rl)
 			incremental_x = new_x;
 			incremental_y = new_y;
 			incremental_yaw = new_theta;
-
 		}
-
 	}
 	
 	/* Update incremental tfm */
@@ -94,56 +130,78 @@ void update_incremental_pose(double timestamp, double rr, double rl)
 	//Eigen::AngleAxisd aaX(0, Eigen::Vector3d::UnitX());
 	//Eigen::Quaterniond q = aaZ * aaY * aaX;
 	Eigen::Quaterniond q = Eigen::Quaterniond(aaZ);
-	incremental_tfm = Sophus::SE3d(q, Eigen::Vector3d(incremental_x, incremental_y, 0));
+	incremental_differential_update = Sophus::SE3d(q, Eigen::Vector3d(incremental_x, incremental_y, 0));
 
-	//fprintf(differential, "%f %f %f\n", incremental_x, incremental_y, incremental_yaw);
 	incremental_timestamp = timestamp;
 }
 
 //=============================================================================
+
+//=============================================================================
 void f_gps(double timestamp, double utm_e, double utm_n, double altitude)
 {
+	static double last_gps_timestamp = 0;
+	static bool firsttime = true;
+	if (firsttime)
+	{
+		offset_e = utm_e;
+		offset_n = utm_n;
+		offset_u = altitude;
+		firsttime = false;
+	}
+
+	incremental_gyro_pose *= incremental_gyro_update;
+	incremental_differential_pose *= incremental_differential_update;
 	gps.push_back( Eigen::Vector3d(utm_e, utm_n, altitude) );
 
-	// world from vehicle
-  Sophus::SE3d pose(Eigen::Quaterniond::Identity(), Eigen::Vector3d(utm_e, utm_n, altitude) );
-  // Sophus::SE3d start_pose(Eigen::Quaterniond::Identity(), Eigen::Vector3d(utm_e+1, utm_n+0.1, altitude-5) );
+	/* First time, use GPS prior at coordinate origin */
+	if (nodes.empty())
+	{
+		Sophus::SE3d pose(Eigen::Quaterniond::Identity(), Eigen::Vector3d::Zero());
+		nodes.push_back( slam.AddPose(pose , true, timestamp) );
+	} else {
+		unsigned int recent = nodes.back();
+		const Sophus::SE3d & recent_pose = slam.GetPose(recent).t_wp;
+		Sophus::SE3d estimate = recent_pose * incremental_gyro_update;
+		//Sophus::SE3d estimate = recent_pose * incremental_differential_update;
+		nodes.push_back( slam.AddPose(estimate, true, timestamp) );
+	}
 
-  Eigen::Vector3d translation = incremental_pose.translation();
-  incremental_pose = incremental_pose * incremental_tfm;
-
-  pose.so3() = incremental_pose.so3();
-  nodes.push_back( slam.AddPose(pose , true, timestamp) );
-
-	Eigen::Matrix<double,6,1> cov_diag;
-  cov_diag << 3,3,30, DBL_MAX, DBL_MAX, DBL_MAX;
-
-  // cov_diag << 1,1,1,1000,1000,1000;
-
-  pose.so3() = Sophus::SO3();
-  slam.AddUnaryConstraint(nodes.back(), pose, cov_diag.asDiagonal());
+	/* Add unary constraint to SLAM */
+	{
+		Eigen::Matrix<double,6,1> cov_diag;
+		cov_diag << 1000,1000,30000, DBL_MAX, DBL_MAX, DBL_MAX;
+		Sophus::SE3d utm_prior(Eigen::Quaterniond::Identity(), Eigen::Vector3d(utm_e-offset_e, utm_n-offset_n, altitude-offset_u));
+		slam.AddUnaryConstraint(nodes.back(), utm_prior, cov_diag.asDiagonal());
+	}
 
 	if (nodes.size() >= 2)
 	{
-		unsigned int prev = nodes[nodes.size()-2];
-		unsigned int curr = nodes.back();
-    slam.AddBinaryConstraint(prev,curr,incremental_tfm);
-  //std::cerr << "adding binary constraint between " << prev << std::endl <<
-  //             slam.GetPose(prev).t_wp.matrix() << std::endl << " and " <<
-  //             curr << std::endl << slam.GetPose(curr).t_wp.matrix() <<
-  //             std::endl << " with t = " << std::endl <<
-  //             incremental_tfm.matrix() << std::endl;
+		//slam.AddBinaryConstraint(nodes.back()-1, nodes.back(), incremental_differential_update);
+		slam.AddBinaryConstraint(nodes.back()-1, nodes.back(), incremental_gyro_update);
+	}
+	
+
+	if (nodes.size() >= 2)
+	{
+		vector<ImuMeasurement> imu_meas = imu_buffer.GetRange(last_gps_timestamp, timestamp);
+		slam.AddImuResidual(nodes.back()-1, nodes.back(), imu_meas);
 	}
 
-	fprintf(differential, "%f %f\n", translation[0], translation[1]);
-	
+
 	incremental_x = 0;
 	incremental_y = 0;
 	incremental_yaw = 0;
-	incremental_tfm = Sophus::SE3d();
+	
+	/* reset incremental accumulators */
+	incremental_differential_update = Sophus::SE3d();
+	incremental_gyro_update = Sophus::SE3d();
+
+	//if (nodes.size() == 50)
+	//slam.Solve(100,0.2,false,false);
+
+	last_gps_timestamp = timestamp;
 }
-
-
 
 //=============================================================================
 void setup()
@@ -154,6 +212,14 @@ void setup()
 	Eigen::Matrix<double,3,1> gravity;
 	gravity << 0,0,9.8;
 	slam.SetGravity(gravity);
+
+	/* Initialize incremental gyro pose */
+	//Eigen::AngleAxisd aaZ(-M_PI/2.0, Eigen::Vector3d::UnitZ());
+	Eigen::AngleAxisd aaZ(0, Eigen::Vector3d::UnitZ());
+	Eigen::AngleAxisd aaY(0, Eigen::Vector3d::UnitY());
+	Eigen::AngleAxisd aaX(0, Eigen::Vector3d::UnitX());
+	Eigen::Quaterniond q = aaZ * aaY * aaX;
+	incremental_gyro_pose = Sophus::SE3d(q, Eigen::Vector3d::Zero());
 }
 
 //=============================================================================
@@ -184,35 +250,33 @@ void parse_file(const char* filename)
 			double time;
 			double angleRates[3], accels[3];
 			if (fscanf(input, "%lf %lf %lf %lf %lf %lf %lf", &time, angleRates, angleRates+1,angleRates+2, accels, accels+1, accels+2) != EOF)
-			{}
+			{
+				//add_gyro_and_speed(time, angleRates[0], angleRates[1], angleRates[2], speed);
+				add_imu(time, angleRates, accels);
+			}
 		}	else {
 			fprintf(stderr, "Unknown symbol <%s>\n", name);
 		}
 
 	}
 	fclose(input);
-	//exit(0);
 }
 
 //=============================================================================
 void solve()
 {
 	fprintf(stderr, "BA::Solve w [%zu] poses\n", nodes.size());
-  slam.Solve(100, 1.0);
+	slam.Solve(100,0.2,false,false);
 	fprintf(stderr, "finish BA::Solve\n");
 }
 
 //=============================================================================
 int main(int argc, char** argv)
 {
-	differential = fopen("out","w");
-
 	setup();
 	parse_file(argv[1]);
 	
-	fclose(differential);
-
-  ba::debug_level_threshold = 1;
+	ba::debug_level_threshold = 1;
 
 	solve();
 }

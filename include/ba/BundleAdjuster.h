@@ -16,9 +16,11 @@
 #include "CeresCostFunctions.h"
 #include "Utils.h"
 #include "Types.h"
+// #ifdef ENABLE_TESTING
+#include "BundleAdjusterTest.h"
+// #endif
 
 namespace ba {
-
 template<typename Scalar>
 using BlockMat = Eigen::SparseBlockMatrix<Scalar>;
 
@@ -291,7 +293,7 @@ public:
     residual.x2_id = pose2_id;
     residual.residual_id = binary_residuals_.size();
     residual.residual_offset = binary_residual_offset_;
-    residual.t_21 = t_12.inverse();
+    residual.t_12 = t_12;
 
     binary_residuals_.push_back(residual);
     binary_residual_offset_ += BinaryResidual::kResSize;
@@ -434,12 +436,6 @@ public:
 private:
   bool SolveInternal(VectorXt rhs_p_sc, const Scalar gn_damping,
                      const bool error_increase_allowed, const bool use_dogleg);
-
-  bool _Test_dImuResidual_dX(
-      const Pose &pose1, const Pose &pose2,const ImuPose &imu_pose,
-      const ImuResidual &res, const Vector3t gravity,
-      const Eigen::Matrix<Scalar,7,6>& dse3_dx1,
-      const Eigen::Matrix<Scalar,10,6>& dt_db);
 
   void CalculateGn(const VectorXt& rhs_p, VectorXt& delta_gn);
   void GetLandmarkDelta(

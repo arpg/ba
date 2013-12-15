@@ -50,9 +50,9 @@ int main( int argc, char** argv )
 
             dLog_dq_fd.col(ii) = (resPlus-resMinus)/(2*dEps);
         }
-        std::cout << "dlog_dq = [" << dLog_dq(q).format(cleanFmt) << "]" << std::endl;
+        std::cout << "dlog_dq = [" << dlog_dq(q).format(cleanFmt) << "]" << std::endl;
         std::cout << "dlog_dqf = [" << dLog_dq_fd.format(cleanFmt) << "]" << std::endl;
-        std::cout << "dlog_dq - dlog_dqf = [" << (dLog_dq(q)- dLog_dq_fd).format(cleanFmt) << "]" << std::endl;
+        std::cout << "dlog_dq - dlog_dqf = [" << (dlog_dq(q)- dLog_dq_fd).format(cleanFmt) << "]" << std::endl;
 
         std::cout << "Testing log derivative" << std::endl;
 
@@ -82,8 +82,8 @@ int main( int argc, char** argv )
 
 
         std::cout << "_dLog_dSE3_fd" << std::endl << _dLog_dSE3_fd << std::endl;
-        std::cout << "_dLog_dSE3" << std::endl << dLog_dSE3(T0) << std::endl;
-        std::cout << "_dLog_dSE3-_dLog_dSE3_fd" << std::endl << dLog_dSE3(T0)-_dLog_dSE3_fd << std::endl;
+        std::cout << "_dLog_dSE3" << std::endl << dlog_dse3(T0) << std::endl;
+        std::cout << "_dLog_dSE3-_dLog_dSE3_fd" << std::endl << dlog_dse3(T0)-_dLog_dSE3_fd << std::endl;
     }
 
 
@@ -102,7 +102,7 @@ int main( int argc, char** argv )
         dExp_dq.col(ii) = (quatPlus.coeffs() - quatMinus.coeffs())/(2*dEps);
     }
 
-    Eigen::Matrix<double,4,3> dExp_dq_analytical = dq1q2_dq2(Twa.unit_quaternion()) *  dqExp_dw<double>(Eigen::Vector3d::Zero());
+    Eigen::Matrix<double,4,3> dExp_dq_analytical = dq1q2_dq2(Twa.unit_quaternion()) *  dq_exp_dw<double>(Eigen::Vector3d::Zero());
 
     std::cout << "dExp_dq_fd: " << std::endl << dExp_dq.format(cleanFmt) << std::endl;
     std::cout << "dExp_dq: " << std::endl << (dExp_dq_analytical).format(cleanFmt) <<  std::endl;
@@ -121,7 +121,7 @@ int main( int argc, char** argv )
     }
     Eigen::Matrix<double,4,3> dTerror_analytical = dq1q2_dq1((Tab * Twb.inverse()).unit_quaternion()) *
                                                    dq1q2_dq2(Twa.unit_quaternion()) *
-                                                   dqExp_dw<double>(Eigen::Vector3d::Zero());;
+                                                   dq_exp_dw<double>(Eigen::Vector3d::Zero());;
 
     std::cout << "dTerror_fd: " << std::endl << dTerror.format(cleanFmt) << std::endl;
     std::cout << "dTerror: " << std::endl << dTerror_analytical.format(cleanFmt) <<  std::endl;
@@ -137,10 +137,10 @@ int main( int argc, char** argv )
         Eigen::Vector3d errorMinus = Sophus::SO3d::log(Sophus::SO3d(  ((Twa.unit_quaternion() * Sophus::SO3d::exp(vec).unit_quaternion()) * Tab.unit_quaternion() * Twb.inverse().unit_quaternion()) ) );
         dlog_Terror.col(ii) = (errorPlus - errorMinus)/(2*dEps);
     }
-    Eigen::Matrix<double,3,3> dlog_Terror_analytical =  dLog_dq((Twa*Tab*Twb.inverse()).unit_quaternion())*
+    Eigen::Matrix<double,3,3> dlog_Terror_analytical =  dlog_dq((Twa*Tab*Twb.inverse()).unit_quaternion())*
                                                     dq1q2_dq1((Tab * Twb.inverse()).unit_quaternion()) *
                                                    dq1q2_dq2(Twa.unit_quaternion()) *
-                                                   dqExp_dw<double>(Eigen::Vector3d::Zero());;
+                                                   dq_exp_dw<double>(Eigen::Vector3d::Zero());;
 
     std::cout << "dlog_Terror_fd: " << std::endl << dlog_Terror.format(cleanFmt) << std::endl;
     std::cout << "dlog_Terror: " << std::endl << dlog_Terror_analytical.format(cleanFmt) <<  std::endl;

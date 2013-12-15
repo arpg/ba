@@ -256,7 +256,7 @@ struct BinaryResidualT : public ResidualT<Scalar, 6> {
   static const unsigned int kResSize = 6;
   unsigned int x1_id;
   unsigned int x2_id;
-  Sophus::SE3Group<Scalar> t_21;
+  Sophus::SE3Group<Scalar> t_12;
   Eigen::Matrix<Scalar, kResSize, 6> dz_dx1;
   Eigen::Matrix<Scalar, kResSize, 6> dz_dx2;
   Eigen::Matrix<Scalar, kResSize, 1> residual;
@@ -325,7 +325,7 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       // dq/dw
       pdy_dk->template block<4, 3>(3, 3) = dq1q2_dq1<Scalar>(
           pose.t_wp.so3().unit_quaternion())
-          * dqExp_dw<Scalar>(k.template segment < 3 > (3) * dt) * dt;
+          * dq_exp_dw<Scalar>(k.template segment < 3 > (3) * dt) * dt;
       // dv/da
       pdy_dk->template block<3, 3>(7, 6) =
           Eigen::Matrix<Scalar, 3, 3>::Identity() * dt;
@@ -1121,15 +1121,15 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
 
     const Eigen::Matrix<Scalar, 3, 1> k_segment = k.template segment <3>(3);
     std::cout << "dexp_dw_fd= " << std::endl
-        << dqExp_dw<Scalar>(k_segment * dt).format(kCleanFmt) << std::endl;
+        << dq_exp_dw<Scalar>(k_segment * dt).format(kCleanFmt) << std::endl;
     std::cout << "dexp_dw_fd=" << std::endl << dexp_dw_fd.format(kCleanFmt)
         << std::endl;
     std::cout << "diff= " << std::endl
-        << (dqExp_dw<Scalar>(k_segment * dt) - dexp_dw_fd).format(kCleanFmt)
-        << "norm: " << (dqExp_dw<Scalar>(k_segment * dt) - dexp_dw_fd).norm()
+        << (dq_exp_dw<Scalar>(k_segment * dt) - dexp_dw_fd).format(kCleanFmt)
+        << "norm: " << (dq_exp_dw<Scalar>(k_segment * dt) - dexp_dw_fd).norm()
         << std::endl;
 
-    return (dqExp_dw<Scalar>(k.template segment < 3 > (3) * dt) - dexp_dw_fd)
+    return (dq_exp_dw<Scalar>(k.template segment < 3 > (3) * dt) - dexp_dw_fd)
         .norm() <
     NORM_THRESHOLD;
   }

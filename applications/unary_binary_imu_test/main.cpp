@@ -19,9 +19,9 @@
 #include <thread>
 #include <cfloat>
 
-#include <BA/BundleAdjuster.h>
-#include <BA/Types.h>
-#include <BA/InterpolationBuffer.h>
+#include <ba/BundleAdjuster.h>
+#include <ba/Types.h>
+#include <ba/InterpolationBuffer.h>
 #include <Eigen/Eigen>
 
 using std::vector;
@@ -185,7 +185,7 @@ void f_gps(double timestamp, double utm_e, double utm_n, double altitude)
 	if (nodes.size() >= 2)
 	{
 		vector<ImuMeasurement> imu_meas = imu_buffer.GetRange(last_gps_timestamp, timestamp);
-		slam.AddImuResidual(nodes.back()-1, nodes.back(), imu_meas);
+		//slam.AddImuResidual(nodes.back()-1, nodes.back(), imu_meas);
 	}
 
 
@@ -251,8 +251,8 @@ void parse_file(const char* filename)
 			double angleRates[3], accels[3];
 			if (fscanf(input, "%lf %lf %lf %lf %lf %lf %lf", &time, angleRates, angleRates+1,angleRates+2, accels, accels+1, accels+2) != EOF)
 			{
-				//add_gyro_and_speed(time, angleRates[0], angleRates[1], angleRates[2], speed);
-				add_imu(time, angleRates, accels);
+				add_gyro_and_speed(time, angleRates[0], angleRates[1], angleRates[2], speed);
+				//add_imu(time, angleRates, accels);
 			}
 		}	else {
 			fprintf(stderr, "Unknown symbol <%s>\n", name);

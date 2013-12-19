@@ -22,7 +22,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
     // std::cout << "Delta calib: " << deltaCalib.transpose() << std::endl;
   }
 
-  Eigen::Matrix<Scalar, 6, 6> j_pose_update;
+  Eigen::Matrix<Scalar, 3, 3> j_pose_update;
 
   Scalar coef = (do_rollback == true ? -1.0 : 1.0) * damping;
   // update gravity terms if necessary
@@ -104,8 +104,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
         // poses_[ii].t_wp = poses_[ii].t_wp * p_update_se3;
         if (use_prior_) {
           // j_pose_update = p_update_se3.Adj();
-          j_pose_update.setZero();
-          j_pose_update.template bottomRightCorner<3,3>() =
+          j_pose_update =
               Sophus::SO3Group<Scalar>::exp(p_update.template tail<3>()).Adj();
         }
       }
@@ -116,15 +115,19 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
         if (opt_id < prior_poses_.size()) {
           // Multiply all the columns of this row by J.
           for (int jj = 0 ; jj < prior_poses_.size() ; ++jj) {
-            prior_.template block<6, 6>(opt_id * kPoseDim, jj * kPoseDim) =
+            prior_.template block<3, 3>(opt_id * kPoseDim + 3,
+                                        jj * kPoseDim + 3) =
                 j_pose_update *
-                prior_.template block<6, 6>(opt_id * kPoseDim, jj * kPoseDim);
+                prior_.template block<3, 3>(opt_id * kPoseDim + 3,
+                                            jj * kPoseDim + 3);
           }
 
           // Multiply all the rows of this column by Jt.
           for (int jj = 0 ; jj < prior_poses_.size() ; ++jj) {
-            prior_.template block<6, 6>(jj * kPoseDim, opt_id * kPoseDim) =
-                prior_.template block<6, 6>(jj * kPoseDim, opt_id * kPoseDim) *
+            prior_.template block<3, 3>(jj * kPoseDim + 3,
+                                        opt_id * kPoseDim + 3) =
+                prior_.template block<3, 3>(jj * kPoseDim + 3,
+                                            opt_id * kPoseDim + 3) *
                 j_pose_update.transpose();
           }
         }
@@ -511,16 +514,14 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
         // Cache the jacobian for this column.
         const Eigen::Matrix<Scalar,3 ,3> jt_log_prior =
             (j_prior_twp_[ii].template bottomRightCorner<3, 3>()).transpose();
-        for (int jj = 0; jj < prior_count ; ++jj) {
-          // Since Jt is identity for everything except the lie tangent
-          // prior residuals, we only need to multiply Jt by the parameters
-          // that are in the tangent space (i. e. the first 6 parameters,
-          // when using normal log/exp or the second 3 parameters when using
-          // decoupled log/exp).
-          jt_prior_.template block<3, 3>(ii * kPoseDim + 3, jj * kPoseDim + 3) =
-              jt_log_prior * jt_prior_.template block<3, 3>(ii * kPoseDim + 3,
-                                                            jj * kPoseDim + 3);
-        }
+        // Since Jt is identity for everything except the lie tangent
+        // prior residuals, we only need to multiply Jt by the parameters
+        // that are in the tangent space (i. e. the first 6 parameters,
+        // when using normal log/exp or the second 3 parameters when using
+        // decoupled log/exp).
+        jt_prior_.block(ii * kPoseDim + 3, 0, 3, jt_prior_.cols()) =
+            jt_log_prior *
+            jt_prior_.block(ii * kPoseDim + 3, 0, 3, jt_prior_.cols());
       }
 
       if (prior_count > 0) {
@@ -528,6 +529,12 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
         // To obtain Jt * C^-1 * r, we use the previously multiplied jt_prior_.
         rhs_p_.template block(row_id, 0, jt_prior_.rows(), 1) +=
             jt_prior_ * r_pi_.template block(0, 0, jt_prior_.cols(), 1);
+
+        StreamMessage(debug_level) << "jt_prior= " << std::endl <<
+                                      jt_prior_ << std::endl;
+
+        StreamMessage(debug_level) << "r_pi_ " << std::endl <<
+                                      r_pi_.transpose() << std::endl;
       }
     }
 
@@ -668,16 +675,14 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     if (use_prior_ && prior_count > 0) {
       // We need to obtain Jt * C^-1 * J. Previously, we had Jt * C^-1 in
       // jt_prior_. Here we multiply by J to obtain the full expression.
-      for (int jj = 0; jj < prior_count ; ++jj) {
+      for (int ii = 0; ii < prior_count ; ++ii) {
         // Cache the jacobian for this column.
         const Eigen::Matrix<Scalar,3 ,3> j_log_prior =
-            (j_prior_twp_[jj].template bottomRightCorner<3, 3>());
+            (j_prior_twp_[ii].template bottomRightCorner<3, 3>());
 
-        for (int ii = 0; ii < prior_count ; ++ii) {
-          jt_prior_.template block<3, 3>(ii * kPoseDim + 3, jj * kPoseDim + 3) =
-              jt_prior_.template block<3, 3>(ii * kPoseDim + 3,
-                                             jj * kPoseDim + 3) * j_log_prior;
-        }
+        jt_prior_.block(0, ii * kPoseDim + 3, jt_prior_.rows(), 3) =
+            jt_prior_.block(0, ii * kPoseDim + 3, jt_prior_.rows(), 3) *
+            j_log_prior;
       }
 
       if (prior_count > 0) {
@@ -1071,10 +1076,18 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::TransformPriorSE3(
   // Calculate the jacobian of this transformation w.r.t. the old parameters
   // so that we can transform them to the new space.
   // typename SE3t::Adjoint adj = t_a1a2.Adj();
-  Eigen::Matrix<Scalar, 6, 6> j_transform;
-  j_transform.setZero();
+  Eigen::Matrix<Scalar, kPoseDim, kPoseDim> j_transform;
+  j_transform.setIdentity();
+  // Translation jacobian.
   j_transform.template topLeftCorner<3, 3>() = t_a2a1.rotationMatrix();
-  j_transform.template bottomRightCorner<3, 3>() = t_a2a1.so3().Adj();
+  // Rotation jacobian.
+  j_transform.template block<3, 3>(3, 3) = t_a2a1.so3().Adj();
+  // Velocity jacobian.
+  j_transform.template block<3, 3>(6, 6) = t_a2a1.rotationMatrix();
+
+
+  StreamMessage(debug_level) << "Transforming prior by jacobian:" <<
+    std::endl << j_transform << std::endl;
 
   // Now go through all the poses and apply the transformation.
   const int num_prior_poses = prior_poses_.size();
@@ -1082,12 +1095,16 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::TransformPriorSE3(
   for (int ii = 0; ii < num_prior_poses ; ++ii) {
     // Transform the prior pose itself by the transformation.
     prior_poses_[ii].t_wp = t_a2a1 * prior_poses_[ii].t_wp;
+    // Transform the velocity.
+    prior_poses_[ii].v_w = t_a2a1.so3() * prior_poses_[ii].v_w;
 
     for (int jj = 0; jj < num_prior_poses ; ++jj) {
       // Transform the prior distribution.
-      prior_.template block<6, 6>(ii * kPoseDim, jj * kPoseDim) =
+      prior_.template block<kPoseDim, kPoseDim>(ii * kPoseDim,
+                                                jj * kPoseDim) =
           j_transform *
-          prior_.template block<6, 6>(ii * kPoseDim, jj * kPoseDim) *
+          prior_.template block<kPoseDim, kPoseDim>(ii * kPoseDim,
+                                                    jj * kPoseDim) *
           j_transform.transpose();
     }
   }
@@ -2227,8 +2244,18 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       // Calculate the prior residual;
       r_pi_.template block<6, 1>(offset, 0 ) = error_state;
 
+      if (kVelInState) {
+        r_pi_.template block<3, 1>(offset + 3, 0 ) =
+            poses_[pose_idx].v_w - prior_poses_[prior_idx].v_w;
+      }
+
+      if (kBiasInState) {
+        r_pi_.template block<6, 1>(offset + 6, 0 ) =
+            poses_[pose_idx].b - prior_poses_[prior_idx].b;
+      }
+
       StreamMessage(debug_level) << "prior error for " << pose_idx << " is " <<
-                                    error_state.transpose() << std::endl;
+        r_pi_.template block<kPoseDim, 1>(offset, 0 ).transpose() << std::endl;
 
       // The 6dof lie tangent parameter residual for the prior is defined as
       // t_prior.inverse() * t_estimate * exp(dx). Therefore the following
@@ -2237,6 +2264,9 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
           dLog_decoupled_dt1(poses_[pose_idx].t_wp,
                              prior_poses_[prior_idx].t_wp) *
           dexp_decoupled_dx(poses_[pose_idx].t_wp);
+
+      StreamMessage(debug_level) << "j_prior_twp_ for " << pose_opt_idx <<
+        " is " << std::endl << j_prior_twp_[pose_opt_idx] << std::endl;
 
           //dlog_dx(error_state, SE3t());
 

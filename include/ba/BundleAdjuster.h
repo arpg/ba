@@ -403,6 +403,8 @@ public:
   void SetImuCalibration(const ImuCalibration& calib) { imu_ = calib; }
   const Pose& GetPose(const unsigned int id) const  {
     if (id >= poses_.size()) {
+      std::cerr << "Attempted to get pose with id " << id << " from BA. "
+                   "Aborting..." << std::endl;
       throw 0;
     }
     return poses_[id];

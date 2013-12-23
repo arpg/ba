@@ -381,10 +381,6 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
                                          rig_, kTvsInState) ,lm.x_w);
       // normalize so the ray size is 1
       const Scalar length = lm.x_s.template head<3>().norm();
-      //zzzzzzzzzzzzzzz
-      if( length < 1e-8 ) {
-        std::cerr << "WARNING. [BA::Solve::length] possible division by 0" << std::endl;
-      }
       lm.x_s = lm.x_s / length;
       // verify that x_s is indeed along the ref ray
       /*
@@ -1273,12 +1269,6 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     StreamMessage(debug_level) << "j_i_rhs_p norm: " <<
                                   j_i_rhs_p.squaredNorm() << std::endl;
 
-    //zzzzzzzzzzzzzzz
-    if( denominator < 1e-14 ) {
-      std::cerr << "WARNING. [BA::SolveInternal::denominator: "
-                 << denominator <<  " ] possible division by 0" << std::endl;
-    }
-
     Scalar factor = numerator/denominator;
     StreamMessage(debug_level) << "factor: " << factor <<
                                   " nom: " << numerator << " denom: " <<
@@ -1293,12 +1283,6 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
                                   std::endl;
 
     while (1) {
-
-      //zzzzzzzzzzzzzzz
-      if( delta_sd_norm < 1e-14 ) {
-        std::cerr << "WARNING. [BA::SolveInternal::delta_sd_norm: "
-                  << delta_sd_norm << " ] possible division by 0" << std::endl;
-      }
 
       if (delta_sd_norm > trust_region_size_) {
         StreamMessage(debug_level) <<
@@ -1323,6 +1307,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
           GetLandmarkDelta(delta_gn.delta_p, rhs_l_,  vi_, jt_l_j_pr_,
                            num_active_poses_, num_active_landmarks_,
                            delta_gn.delta_l);
+          gn_computed = true;
         }
 
         Scalar delta_gn_norm = sqrt(delta_gn.delta_p.squaredNorm() +
@@ -1347,14 +1332,22 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
           // std::cout << "tr: " << trust_region_size_ << std::endl;
           Scalar c = (delta_sd.delta_p.squaredNorm() +
                       delta_sd.delta_l.squaredNorm()) -
-                      trust_region_size_ * trust_region_size_;
-          //zzzzzzzzzzzzzzz
-          if( a < 1e-10 ) {
-            std::cerr << "WARNING. [BA::SolveInternal::a] "
-                         "possible division by 0" << std::endl;
+                      trust_region_size_ * trust_region_size_;       
+
+          Scalar beta = 0;
+          if (b*b > 4*a*c) {
+            beta = (-(b*b) + sqrt(b*b - 4*a*c)) / (2 * a);
           }
 
-          Scalar beta = (-(b*b) + sqrt(b*b - 4*a*c)) / (2 * a);
+          StreamMessage(debug_level) <<
+            "Dogleg blending factor is: " << beta << " a: " << a << " b: " <<
+            b << " c:" << c << std::endl;
+
+          StreamMessage(debug_level) <<
+            " Deltasd_p.norm: " << delta_sd.delta_p.norm() <<
+            " Deltasd_l.norm: " << delta_sd.delta_l.norm() <<
+            " Deltagn_p.norm: " << delta_gn.delta_p.norm() <<
+            " Deltagn_l.norm: " << delta_gn.delta_l.norm() << std::endl;
 
           delta_dl.delta_p = delta_sd.delta_p + beta*(diff_p);
           delta_dl.delta_l = delta_sd.delta_l + beta*(diff_l);

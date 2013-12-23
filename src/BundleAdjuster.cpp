@@ -2509,7 +2509,7 @@ template class BundleAdjuster<REAL_TYPE, 1,9,0>;
 
 // specializations required for the applications
 #ifdef BUILD_APPS
-template class BundleAdjuster<REAL_TYPE, 0,6,0>;
+template class BundleAdjuster<double, 0,6,0>;
 #endif
 }
 

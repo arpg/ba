@@ -406,7 +406,9 @@ inline Eigen::Matrix<Scalar, 6, 7> dlog_decoupled_dt2(
   dlog_dt2.setZero();
   dlog_dt2.template block<3,3>(0,0) = -Eigen::Matrix<Scalar, 3, 3>::Identity();
   dlog_dt2.template block<3,4>(3,3) =
-      dlog_dq(qlog) *  dq1q2_dq2(t1.unit_quaternion()) * dqinv_dq();
+      dlog_dq<Scalar>(qlog) *
+      dq1q2_dq2<Scalar>(t1.unit_quaternion()) *
+      dqinv_dq<Scalar>();
 
   // Check the dlog_db
   //{

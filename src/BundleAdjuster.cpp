@@ -872,6 +872,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
     root_pose_id = root_pose_id_;
   }
 
+  // StartTimer(_MarginalizePose_);
   // Do marginalization if required. Note that at least 2 poses are
   // required for marginalization
   const Pose& last_pose = poses_[root_pose_id_];
@@ -1019,6 +1020,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
       prior_poses_.push_back(poses_[ii]);
     }
 
+    /*
+
     Eigen::VectorXi lm_ids(w_sizes.size());
     int count = 0;
     for (size_t ii = 0; ii < w_ids.size() ; ++ii) {
@@ -1058,6 +1061,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
                   std::ios_base::trunc) << prior_.format(kLongCsvFmt);
     std::ofstream("lm_ids.txt",
                   std::ios_base::trunc) << lm_ids.format(kLongCsvFmt);
+    */
+
+    //PrintTimer(_MarginalizePose_);
 
     // std::cout << "\n\n\n\n\nv matrix is: " << std::endl << v << std::endl;
     // std::cout << "\n\n\n\n\nw matrix is " << std::endl << w << std::endl;
@@ -1078,9 +1084,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::TransformPriorSE3(
   j_transform.template topLeftCorner<3, 3>() = t_a2a1.rotationMatrix();
   // Rotation jacobian.
   j_transform.template block<3, 3>(3, 3) = t_a2a1.so3().Adj();
-  // Velocity jacobian.
-  j_transform.template block<3, 3>(6, 6) = t_a2a1.rotationMatrix();
-
+  if (kVelInState) {
+    // Velocity jacobian.
+    j_transform.template block<3, 3>(6, 6) = t_a2a1.rotationMatrix();
+  }
 
   StreamMessage(debug_level) << "Transforming prior by jacobian:" <<
     std::endl << j_transform << std::endl;
@@ -1091,8 +1098,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::TransformPriorSE3(
   for (int ii = 0; ii < num_prior_poses ; ++ii) {
     // Transform the prior pose itself by the transformation.
     prior_poses_[ii].t_wp = t_a2a1 * prior_poses_[ii].t_wp;
-    // Transform the velocity.
-    prior_poses_[ii].v_w = t_a2a1.so3() * prior_poses_[ii].v_w;
+    if (kVelInState) {
+      // Transform the velocity.
+      prior_poses_[ii].v_w = t_a2a1.so3() * prior_poses_[ii].v_w;
+    }
 
     for (int jj = 0; jj < num_prior_poses ; ++jj) {
       // Transform the prior distribution.
@@ -1301,7 +1310,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
           StreamMessage(debug_level) << "Computing gauss newton " <<
                                         std::endl;
           if (num_active_poses_ > 0) {
-            CalculateGn(rhs_p_sc, delta_gn.delta_p);
+            CalculateGn(rhs_p_sc, delta_gn.delta_p);            
           }
           // now back substitute the landmarks
           GetLandmarkDelta(delta_gn.delta_p, rhs_l_,  vi_, jt_l_j_pr_,
@@ -1336,23 +1345,13 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
                       trust_region_size_ * trust_region_size_;
 
           Scalar beta = 0;
-          if (b*b > 4*a*c) {
-            beta = (-(b*b) + sqrt(b*b - 4*a*c)) / (2 * a);
+          if (b * b > 4 * a * c && a > 1e-10) {
+            (-(b*b) + sqrt(b*b - 4*a*c)) / (2 * a);
+          } else {
+            StreamMessage(debug_level) <<
+              "Cannot calculate blending factor. Using sd - a:" << a << " b:" <<
+               b << " c:" << c << std::endl;
           }
-
-          if (!std::isnormal(beta)) {
-            beta = 0;
-          }
-
-          StreamMessage(debug_level) <<
-            "Dogleg blending factor is: " << beta << " a: " << a << " b: " <<
-            b << " c:" << c << std::endl;
-
-          StreamMessage(debug_level) <<
-            " Deltasd_p.norm: " << delta_sd.delta_p.norm() <<
-            " Deltasd_l.norm: " << delta_sd.delta_l.norm() <<
-            " Deltagn_p.norm: " << delta_gn.delta_p.norm() <<
-            " Deltagn_l.norm: " << delta_gn.delta_l.norm() << std::endl;
 
           delta_dl.delta_p = delta_sd.delta_p + beta*(diff_p);
           delta_dl.delta_l = delta_sd.delta_l + beta*(diff_l);
@@ -1831,7 +1830,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     res.dz_dx = dlog_decoupled_dx(t_wp, res.t_wp);
     // res.dz_dx = dLog_dX(res.t_wp.inverse() * t_wp, SE3t());
 
-    _Test_dUnaryResidual_dX(res, t_wp);
+    BA_TEST(_Test_dUnaryResidual_dX(res, t_wp));
 
     // res.residual = SE3t::log(res.t_wp.inverse() * t_wp);
     res.residual = log_decoupled(t_wp, res.t_wp);

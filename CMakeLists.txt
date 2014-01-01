@@ -48,7 +48,7 @@ string( TOLOWER ${PROJECT_NAME} LIBRARY_NAME )
 include_directories(include)
 add_subdirectory( src )
 
-if( BUILD_APPLICATIONS )
+if( (BUILD_APPLICATIONS) AND (NOT ANDROID) )
   set(BA_DIR ${BA_BINARY_DIR}/src)
   add_subdirectory( applications )
 endif()

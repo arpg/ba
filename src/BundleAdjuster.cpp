@@ -155,7 +155,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
         //  << std::endl << poses_[ii].t_vs.matrix() << std::endl;
       }
 
-      StreamMessage(debug_level) << "Pose delta for " << ii << " is " <<
+      StreamMessage(debug_level + 1) << "Pose delta for " << ii << " is " <<
         (-delta.delta_p.template block<kPoseDim,1>(p_offset,0) *
          coef).transpose() << " pose is " << std::endl <<
         poses_[ii].t_wp.matrix() << std::endl;
@@ -562,7 +562,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
                     res.residual_id*ProjectionResidual::kResSize, 0) *
                     res.weight);
         }
-        rhs_l_.template block<kLmDim,1>(landmarks_[ii].opt_id*kLmDim, 0) = jtr_l;
+        rhs_l_.template block<kLmDim,1>(landmarks_[ii].opt_id*kLmDim, 0) =
+            jtr_l;
         if (kLmDim == 1) {
           if (fabs(jtj_l(0,0)) < 1e-6) {
             jtj_l(0,0) += 1e-6;
@@ -1374,6 +1375,8 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
 
       Scalar proj_error, binary_error, unary_error, inertial_error;
 
+      // We have to calculate the residuals here, as during the inner loop of
+      // dogleg, the residuals are constantly changing.
       EvaluateResiduals(&proj_error, &binary_error,
                         &unary_error, &inertial_error);
       const Scalar prev_error = proj_error + inertial_error + binary_error +
@@ -1435,6 +1438,8 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
                      num_active_poses_, num_active_landmarks_, delta.delta_l);
 
 
+    // Here we don't need to calculate the residuals, as they are already
+    // calculated during the BuildProblem phase.
     ApplyUpdate(delta, false, gn_damping);
 
 
@@ -2070,10 +2075,12 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         dse3t1t2v_dt1 * c_imu_pose *
         dse3t1t2v_dt1.transpose();
 
+    // res.cov_inv.setIdentity();
 
      StreamMessage(debug_level) << "cov:" << std::endl <<
                                    res.cov_inv << std::endl;
     res.cov_inv = res.cov_inv.inverse();
+
 
     StreamMessage(debug_level) << "inf:" << std::endl <<
                                   res.cov_inv << std::endl;

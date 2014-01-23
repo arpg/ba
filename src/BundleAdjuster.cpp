@@ -1312,7 +1312,8 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
 
         Scalar delta_gn_norm = sqrt(delta_gn.delta_p.squaredNorm() +
                                     delta_gn.delta_l.squaredNorm());
-        if (delta_gn_norm <= trust_region_size_) {
+        if (!std::isnan(delta_gn_norm) && !std::isinf(delta_gn_norm) &&
+            delta_gn_norm <= trust_region_size_) {
           StreamMessage(debug_level) <<
             "Gauss newton delta: " << delta_gn_norm << "is smaller than trust "
             "region of " << trust_region_size_ << std::endl;
@@ -1332,11 +1333,15 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
           // std::cout << "tr: " << trust_region_size_ << std::endl;
           Scalar c = (delta_sd.delta_p.squaredNorm() +
                       delta_sd.delta_l.squaredNorm()) -
-                      trust_region_size_ * trust_region_size_;       
+                      trust_region_size_ * trust_region_size_;
 
           Scalar beta = 0;
           if (b*b > 4*a*c) {
             beta = (-(b*b) + sqrt(b*b - 4*a*c)) / (2 * a);
+          }
+
+          if (!std::isnormal(beta)) {
+            beta = 0;
           }
 
           StreamMessage(debug_level) <<
@@ -1356,7 +1361,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
 
       Scalar delta_dl_norm = sqrt(delta_dl.delta_p.squaredNorm() +
                                   delta_dl.delta_l.squaredNorm());
-      if (delta_dl_norm < 1e-4) {
+      if (!std::isnormal(delta_dl_norm) || delta_dl_norm < 1e-4) {
         StreamMessage(debug_level) << "Step size too small, quitting" <<
                                       std::endl;
         return false;

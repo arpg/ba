@@ -73,7 +73,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
     // only update active poses, as inactive ones are not part of the
     // optimization
     if (poses_[ii].is_active) {
-      const int opt_id = poses_[ii].opt_id;
+      const unsigned int opt_id = poses_[ii].opt_id;
       const unsigned int p_offset = poses_[ii].opt_id*kPoseDim;
       const Eigen::Matrix<Scalar, 6, 1>& p_update =
           -delta.delta_p.template block<6,1>(p_offset,0)*coef;
@@ -114,7 +114,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
       if (use_prior_ && prior_poses_.size() > 0) {
         if (opt_id < prior_poses_.size()) {
           // Multiply all the columns of this row by J.
-          for (int jj = 0 ; jj < prior_poses_.size() ; ++jj) {
+          for (size_t jj = 0 ; jj < prior_poses_.size() ; ++jj) {
             prior_.template block<3, 3>(opt_id * kPoseDim + 3,
                                         jj * kPoseDim + 3) =
                 j_pose_update *
@@ -123,7 +123,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
           }
 
           // Multiply all the rows of this column by Jt.
-          for (int jj = 0 ; jj < prior_poses_.size() ; ++jj) {
+          for (size_t jj = 0 ; jj < prior_poses_.size() ; ++jj) {
             prior_.template block<3, 3>(jj * kPoseDim + 3,
                                         opt_id * kPoseDim + 3) =
                 prior_.template block<3, 3>(jj * kPoseDim + 3,
@@ -407,7 +407,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
     const unsigned int num_poses = num_active_poses_;
     const unsigned int num_pose_params = num_poses*kPoseDim;
-    const unsigned int num_lm = num_active_landmarks_;   
+    const unsigned int num_lm = num_active_landmarks_;
 
     StartTimer(_steup_problem_);
     StartTimer(_rhs_mult_);
@@ -664,7 +664,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
             u_, s_.template block(0, 0, num_pose_params, num_pose_params));
       rhs_p_sc.template head(num_pose_params) = rhs_p_;
     }
-    PrintTimer(_schur_complement_);  
+    PrintTimer(_schur_complement_);
 
     // At this point, if we're doing marginalization, add in the prior to the
     // U submatrix of the hessian, based on tne given root_pose_id_.
@@ -893,7 +893,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
         unsigned int num_w_cells = 0;
         for (typename decltype(jt_pr_j_l_)::InnerIterator iter(
                jt_pr_j_l_, landmarks_[ii].opt_id) ; iter; ++iter) {
-          if(iter.index() != last_pose.opt_id) {
+          if(static_cast<unsigned int>(iter.index()) != last_pose.opt_id) {
             num_w_cells++;
           }
         }
@@ -951,7 +951,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
                jt_pr_j_l_, lm.opt_id); iter; ++iter){
           // This check is to ensure that we don't add w contributions from the
           // pose we are marginalizing.
-          if (iter.index() != last_pose.opt_id) {
+          if (static_cast<unsigned int>(iter.index()) != last_pose.opt_id) {
             v.template block<kLmDim, kLmDim>(w_id, w_id) =
                 vi_.coeff(lm.opt_id, lm.opt_id);
             // We subtract 1 fron iter.index() as the marginalized pose is no
@@ -976,7 +976,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
     // Populate w_p for pose-pose constraints
     for (typename decltype(u_)::InnerIterator iter(
            u_, last_pose.opt_id); iter; ++iter){
-      if (iter.index() != last_pose.opt_id) {
+      if (static_cast<unsigned int>(iter.index()) != last_pose.opt_id) {
         // We subtract 1 fron iter.index() as the marginalized pose is no
         // longer included in w, therefore all indices are reduces by 1.
         w.template block<kPoseDim, kPoseDim>(
@@ -1010,7 +1010,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
     prior_poses_.reserve(poses_.size() - 1);
     // Also copy the value of the prior poses. This will be used in the next
     // solve call to form a residual with the new parameter estimates.
-    for (int ii = root_pose_id_ + 1 ; ii < poses_.size() ; ++ii) {
+    for (size_t ii = root_pose_id_ + 1 ; ii < poses_.size() ; ++ii) {
       StreamMessage(debug_level) <<
         "Pushng back prior pose " << ii << " with t = " << std::endl <<
         poses_[ii].t_wp.matrix() << std::endl << " v = " <<
@@ -1021,7 +1021,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
 
     Eigen::VectorXi lm_ids(w_sizes.size());
     int count = 0;
-    for (int ii = 0; ii < w_ids.size() ; ++ii) {
+    for (size_t ii = 0; ii < w_ids.size() ; ++ii) {
       if (w_ids[ii] != -1) {
         lm_ids[count] = landmarks_[last_pose.landmarks[ii]].opt_id;
         count++;
@@ -1201,7 +1201,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
   Delta delta_dl;
   Delta delta_gn;
 
-  if (use_dogleg) {    
+  if (use_dogleg) {
     // Refer to:
     // http://people.csail.mit.edu/kaess/pub/Rosen12icra.pdf
     // is levenberg-marquardt the most efficient optimization algorithm
@@ -1668,8 +1668,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       const Eigen::Matrix<Scalar,2,4> dt_dp_m = cam.dTransfer3D_dP(
             SE3t(), x_s_m.template head<3>(),x_s_m(3));
 
-      const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsv_m =
-          dt_dp_m * t_vs_m.inverse().matrix();
+      // const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsv_m =
+      //     dt_dp_m * t_vs_m.inverse().matrix();
 
 //      for (unsigned int ii=0; ii<6; ++ii) {
 //       res.dz_dx_meas.template block<2,1>(0,ii) =
@@ -1686,11 +1686,11 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       // the same
       if (kLmDim == 1) {
         // derivative for the reference pose
-        const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsw_m =
-            dt_dp_m * (pose.t_wp * t_vs_m).inverse().matrix();
+        // const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsw_m =
+        //     dt_dp_m * (pose.t_wp * t_vs_m).inverse().matrix();
 
-        const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsw_m_twp =
-            -dt_dp_m_tsw_m * ref_pose.t_wp.matrix();
+        // const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsw_m_twp =
+        //     -dt_dp_m_tsw_m * ref_pose.t_wp.matrix();
 
         //for (unsigned int ii=0; ii<6; ++ii) {
         //  res.dz_dx_ref.template block<2,1>(0,ii) =
@@ -1997,7 +1997,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
     const SE3t& t_w1 = pose1.t_wp;
     const SE3t& t_w2 = pose2.t_wp;
-    const SE3t& t_2w = t_w2.inverse();
+    // const SE3t& t_2w = t_w2.inverse();
 
     // now given the poses, calculate the jacobians.
     // First subtract gravity, initial pose and velocity from the delta T and delta V
@@ -2218,7 +2218,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         res.residual;
     inertial_error_ +=
         (res.residual.transpose() * res.cov_inv * res.residual);
-  }  
+  }
 
   // If we are marginalizing, at this point we must form the prior residual
   // between the previous pose parameters and the current estimate. We also
@@ -2228,7 +2228,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     j_prior_twp_.resize(prior_poses_.size());
 
     r_pi_.setZero();
-    int pose_idx = root_pose_id_, prior_idx = 0;
+    size_t pose_idx = root_pose_id_, prior_idx = 0;
     int pose_opt_idx = 0;
     StreamMessage(debug_level) << "Populating prior rhs." << std::endl;
     while (pose_idx < poses_.size() && prior_idx < prior_poses_.size()) {
@@ -2496,7 +2496,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         j_l_.insert( res.residual_id, lm.opt_id ) = res.dz_dlm;
       }
     }
-  } 
+  }
 
   PrintTimer  (_j_insertion_landmarks);
   PrintTimer(_j_insertion_);
@@ -2510,5 +2510,3 @@ template class BundleAdjuster<REAL_TYPE, 1,9,0>;
 template class BundleAdjuster<double, 0,6,0>;
 #endif
 }
-
-

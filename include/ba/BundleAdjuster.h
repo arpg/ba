@@ -18,6 +18,8 @@
 #include "Types.h"
 // #ifdef ENABLE_TESTING
 #include "BundleAdjusterTest.h"
+// Only used for matrix square root.
+#include <unsupported/Eigen/MatrixFunctions>
 // #endif
 
 namespace ba {
@@ -269,6 +271,7 @@ public:
     residual.residual_offset = unary_residual_offset_;
     residual.t_wp = t_wv;
     residual.cov_inv = covariance.inverse();
+    residual.cov_inv = residual.cov_inv.sqrt();
 
     unary_residuals_.push_back(residual);
     unary_residual_offset_ += UnaryResidual::kResSize;

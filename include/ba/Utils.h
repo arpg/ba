@@ -40,7 +40,7 @@ extern int debug_level;
 /** @todo Add stream message to Android logging */
 #ifndef StreamMessage
 #  define StreamMessage(error_level)                                    \
-  if (((int)error_level) < ba::debug_level_threshold) std::cerr
+  if (((int)error_level) <= ba::debug_level_threshold) std::cerr
 #endif
 
 #ifdef ENABLE_TESTING

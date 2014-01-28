@@ -29,8 +29,8 @@
 // #define IMU_GYRO_UNCERTAINTY 7.15584993e-5  // 0.00104719755 // 0.1 //
 // #define IMU_ACCEL_UNCERTAINTY 0.00159855109  // 0.0392266 // 10
 
-#define IMU_GYRO_UNCERTAINTY 0.1 //0.00104719755
-#define IMU_ACCEL_UNCERTAINTY 10 //0.0392266
+#define IMU_GYRO_UNCERTAINTY 0.00104719755 // 0.01 //0.00104719755
+#define IMU_ACCEL_UNCERTAINTY 0.0392266 // 1 //0.0392266
 
 namespace ba {
 static const double Gravity = 9.8007;
@@ -249,6 +249,7 @@ struct UnaryResidualT : public ResidualT<Scalar, 6> {
   Eigen::Matrix<Scalar, kResSize, 6> dz_dx;
   Eigen::Matrix<Scalar, kResSize, 1> residual;
   Eigen::Matrix<Scalar, kResSize, kResSize> cov_inv;
+  Eigen::Matrix<Scalar, kResSize, kResSize> cov_inv_sqrt;
 };
 
 template<typename Scalar = double>
@@ -291,6 +292,7 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
   Eigen::Matrix<Scalar, kResSize, PoseSize> dz_dx1;
   Eigen::Matrix<Scalar, kResSize, PoseSize> dz_dx2;
   Eigen::Matrix<Scalar, kResSize, kResSize> cov_inv;
+  Eigen::Matrix<Scalar, kResSize, kResSize> cov_inv_sqrt;
   Eigen::Matrix<Scalar, kResSize, 6> dz_dy;
   Eigen::Matrix<Scalar, 9, 2> dz_dg;
   Eigen::Matrix<Scalar, kResSize, 6> dz_db;

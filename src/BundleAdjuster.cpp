@@ -1,8 +1,7 @@
 #include <ba/BundleAdjuster.h>
 #include <iomanip>
 #include <fstream>
-// Only used for matrix square root.
-#include <unsupported/Eigen/MatrixFunctions>
+
 
 namespace ba {
 // these are declared in Utils.h
@@ -1295,6 +1294,18 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     while (1) {
 
       if (delta_sd_norm > trust_region_size_) {
+
+        // zzzzzzzz remove
+        {
+          if (num_active_poses_ > 0) {
+            CalculateGn(rhs_p_sc, delta_gn.delta_p);
+          }
+          Scalar delta_gn_norm = sqrt(delta_gn.delta_p.squaredNorm() +
+                                      delta_gn.delta_l.squaredNorm());
+          StreamMessage(debug_level) << "gn norm: " << delta_gn_norm <<
+                                        std::endl;
+        }
+
         StreamMessage(debug_level) <<
           "sd norm larger than trust region of " <<
           trust_region_size_ << " chosing sd update " << std::endl;
@@ -1838,7 +1849,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     BA_TEST(_Test_dUnaryResidual_dX(res, t_wp));
 
     // res.residual = SE3t::log(res.t_wp.inverse() * t_wp);
-    res.residual = log_decoupled(t_wp, res.t_wp);
+    res.residual = res.cov_inv_sqrt * log_decoupled(t_wp, res.t_wp);
     res.weight = res.orig_weight;
     r_u_.template segment<UnaryResidual::kResSize>(res.residual_offset) =
         res.residual;
@@ -2080,10 +2091,14 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
      StreamMessage(debug_level) << "cov:" << std::endl <<
                                    res.cov_inv << std::endl;
     res.cov_inv = res.cov_inv.inverse();
+    res.cov_inv_sqrt = res.cov_inv.sqrt();
+    res.residual = res.cov_inv_sqrt * res.residual;
 
 
-    StreamMessage(debug_level) << "inf:" << std::endl <<
-                                  res.cov_inv << std::endl;
+    StreamMessage(debug_level) << "cov_inv:" << std::endl <<
+                                  res.cov_inv.format(kLongFmt) << std::endl;
+    StreamMessage(debug_level) << "cov_inv_sqrt:" << std::endl <<
+                                  res.cov_inv_sqrt.format(kLongFmt) << std::endl;
 
     // bias jacbian, only if bias in the state.
     if (kBiasInState) {
@@ -2223,7 +2238,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     r_i_.template segment<ImuResidual::kResSize>(res.residual_offset) =
         res.residual;
     inertial_error_ +=
-        (res.residual.transpose() * res.cov_inv * res.residual);
+        (res.residual.transpose() * /*res.cov_inv * */res.residual);
   }
 
   // If we are marginalizing, at this point we must form the prior residual
@@ -2411,11 +2426,11 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         }
         j_u_.insert(
           res.residual_id, pose.opt_id ).setZero().template block<6,6>(0,0) =
-            res.dz_dx;
+            res.cov_inv_sqrt * res.dz_dx;
 
         jt_u_.insert(
           pose.opt_id, res.residual_id ).setZero().template block<6,6>(0,0) =
-            res.dz_dx.transpose() * res.cov_inv /** res.weight*/;
+            res.dz_dx.transpose() * res.cov_inv_sqrt;
       }
 
       std::sort(pose.inertial_residuals.begin(), pose.inertial_residuals.end());
@@ -2435,12 +2450,13 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
         j_i_.insert(
           res.residual_id, pose.opt_id ).setZero().
-            template block<ImuResidual::kResSize,kPoseDim>(0,0) = dz_dz;
+            template block<ImuResidual::kResSize,kPoseDim>(0,0) =
+            res.cov_inv_sqrt * dz_dz;
 
         jt_i_.insert(
           pose.opt_id, res.residual_id ).setZero().
             template block<kPoseDim,ImuResidual::kResSize>(0,0) =
-              dz_dz.transpose() * res.cov_inv /*res.weight*/;
+              dz_dz.transpose() * res.cov_inv_sqrt /*res.weight*/;
       }
     }
   }

@@ -170,16 +170,26 @@ struct InterpolationBufferT {
     }
   }
 
-  std::vector<ElementType> GetRange(const ScalarType star_time,
-                                    const ScalarType end_time) {
+  std::vector<ElementType> GetRange(ScalarType start,
+                                    ScalarType end) {
     std::vector<ElementType> measurements;
     size_t index;
+
+    // Trim the range if necessary
+    if (start < start_time) {
+      start = start_time;
+    }
+
+    if (end > end_time) {
+      end = end_time;
+    }
+
     // get all the imu measurements between these two poses, and add them to a
     // vector
-    if (HasElement(star_time)) {
-      measurements.push_back(GetElement(star_time, &index));
+    if (HasElement(start)) {
+      measurements.push_back(GetElement(start, &index));
       ElementType meas;
-      while (GetNext(end_time, index, meas)) {
+      while (GetNext(end, index, meas)) {
         measurements.push_back(meas);
       }
       // push back the last item

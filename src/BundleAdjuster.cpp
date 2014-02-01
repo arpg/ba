@@ -394,7 +394,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
   }
 
   use_prior_ = use_prior;
-  const bool use_triangular = false;
+  const bool use_triangular = true;
   do_sparse_solve_ = true;
   do_last_pose_cov_ = false;
 
@@ -1512,52 +1512,65 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   const unsigned int num_un_res = unary_residuals_.size();
   const unsigned int num_im_res= inertial_residuals_.size();
 
-  j_pr_.resize(num_proj_res, num_poses);
-  jt_pr.resize(num_poses, num_proj_res);
-  j_kpr_.resize(num_proj_res, 1);
-  jt_kpr_.resize(1, num_proj_res);
-  j_l_.resize(num_proj_res, num_lm);
-  // jt_l_.resize(num_lm, num_proj_res);
-  r_pr_.resize(num_proj_res*ProjectionResidual::kResSize);
+  if (num_proj_res > 0) {
+    j_pr_.resize(num_proj_res, num_poses);
+    jt_pr.resize(num_poses, num_proj_res);
+    j_l_.resize(num_proj_res, num_lm);
+    // jt_l_.resize(num_lm, num_proj_res);
+    r_pr_.resize(num_proj_res*ProjectionResidual::kResSize);
 
-  j_pp_.resize(num_bin_res, num_poses);
-  jt_pp_.resize(num_poses, num_bin_res);
-  r_pp_.resize(num_bin_res*BinaryResidual::kResSize);
+    // these calls remove all the blocks, but KEEP allocated memory as long as
+    // the object is alive
+    j_pr_.setZero();
+    jt_pr.setZero();
+    r_pr_.setZero();
+    j_l_.setZero();
 
-  j_u_.resize(num_un_res, num_poses);
-  jt_u_.resize(num_poses, num_un_res);
-  r_u_.resize(num_un_res*UnaryResidual::kResSize);
+    if (kCalibDim > 0) {
+      j_kpr_.resize(num_proj_res, 1);
+      jt_kpr_.resize(1, num_proj_res);
+      j_kpr_.setZero();
+      jt_kpr_.setZero();
+    }
+  }
 
-  j_i_.resize(num_im_res, num_poses);
-  jt_i_.resize(num_poses, num_im_res);
-  j_ki_.resize(num_im_res, 1);
-  jt_ki_.resize(1, num_im_res);
-  r_i_.resize(num_im_res*ImuResidual::kResSize);
+  if (num_bin_res > 0) {
+    j_pp_.resize(num_bin_res, num_poses);
+    jt_pp_.resize(num_poses, num_bin_res);
+    r_pp_.resize(num_bin_res*BinaryResidual::kResSize);
 
+    j_pp_.setZero();
+    jt_pp_.setZero();
+    r_pp_.setZero();
+  }
 
-  // these calls remove all the blocks, but KEEP allocated memory as long as
-  // the object is alive
-  j_pr_.setZero();
-  jt_pr.setZero();
-  j_kpr_.setZero();
-  jt_kpr_.setZero();
-  r_pr_.setZero();
+  if (num_un_res > 0) {
+    j_u_.resize(num_un_res, num_poses);
+    jt_u_.resize(num_poses, num_un_res);
+    r_u_.resize(num_un_res*UnaryResidual::kResSize);
 
-  j_pp_.setZero();
-  jt_pp_.setZero();
-  r_pp_.setZero();
+    j_u_.setZero();
+    jt_u_.setZero();
+    r_u_.setZero();
+  }
 
-  j_u_.setZero();
-  jt_u_.setZero();
-  r_u_.setZero();
+  if (num_im_res > 0) {
+    j_i_.resize(num_im_res, num_poses);
+    jt_i_.resize(num_poses, num_im_res);
+    r_i_.resize(num_im_res*ImuResidual::kResSize);
 
-  j_i_.setZero();
-  jt_i_.setZero();
-  j_ki_.setZero();
-  jt_ki_.setZero();
-  r_i_.setZero();
+    j_i_.setZero();
+    jt_i_.setZero();
+    r_i_.setZero();
 
-  j_l_.setZero();
+    if (kCalibDim > 0) {
+      j_ki_.resize(num_im_res, 1);
+      jt_ki_.resize(1, num_im_res);
+      j_ki_.setZero();
+      jt_ki_.setZero();
+    }
+  }
+
   // jt_l_.setZero();
 
   is_param_mask_used_ = false;

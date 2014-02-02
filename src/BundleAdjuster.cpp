@@ -1358,7 +1358,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
 
           Scalar beta = 0;
           if (b * b > 4 * a * c && a > 1e-10) {
-            (-(b*b) + sqrt(b*b - 4*a*c)) / (2 * a);
+            beta = (-(b*b) + sqrt(b*b - 4*a*c)) / (2 * a);
           } else {
             StreamMessage(debug_level) <<
               "Cannot calculate blending factor. Using sd - a:" << a << " b:" <<
@@ -2538,7 +2538,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 }
 // specializations
 template class BundleAdjuster<REAL_TYPE, 1,6,0>;
-template class BundleAdjuster<REAL_TYPE, 1,9,0>;
+template class BundleAdjuster<REAL_TYPE, 1,15,0>;
 
 // specializations required for the applications
 #ifdef BUILD_APPS

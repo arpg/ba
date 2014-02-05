@@ -29,8 +29,8 @@
 // #define IMU_GYRO_UNCERTAINTY 7.15584993e-5  // 0.00104719755 // 0.1 //
 // #define IMU_ACCEL_UNCERTAINTY 0.00159855109  // 0.0392266 // 10
 
-#define IMU_GYRO_UNCERTAINTY 0.00104719755 // 0.01 //0.00104719755
-#define IMU_ACCEL_UNCERTAINTY 0.0392266 // 1 //0.0392266
+#define IMU_GYRO_UNCERTAINTY 0.0104719755 //0.00104719755
+#define IMU_ACCEL_UNCERTAINTY 0.392266 //0.0392266
 
 namespace ba {
 static const double Gravity = 9.8007;
@@ -401,7 +401,8 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
                               const Eigen::Matrix<Scalar, 3, 1>& g,
                               Eigen::Matrix<Scalar, 10, 6>* dy_db_ptr = 0,
                               Eigen::Matrix<Scalar, 10, 10>* dy_dpose_ptr = 0,
-                              Eigen::Matrix<Scalar, 10, 10>* c_prior = 0) {
+                              Eigen::Matrix<Scalar, 10, 10>* c_prior = 0,
+                              const Eigen::Matrix<Scalar, 6, 6>* r = 0) {
     //construct the state matrix
     Scalar dt = z_end.time - z_start.time;
     if (dt == 0) {
@@ -425,12 +426,12 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       Eigen::Matrix<Scalar, 9, 9> c_k1, c_k2, c_k3, c_k4, c_k;
       Eigen::Matrix<Scalar, 10, 10> c_y1, c_y2, c_y3, c_res;
 
-      const Eigen::Matrix<Scalar,6,1> cov_diag =
-          (Eigen::Matrix<Scalar,6,1>() <<
-          IMU_GYRO_UNCERTAINTY, IMU_GYRO_UNCERTAINTY,
-          IMU_GYRO_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY,
-           IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY).finished();
-      const Eigen::Matrix<Scalar,6,6> cov_meas = cov_diag.asDiagonal();
+      // const Eigen::Matrix<Scalar,6,1> cov_diag =
+      //     (Eigen::Matrix<Scalar,6,1>() <<
+      //     IMU_GYRO_UNCERTAINTY, IMU_GYRO_UNCERTAINTY,
+      //     IMU_GYRO_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY,
+      //      IMU_ACCEL_UNCERTAINTY, IMU_ACCEL_UNCERTAINTY).finished();
+      const Eigen::Matrix<Scalar,6,6> cov_meas = *r;
 
       // std::cout << "cov_meas" << std::endl << cov_meas << std::endl;
       const Eigen::Matrix<Scalar, 9, 1> k1 =
@@ -628,7 +629,8 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       const Eigen::Matrix<Scalar, 3, 1>& g, std::vector<ImuPose>& poses,
       Eigen::Matrix<Scalar, 10, 6>* dpose_db = 0,
       Eigen::Matrix<Scalar, 10, 10>* dpose_dpose = 0,
-      Eigen::Matrix<Scalar, 10, 10>* c_res = 0) {
+      Eigen::Matrix<Scalar, 10, 10>* c_res = 0,
+      const Eigen::Matrix<Scalar, 6, 6>* r = 0) {
     const ImuPose orig_pose = pose;
     const ImuMeasurement* prev_meas = 0;
     poses.clear();
@@ -654,7 +656,7 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
           Eigen::Matrix<Scalar, 10, 10> dy_dy;
           const ImuPose y0 = pose;
           pose = IntegrateImu(pose, *prev_meas, meas, bg, ba, g, &dy_db,
-                              &dy_dy, c_res);
+                              &dy_dy, c_res, r);
 
           BA_TEST( _Test_IntegrateImu_BiasJacobian( y0,*prev_meas,meas,
                   bg,ba,g,dy_db ) );

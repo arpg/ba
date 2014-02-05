@@ -8,6 +8,7 @@ option(EXPORT_BA "Should BA be exported." ON)
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/CMakeModules/")
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake_modules/")
 
+
 if( ANDROID )
     add_definitions(-DREAL_TYPE=float)
 else()

@@ -88,7 +88,9 @@ public:
             const unsigned int num_measurements,
             const unsigned int num_landmarks = 0,
             const SE3t& t_vs = SE3t(),
-            const Scalar trust_region_size = 1.0)
+            const Scalar trust_region_size = 1.0,
+            const double gyro_uncertainty = IMU_GYRO_UNCERTAINTY,
+            const double accel_uncertainty = IMU_ACCEL_UNCERTAINTY)
   {
     // if LmSize == 0, there is no need for a camera rig or landmarks
     assert(num_landmarks != 0 || LmSize == 0);
@@ -106,6 +108,13 @@ public:
 
     imu_.t_vs = t_vs;
     last_tvs_ = imu_.t_vs;
+    imu_.r = ((Eigen::Matrix<Scalar, 6, 1>() <<
+              gyro_uncertainty,
+              gyro_uncertainty,
+              gyro_uncertainty,
+              accel_uncertainty,
+              accel_uncertainty,
+              accel_uncertainty).finished().asDiagonal());
 
     landmarks_.reserve(num_landmarks);
     proj_residuals_.reserve(num_measurements);

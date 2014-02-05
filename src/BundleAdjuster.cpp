@@ -394,7 +394,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
   }
 
   use_prior_ = use_prior;
-  const bool use_triangular = true;
+  const bool use_triangular = false;
   do_sparse_solve_ = true;
   do_last_pose_cov_ = false;
 
@@ -1602,6 +1602,15 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     root_pose.param_mask[0] = root_pose.param_mask[1] =
     root_pose.param_mask[2] = false;
 
+    // If the biases are in the state, we need to regularize them
+    if (kBiasInState) {
+      StreamMessage(debug_level) <<
+        "Regularizing bias of first pose." << std::endl;
+      root_pose.param_mask[9] = root_pose.param_mask[10] =
+      root_pose.param_mask[11] = root_pose.param_mask[12] =
+      root_pose.param_mask[13] = root_pose.param_mask[14] = false;
+    }
+
     // if there is no velocity in the state, fix the three initial rotations,
     // as we don't need to accomodate gravity
     if (!kVelInState) {
@@ -1611,9 +1620,12 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
       root_pose.param_mask[3] = root_pose.param_mask[4] =
       root_pose.param_mask[5] = false;
-    }else {
-      const Vector3t gravity = kGravityInCalib ? GetGravityVector(imu_.g) :
-                                                 imu_.g_vec;
+    } else if (kGravityInCalib) {
+      // If gravity is explicitly parameterized, fix the intial rotations
+      root_pose.param_mask[3] = root_pose.param_mask[4] =
+      root_pose.param_mask[5] = false;
+    } else {
+      const Vector3t gravity = imu_.g_vec;
 
       // regularize one rotation axis due to gravity null space, depending on the
       // major gravity axis)
@@ -1897,7 +1909,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     ImuPose imu_pose = ImuResidual::IntegrateResidual(
           pose1, res.measurements, pose1.b.template head<3>(),
           pose1.b.template tail<3>(), gravity, res.poses,
-          &jb_q, nullptr, &c_imu_pose);
+          &jb_q, nullptr, &c_imu_pose, &imu_.r);
 
     /*
     // Verify c_imu_pose using the unscented transform.
@@ -2099,18 +2111,21 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         dse3t1t2v_dt1 * c_imu_pose *
         dse3t1t2v_dt1.transpose();
 
+    // Eigen::Matrix<Scalar, ImuResidual::kResSize, 1> diag = res.cov_inv.diagonal();
+    // res.cov_inv = diag.asDiagonal();
+
     // res.cov_inv.setIdentity();
 
-     StreamMessage(debug_level) << "cov:" << std::endl <<
+     StreamMessage(debug_level + 1) << "cov:" << std::endl <<
                                    res.cov_inv << std::endl;
     res.cov_inv = res.cov_inv.inverse();
     res.cov_inv_sqrt = res.cov_inv.sqrt();
     res.residual = res.cov_inv_sqrt * res.residual;
 
 
-    StreamMessage(debug_level) << "cov_inv:" << std::endl <<
+    StreamMessage(debug_level + 1) << "cov_inv:" << std::endl <<
                                   res.cov_inv.format(kLongFmt) << std::endl;
-    StreamMessage(debug_level) << "cov_inv_sqrt:" << std::endl <<
+    StreamMessage(debug_level + 1) << "cov_inv_sqrt:" << std::endl <<
                                   res.cov_inv_sqrt.format(kLongFmt) << std::endl;
 
     // bias jacbian, only if bias in the state.
@@ -2483,13 +2498,14 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       if (kCalibDim > 0 ){
         Eigen::Matrix<Scalar,9,2> dz_dg = res.dz_dg;
         j_ki_.insert(res.residual_id, 0 ).setZero().
-            template block(0,0,9,2) = dz_dg.template block(0,0,9,2);
+            template block(0,0,9,2) =
+            res.cov_inv_sqrt * dz_dg.template block(0,0,9,2);
 
         // this down weights the velocity error
         dz_dg.template block<3,2>(6,0) *= 0.1;
         jt_ki_.insert( 0, res.residual_id ).setZero().
             template block(0,0,2,9) =
-                dz_dg.transpose().template block(0,0,2,9) * res.weight;
+                dz_dg.transpose().template block(0,0,2,9) * res.cov_inv_sqrt;
       }
 
       // include Y terms

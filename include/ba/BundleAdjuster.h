@@ -439,7 +439,7 @@ public:
     inertial_error = inertial_error_;
   }
 
-  void MarginalizePose(const int root_pose_id = -1);
+  void MarginalizePose(int root_pose_id = -1);
   void TransformPriorSE3(const SE3t& t_a1a2);
   void ClearPrior()
   {

@@ -29,8 +29,10 @@
 // #define IMU_GYRO_UNCERTAINTY 7.15584993e-5  // 0.00104719755 // 0.1 //
 // #define IMU_ACCEL_UNCERTAINTY 0.00159855109  // 0.0392266 // 10
 
-#define IMU_GYRO_UNCERTAINTY 0.0104719755 //0.00104719755
-#define IMU_ACCEL_UNCERTAINTY 0.392266 //0.0392266
+#define IMU_GYRO_UNCERTAINTY 7.15584993e-5 //0.00104719755
+#define IMU_GYRO_BIAS_UNCERTAINTY 1.8119e-4
+#define IMU_ACCEL_UNCERTAINTY 0.0159855109 //0.0392266
+#define IMU_GYRO_ACCEL_UNCERTAINTY 0.003981242
 
 namespace ba {
 static const double Gravity = 9.8007;
@@ -39,14 +41,15 @@ struct PoseT {
   Sophus::SE3Group<Scalar> t_wp;
   Sophus::SE3Group<Scalar> t_vs;
   Eigen::Matrix<Scalar, 3, 1> v_w;
+  /// Gyroscope and Acceleromeoter bias vector, in that order
   Eigen::Matrix<Scalar, 6, 1> b;
   Eigen::Matrix<Scalar, Eigen::Dynamic, 1> cam_params;
   std::vector<bool> param_mask;
   bool is_param_mask_used;
   bool is_active;
   int external_id;
-  unsigned int id;
-  unsigned int opt_id;
+  uint32_t id;
+  uint32_t opt_id;
   double time;
   std::vector<int> proj_residuals;
   std::vector<int> inertial_residuals;
@@ -55,7 +58,7 @@ struct PoseT {
   std::vector<int> landmarks;
   std::vector<Sophus::SE3Group<Scalar>> t_sw;
 
-  const Sophus::SE3Group<Scalar>& GetTsw(const unsigned int cam_id,
+  const Sophus::SE3Group<Scalar>& GetTsw(const uint32_t cam_id,
                                          const calibu::CameraRigT<Scalar>& rig,
                                          const bool use_internal_t_sw) {
     while (t_sw.size() <= cam_id) {
@@ -77,10 +80,10 @@ struct LandmarkT {
   Eigen::Matrix<Scalar, 4, 1> x_w;
   std::vector<int> proj_residuals;
   int external_id;
-  unsigned int id;
-  unsigned int opt_id;
-  unsigned int ref_pose_id;
-  unsigned int ref_cam_id;
+  uint32_t id;
+  uint32_t opt_id;
+  uint32_t ref_pose_id;
+  uint32_t ref_cam_id;
   bool is_active;
   bool is_reliable;
 };
@@ -235,16 +238,17 @@ struct ImuMeasurementT {
 
 template<typename Scalar, int kParamSize>
 struct ResidualT {
-  unsigned int residual_id;
-  unsigned int residual_offset;
+  uint32_t residual_id;
+  uint32_t residual_offset;
+  Scalar mahalanobis_distance;
   Scalar weight;
   Scalar orig_weight;
 };
 
 template<typename Scalar = double>
 struct UnaryResidualT : public ResidualT<Scalar, 6> {
-  static const unsigned int kResSize = 6;
-  unsigned int pose_id;
+  static const uint32_t kResSize = 6;
+  uint32_t pose_id;
   Sophus::SE3Group<Scalar> t_wp;
   Eigen::Matrix<Scalar, kResSize, 6> dz_dx;
   Eigen::Matrix<Scalar, kResSize, 1> residual;
@@ -254,9 +258,9 @@ struct UnaryResidualT : public ResidualT<Scalar, 6> {
 
 template<typename Scalar = double>
 struct BinaryResidualT : public ResidualT<Scalar, 6> {
-  static const unsigned int kResSize = 6;
-  unsigned int x1_id;
-  unsigned int x2_id;
+  static const uint32_t kResSize = 6;
+  uint32_t x1_id;
+  uint32_t x2_id;
   Sophus::SE3Group<Scalar> t_12;
   Eigen::Matrix<Scalar, kResSize, 6> dz_dx1;
   Eigen::Matrix<Scalar, kResSize, 6> dz_dx2;
@@ -265,12 +269,12 @@ struct BinaryResidualT : public ResidualT<Scalar, 6> {
 
 template<typename Scalar = double, int LmSize = 1>
 struct ProjectionResidualT : public ResidualT<Scalar, 6> {
-  static const unsigned int kResSize = 2;
+  static const uint32_t kResSize = 2;
   Eigen::Matrix<Scalar, kResSize, 1> z;
-  unsigned int x_meas_id;
-  unsigned int x_ref_id;
-  unsigned int landmark_id;
-  unsigned int cam_id;
+  uint32_t x_meas_id;
+  uint32_t x_ref_id;
+  uint32_t landmark_id;
+  uint32_t cam_id;
 
   Eigen::Matrix<Scalar, kResSize, LmSize> dz_dlm;
   Eigen::Matrix<Scalar, 2, 6> dz_dx_meas;
@@ -283,9 +287,9 @@ template<typename Scalar = double, int ResidualSize = 15, int PoseSize = 15>
 struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
   typedef ImuPoseT<Scalar> ImuPose;
   typedef ImuMeasurementT<Scalar> ImuMeasurement;
-  static const unsigned int kResSize = ResidualSize;
-  unsigned int pose1_id;
-  unsigned int pose2_id;
+  static const uint32_t kResSize = ResidualSize;
+  uint32_t pose1_id;
+  uint32_t pose2_id;
   // Eigen::Matrix<Scalar,9,9>   SigmanInv;
   std::vector<ImuMeasurement> measurements;
   std::vector<ImuPose> poses;

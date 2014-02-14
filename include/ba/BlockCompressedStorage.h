@@ -1,6 +1,7 @@
 #ifndef BLOCKBlockCompressedStorage_H
 #define BLOCKBlockCompressedStorage_H
 
+#include <iostream>
 
 namespace Eigen {
 

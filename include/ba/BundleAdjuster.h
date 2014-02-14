@@ -29,13 +29,27 @@ using BlockMat = Eigen::SparseBlockMatrix<Scalar>;
 template<typename Scalar>
 using aligned_vector = std::vector<Scalar, Eigen::aligned_allocator<Scalar>>;
 
+template<typename Scalar=double>
+struct SolutionSummary
+{
+  uint32_t num_proj_residuals;
+  uint32_t num_inertial_residuals;
+  uint32_t num_cond_proj_residuals;
+  uint32_t num_cond_inertial_residuals;
+  Scalar cond_proj_error;
+  Scalar cond_inertial_error;
+  Scalar proj_error_;
+  Scalar inertial_error;
+};
+
+
 template<typename Scalar=double,int LmSize=1, int PoseSize=6, int CalibSize=8>
 class BundleAdjuster
-{
-  static const unsigned int kPrPoseDim = 6;
-  static const unsigned int kLmDim = LmSize;
-  static const unsigned int kPoseDim = PoseSize;
-  static const unsigned int kCalibDim = CalibSize;
+{  
+  static const uint32_t kPrPoseDim = 6;
+  static const uint32_t kLmDim = LmSize;
+  static const uint32_t kPoseDim = PoseSize;
+  static const uint32_t kCalibDim = CalibSize;
 
   typedef PoseT<Scalar> Pose;
   typedef LandmarkT<Scalar,LmSize> Landmark;
@@ -84,9 +98,9 @@ public:
 
 
   ////////////////////////////////////////////////////////////////////////////
-  void Init(const unsigned int num_poses,
-            const unsigned int num_measurements,
-            const unsigned int num_landmarks = 0,
+  void Init(const uint32_t num_poses,
+            const uint32_t num_measurements,
+            const uint32_t num_landmarks = 0,
             const SE3t& t_vs = SE3t(),
             const Scalar trust_region_size = 1.0,
             const double gyro_uncertainty = IMU_GYRO_UNCERTAINTY,
@@ -128,6 +142,9 @@ public:
     unary_residuals_.clear();
     inertial_residuals_.clear();
     landmarks_.clear();
+
+    conditioning_inertial_residuals_.clear();
+    conditioning_proj_residuals_.clear();
   }
 
   ////////////////////////////////////////////////////////////////////////////
@@ -147,7 +164,7 @@ public:
 
 
   ////////////////////////////////////////////////////////////////////////////
-  unsigned int AddCamera( const calibu::CameraModelInterfaceT<Scalar>& cam_param,
+  uint32_t AddCamera( const calibu::CameraModelInterfaceT<Scalar>& cam_param,
                           const SE3t&                        cam_pose)
   {
     rig_.Add(cam_param, cam_pose);
@@ -155,7 +172,7 @@ public:
   }
 
   ////////////////////////////////////////////////////////////////////////////
-  unsigned int AddPose(const SE3t& t_wp,
+  uint32_t AddPose(const SE3t& t_wp,
                        const bool is_active = true,
                        const double time = -1,
                        const int external_id = -1)
@@ -181,7 +198,7 @@ public:
   /// \param external_id external id used for bookkeeping outside of ba
   /// \return the internal optimization id used to form constraints
   ///
-  unsigned int AddPose(const SE3t& t_wv, const SE3t& t_vs,
+  uint32_t AddPose(const SE3t& t_wv, const SE3t& t_vs,
                        const VectorXt cam_params, const Vector3t& v_w,
                        const Vector6t& b, const bool is_active = true,
                        const double time = -1, const int external_id = -1)
@@ -216,9 +233,9 @@ public:
   }
 
   ////////////////////////////////////////////////////////////////////////////
-  unsigned int AddLandmark(const Vector4t& x_w,
-                           const unsigned int ref_pose_id,
-                           const unsigned int ref_cam_id,
+  uint32_t AddLandmark(const Vector4t& x_w,
+                           const uint32_t ref_pose_id,
+                           const uint32_t ref_cam_id,
                            const bool is_active,
                            const int external_id = -1)
   {
@@ -265,7 +282,7 @@ public:
   /// \param covariance the 6x6 covariance in the residual space
   /// \return
   ///
-  unsigned int AddUnaryConstraint(const unsigned int pose_id,
+  uint32_t AddUnaryConstraint(const uint32_t pose_id,
                                   const SE3t& t_wv,
                                   Eigen::Matrix<Scalar, UnaryResidual::kResSize,
                                   UnaryResidual::kResSize> covariance)
@@ -291,8 +308,8 @@ public:
   }
 
   ////////////////////////////////////////////////////////////////////////////
-  unsigned int AddBinaryConstraint(const unsigned int pose1_id,
-                                   const unsigned int pose2_id,
+  uint32_t AddBinaryConstraint(const uint32_t pose1_id,
+                                   const uint32_t pose2_id,
                                    const SE3t& t_12)
   {
     assert(pose1_id < poses_.size());
@@ -318,10 +335,10 @@ public:
   }
 
   ////////////////////////////////////////////////////////////////////////////
-  unsigned int AddProjectionResidual(const Vector2t z,
-                                     const unsigned int meas_pose_id,
-                                     const unsigned int landmark_id,
-                                     const unsigned int cam_id,
+  uint32_t AddProjectionResidual(const Vector2t z,
+                                     const uint32_t meas_pose_id,
+                                     const uint32_t landmark_id,
+                                     const uint32_t cam_id,
                                      const Scalar weight = 1.0)
   {
     assert(landmark_id < landmarks_.size());
@@ -347,7 +364,7 @@ public:
     // frame in which it was first seen, as with inverse depth, the error
     // would always be zero. however, if 3dof parametrization of landmarks
     // is used, we add all measurements
-    const unsigned int res_id = residual.residual_id;
+    const uint32_t res_id = residual.residual_id;
     const bool diff_poses = meas_pose_id != residual.x_ref_id;
     if (diff_poses || cam_id != lm.ref_cam_id || LmSize != 1) {
       landmarks_[landmark_id].proj_residuals.push_back(res_id);
@@ -365,12 +382,16 @@ public:
     proj_residuals_.push_back(residual);
     proj_residual_offset += ProjectionResidual::kResSize;
 
+    if (poses_[residual.x_meas_id].is_active == false) {
+      conditioning_proj_residuals_.push_back(residual.residual_id);
+    }
+
     return residual.residual_id;
   }
 
   ////////////////////////////////////////////////////////////////////////////
-  unsigned int AddImuResidual(const unsigned int pose1_id,
-                              const unsigned int pose2_id,
+  uint32_t AddImuResidual(const uint32_t pose1_id,
+                              const uint32_t pose2_id,
                               const std::vector<ImuMeasurement>& imu_meas,
                               const Scalar weight = 1.0)
   {
@@ -392,28 +413,34 @@ public:
 
     poses_[pose1_id].inertial_residuals.push_back(residual.residual_id);
     poses_[pose2_id].inertial_residuals.push_back(residual.residual_id);
+
+    if (poses_[pose1_id].is_active == false ||
+        poses_[pose2_id].is_active == false) {
+      conditioning_inertial_residuals_.push_back(residual.residual_id);
+    }
+
     return residual.residual_id;
   }
 
-  void Solve(const unsigned int uMaxIter,
+  void Solve(const uint32_t uMaxIter,
              const Scalar gn_damping = 1.0,
              const bool error_increase_allowed = false,
              const bool use_dogleg = true,
              const bool use_prior = false);
 
-  void SetRootPoseId(const unsigned int id) { root_pose_id_ = id; }
+  void SetRootPoseId(const uint32_t id) { root_pose_id_ = id; }
 
   bool IsTranslationEnabled() { return translation_enabled_; }
-  unsigned int GetNumPoses() const { return poses_.size(); }
-  unsigned int GetNumImuResiduals() const { return inertial_residuals_.size(); }
-  unsigned int GetNumProjResiduals() const { return proj_residuals_.size(); }
+  uint32_t GetNumPoses() const { return poses_.size(); }
+  uint32_t GetNumImuResiduals() const { return inertial_residuals_.size(); }
+  uint32_t GetNumProjResiduals() const { return proj_residuals_.size(); }
 
-  const ImuResidual& GetImuResidual(const unsigned int id)
+  const ImuResidual& GetImuResidual(const uint32_t id)
   const { return inertial_residuals_[id]; }
 
   const ImuCalibration& GetImuCalibration() const { return imu_; }
   void SetImuCalibration(const ImuCalibration& calib) { imu_ = calib; }
-  const Pose& GetPose(const unsigned int id) const  {
+  const Pose& GetPose(const uint32_t id) const  {
     if (id >= poses_.size()) {
       std::cerr << "Attempted to get pose with id " << id << " from BA. "
                    "Aborting..." << std::endl;
@@ -423,9 +450,9 @@ public:
   }
 
   // return the landmark in the world frame
-  const Vector4t& GetLandmark(const unsigned int id)
+  const Vector4t& GetLandmark(const uint32_t id)
   const { return landmarks_[id].x_w; }
-  bool IsLandmarkReliable(const unsigned int id)
+  bool IsLandmarkReliable(const uint32_t id)
   const { return landmarks_[id].is_reliable; }
 
   void GetErrors( Scalar &proj_error,
@@ -439,6 +466,7 @@ public:
     inertial_error = inertial_error_;
   }
 
+  const SolutionSummary<Scalar>& GetSolutionSummary() { return summary_; }
   void MarginalizePose(int root_pose_id = -1);
   void TransformPriorSE3(const SE3t& t_a1a2);
   void ClearPrior()
@@ -533,23 +561,26 @@ private:
   Scalar inertial_error_;
   Scalar tvs_trans_prior_;
   Scalar tvs_rot_prior_;
-  unsigned int root_pose_id_;
-  unsigned int num_active_poses_;
-  unsigned int num_active_landmarks_;
-  unsigned int binary_residual_offset_;
-  unsigned int unary_residual_offset_;
-  unsigned int proj_residual_offset;
-  unsigned int inertial_residual_offset_;
+  uint32_t root_pose_id_;
+  uint32_t num_active_poses_;
+  uint32_t num_active_landmarks_;
+  uint32_t binary_residual_offset_;
+  uint32_t unary_residual_offset_;
+  uint32_t proj_residual_offset;
+  uint32_t inertial_residual_offset_;
   calibu::CameraRigT<Scalar> rig_;
   std::vector<Pose> poses_;
   std::vector<Landmark> landmarks_;
   std::vector<ProjectionResidual > proj_residuals_;
+  std::vector<uint32_t> conditioning_proj_residuals_;
+  std::vector<uint32_t> conditioning_inertial_residuals_;
   std::vector<BinaryResidual> binary_residuals_;
   std::vector<UnaryResidual> unary_residuals_;
   std::vector<ImuResidual> inertial_residuals_;
   std::vector<Scalar> errors_;
   Eigen::Matrix<Scalar,kPoseDim+1,kPoseDim+1> last_pose_cov_;
 
+  SolutionSummary<Scalar> summary_;
 };
 
 static const int NOT_USED = 0;

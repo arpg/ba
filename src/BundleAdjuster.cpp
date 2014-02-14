@@ -72,8 +72,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
     // only update active poses, as inactive ones are not part of the
     // optimization
     if (poses_[ii].is_active) {
-      const unsigned int opt_id = poses_[ii].opt_id;
-      const unsigned int p_offset = poses_[ii].opt_id*kPoseDim;
+      const uint32_t opt_id = poses_[ii].opt_id;
+      const uint32_t p_offset = poses_[ii].opt_id*kPoseDim;
       const Eigen::Matrix<Scalar, 6, 1>& p_update =
           -delta.delta_p.template block<6,1>(p_offset,0)*coef;
       // const SE3t p_update_se3 = SE3t::exp(p_update);
@@ -247,7 +247,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
 
       //  std::cout << "res " << res.residual_id << " : pre" << res.residual.norm() <<
       //               " post " << res.residual.norm() * res.weight << std::endl;
-      *proj_error += res.residual.squaredNorm() * res.weight;
+      res.mahalanobis_distance = res.residual.squaredNorm() * res.weight;
+      *proj_error += res.mahalanobis_distance;
     }
   }
 
@@ -257,7 +258,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
       const Pose& pose = poses_[res.pose_id];
       // res.residual = SE3t::log(res.t_wp.inverse() * pose.t_wp);
       res.residual = log_decoupled(res.t_wp, pose.t_wp);
-      *unary_error += (res.residual.transpose() * res.cov_inv * res.residual);
+      res.mahalanobis_distance =
+          (res.residual.transpose() * res.cov_inv * res.residual);
+      *unary_error += res.mahalanobis_distance;
     }
   }
 
@@ -269,7 +272,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
       res.residual = log_decoupled(pose1.t_wp.inverse() * pose2.t_wp,
                                    res.t_12);
       // res.residual = SE3t::log(pose1.t_wp.inverse() * pose2.t_wp * res.t_21);
-      *binary_error += res.residual.squaredNorm() * res.weight;
+      res.mahalanobis_distance = res.residual.squaredNorm() * res.weight;
+      *binary_error += res.mahalanobis_distance;
     }
   }
 
@@ -321,8 +325,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
 
       // std::cout << "EVALUATE imu res between " << res.PoseAId << " and " <<
       // res.PoseBId << ":" << res.Residual.transpose () << std::endl;
-      *inertial_error +=
+      res.mahalanobis_distance =
           (res.residual.transpose() * res.cov_inv * res.residual);
+      *inertial_error += res.mahalanobis_distance;
+          ;
       //res.weight;
     }
 
@@ -357,13 +363,13 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
         total_tvs_change_ = total_tvs_change;
       }
     }
-  }
+  }  
+
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
-void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
-    const unsigned int uMaxIter, const Scalar gn_damping,
+void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(const uint32_t uMaxIter, const Scalar gn_damping,
     const bool error_increase_allowed, const bool use_dogleg,
     const bool use_prior)
 {
@@ -398,15 +404,15 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
   do_sparse_solve_ = true;
   do_last_pose_cov_ = false;
 
-  for (unsigned int kk = 0 ; kk < uMaxIter ; ++kk) {
+  for (uint32_t kk = 0 ; kk < uMaxIter ; ++kk) {
     StartTimer(_BuildProblem_);
     BuildProblem();
     PrintTimer(_BuildProblem_);
 
 
-    const unsigned int num_poses = num_active_poses_;
-    const unsigned int num_pose_params = num_poses*kPoseDim;
-    const unsigned int num_lm = num_active_landmarks_;
+    const uint32_t num_poses = num_active_poses_;
+    const uint32_t num_pose_params = num_poses*kPoseDim;
+    const uint32_t num_lm = num_active_landmarks_;
 
     StartTimer(_steup_problem_);
     StartTimer(_rhs_mult_);
@@ -545,7 +551,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       StartTimer(_schur_complement_v);
       Eigen::Matrix<Scalar,kLmDim,kLmDim> jtj_l;
       Eigen::Matrix<Scalar,kLmDim,1> jtr_l;
-      for (unsigned int ii = 0; ii < landmarks_.size() ; ++ii) {
+      for (uint32_t ii = 0; ii < landmarks_.size() ; ++ii) {
         // Skip inactive landmarks.
         if ( !landmarks_[ii].is_active) {
           continue;
@@ -806,7 +812,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     if (is_param_mask_used_) {
       for (Pose& pose : poses_) {
         if (pose.is_active && pose.is_param_mask_used) {
-          for (unsigned int ii = 0 ; ii < pose.param_mask.size() ; ++ii) {
+          for (uint32_t ii = 0 ; ii < pose.param_mask.size() ; ++ii) {
             if (!pose.param_mask[ii]) {
               const int idx = pose.opt_id*kPoseDim + ii;
               s_(idx, idx) = 1.0;
@@ -815,6 +821,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
         }
       }
     }
+
+    // std::ofstream("s.txt", std::ios_base::trunc) << s_.format(kLongCsvFmt);
 
     PrintTimer(_steup_problem_);
 
@@ -861,6 +869,34 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       */
     }
   }
+
+  // Now go through any conditioned residuals, and figure out the total
+  // mahalonobis distance for the conditioning
+  summary_.cond_inertial_error = 0;
+  summary_.cond_proj_error = 0;
+  summary_.num_cond_inertial_residuals =
+      conditioning_inertial_residuals_.size();
+  summary_.num_inertial_residuals = inertial_residuals_.size();
+  summary_.inertial_error = inertial_error_;
+  for (uint32_t id : conditioning_inertial_residuals_) {
+    const ImuResidual& res = inertial_residuals_[id];
+    summary_.cond_inertial_error += res.mahalanobis_distance;
+  }
+
+  for (const ImuResidual& res : inertial_residuals_) {
+    std::cerr << "Mahalanobis dist. for residual " << res.residual_id <<
+                 " : " << res.mahalanobis_distance /*<< " res: " <<
+                 res.residual.transpose() << " norm: " <<
+                 res.residual.norm() */<< std::endl;
+  }
+
+  summary_.num_cond_proj_residuals = conditioning_proj_residuals_.size();
+  summary_.num_proj_residuals = proj_residuals_.size();
+  summary_.proj_error_ = proj_error_;
+  for (uint32_t id : conditioning_proj_residuals_) {
+    const ProjectionResidual& res = proj_residuals_[id];
+    summary_.cond_proj_error += res.mahalanobis_distance;
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -888,13 +924,13 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
     std::vector<int> w_ids;
     w_sizes.reserve(last_pose.landmarks.size());
     w_ids.resize(last_pose.landmarks.size());
-    for (unsigned int ii = 0;  ii < last_pose.landmarks.size() ; ++ii) {
+    for (uint32_t ii = 0;  ii < last_pose.landmarks.size() ; ++ii) {
       const Landmark& lm = landmarks_[last_pose.landmarks[ii]];
       if (lm.is_active) {
-        unsigned int num_w_cells = 0;
+        uint32_t num_w_cells = 0;
         for (typename decltype(jt_pr_j_l_)::InnerIterator iter(
                jt_pr_j_l_, landmarks_[ii].opt_id) ; iter; ++iter) {
-          if(static_cast<unsigned int>(iter.index()) != last_pose.opt_id) {
+          if(static_cast<uint32_t>(iter.index()) != last_pose.opt_id) {
             num_w_cells++;
           }
         }
@@ -943,7 +979,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
       "Filling v and w matrices... " << std::endl;
 
     // fill the matrices
-    for (unsigned int ii = 0;  ii < last_pose.landmarks.size() ; ++ii) {
+    for (uint32_t ii = 0;  ii < last_pose.landmarks.size() ; ++ii) {
       const Landmark& lm = landmarks_[ii];
       // If the landmark is active we want to allocate a column in W
       const int w_id = w_ids[ii];
@@ -952,7 +988,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
                jt_pr_j_l_, lm.opt_id); iter; ++iter){
           // This check is to ensure that we don't add w contributions from the
           // pose we are marginalizing.
-          if (static_cast<unsigned int>(iter.index()) != last_pose.opt_id) {
+          if (static_cast<uint32_t>(iter.index()) != last_pose.opt_id) {
             v.template block<kLmDim, kLmDim>(w_id, w_id) =
                 vi_.coeff(lm.opt_id, lm.opt_id);
             // We subtract 1 fron iter.index() as the marginalized pose is no
@@ -977,7 +1013,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
     // Populate w_p for pose-pose constraints
     for (typename decltype(u_)::InnerIterator iter(
            u_, last_pose.opt_id); iter; ++iter){
-      if (static_cast<unsigned int>(iter.index()) != last_pose.opt_id) {
+      if (static_cast<uint32_t>(iter.index()) != last_pose.opt_id) {
         // We subtract 1 fron iter.index() as the marginalized pose is no
         // longer included in w, therefore all indices are reduces by 1.
         w.template block<kPoseDim, kPoseDim>(
@@ -993,7 +1029,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
 
     StreamMessage(debug_level) << "Regularizing V." << std::endl;
     if (last_pose.is_param_mask_used) {
-      for (unsigned int ii = 0 ; ii < last_pose.param_mask.size() ; ++ii) {
+      for (uint32_t ii = 0 ; ii < last_pose.param_mask.size() ; ++ii) {
         if (!last_pose.param_mask[ii]) {
           const int idx = active_lm * kLmDim + ii;
           v(idx, idx) = 1.0;
@@ -1165,8 +1201,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::CalculateGn(
     delta_gn = (rhs_p.rows() == 0 ? VectorXt() : solver.solve(rhs_p));
 
     //if (do_last_pose_cov_) {
-    //  //const unsigned int start_offset = rhs_p.rows()-kPoseDim;
-    //  const unsigned int start_offset = num_pose_params-kPoseDim;
+    //  //const uint32_t start_offset = rhs_p.rows()-kPoseDim;
+    //  const uint32_t start_offset = num_pose_params-kPoseDim;
     //  Eigen::Matrix<Scalar,kPoseDim,kPoseDim> cov;
     //  for (int ii = 0; ii < kPoseDim ; ++ii) {
     //    cov.col(ii) = solver.solve(
@@ -1209,6 +1245,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
   Delta delta_sd;
   Delta delta_dl;
   Delta delta_gn;
+  Scalar proj_error, binary_error, unary_error, inertial_error;
 
   if (use_dogleg) {
     // Refer to:
@@ -1236,26 +1273,35 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     StreamMessage(debug_level) << "rhs_l_ norm: " <<  rhs_l_.squaredNorm() <<
                                   std::endl;
 
-    // TODO: this needs to take into account binary and unary errors. For now
-    // dogleg is disabled
     if (num_active_poses_ > 0) {
-      Eigen::SparseBlockVectorProductDenseResult(
-            j_pr_,
-            rhs_p_,
-            j_p_rhs_p,
-            kPoseDim);
-      Eigen::SparseBlockVectorProductDenseResult(
-            j_i_,
-            rhs_p_,
-            j_i_rhs_p);
-      Eigen::SparseBlockVectorProductDenseResult(
-            j_pp_,
-            rhs_p_,
-            j_pp_rhs_p);
-      Eigen::SparseBlockVectorProductDenseResult(
-            j_u_,
-            rhs_p_,
-            j_u_rhs_p);
+      if (j_pr_.cols() > 0) {
+        Eigen::SparseBlockVectorProductDenseResult(
+              j_pr_,
+              rhs_p_,
+              j_p_rhs_p,
+              kPoseDim);
+      }
+
+      if (j_i_.cols() > 0) {
+        Eigen::SparseBlockVectorProductDenseResult(
+              j_i_,
+              rhs_p_,
+              j_i_rhs_p);
+      }
+
+      if (j_pp_.cols() > 0) {
+        Eigen::SparseBlockVectorProductDenseResult(
+              j_pp_,
+              rhs_p_,
+              j_pp_rhs_p);
+      }
+
+      if (j_u_.cols() > 0) {
+        Eigen::SparseBlockVectorProductDenseResult(
+              j_u_,
+              rhs_p_,
+              j_u_rhs_p);
+      }
     }
 
     if (num_active_landmarks_ > 0) {
@@ -1384,7 +1430,6 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
       decltype(imu_) imu_copy = imu_;
       decltype(rig_) rig_copy = rig_;
 
-      Scalar proj_error, binary_error, unary_error, inertial_error;
 
       // We have to calculate the residuals here, as during the inner loop of
       // dogleg, the residuals are constantly changing.
@@ -1449,31 +1494,31 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
                      num_active_poses_, num_active_landmarks_, delta.delta_l);
 
 
-    // Here we don't need to calculate the residuals, as they are already
-    // calculated during the BuildProblem phase.
-    ApplyUpdate(delta, false, gn_damping);
-
-
-    const Scalar dPrevError = proj_error_ + inertial_error_ + binary_error_ +
-        unary_error_;
+    // We have to calculate the residuals here, as during the inner loop of
+    // dogleg, the residuals are constantly changing.
+    EvaluateResiduals(&proj_error, &binary_error,
+                      &unary_error, &inertial_error);
+    const Scalar prev_error = proj_error + inertial_error + binary_error +
+                              unary_error;
+    ApplyUpdate(delta, false);
 
     StreamMessage(debug_level) << std::setprecision (15) <<
-      "Pre-solve norm: " << dPrevError << " with Epr:" <<
-      proj_error_ << " and Ei:" << inertial_error_ <<
-      " and Epp: " << binary_error_ << " and Eu " << unary_error_ << std::endl ;
+      "Pre-solve norm: " << prev_error << " with Epr:" <<
+      proj_error << " and Ei:" << inertial_error <<
+      " and Epp: " << binary_error << " and Eu " << unary_error << std::endl;
 
     Scalar proj_error, binary_error, unary_error, inertial_error;
     EvaluateResiduals(&proj_error, &binary_error,
                       &unary_error, &inertial_error);
-    const Scalar dPostError = proj_error + inertial_error + binary_error +
+    const Scalar postError = proj_error + inertial_error + binary_error +
         unary_error;
 
     StreamMessage(debug_level) << std::setprecision (15) <<
-      "Post-solve norm: " << dPostError << " with Epr:" <<
+      "Post-solve norm: " << postError << " with Epr:" <<
       proj_error << " and Ei:" << inertial_error <<
       " and Epp: " << binary_error << " and Eu " << unary_error << std::endl;
 
-    if (dPostError > dPrevError && !error_increase_allowed) {
+    if (postError > prev_error && !error_increase_allowed) {
        StreamMessage(debug_level) << "Error increasing during optimization, "
                                      " rolling back .." << std::endl;
        landmarks_ = landmarks_copy;
@@ -1489,7 +1534,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     }
 
 
-    if (fabs(dPrevError - dPostError)/dPrevError < 0.001) {
+    if (fabs(prev_error - postError)/prev_error < 0.001) {
       StreamMessage(debug_level) << "Error decrease less than 0.1%, "
                                     "aborting." << std::endl;
       return false;
@@ -1505,12 +1550,12 @@ template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
 void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 {
   // resize as needed
-  const unsigned int num_poses = num_active_poses_;
-  const unsigned int num_lm = num_active_landmarks_;
-  const unsigned int num_proj_res = proj_residuals_.size();
-  const unsigned int num_bin_res = binary_residuals_.size();
-  const unsigned int num_un_res = unary_residuals_.size();
-  const unsigned int num_im_res= inertial_residuals_.size();
+  const uint32_t num_poses = num_active_poses_;
+  const uint32_t num_lm = num_active_landmarks_;
+  const uint32_t num_proj_res = proj_residuals_.size();
+  const uint32_t num_bin_res = binary_residuals_.size();
+  const uint32_t num_un_res = unary_residuals_.size();
+  const uint32_t num_im_res= inertial_residuals_.size();
 
   if (num_proj_res > 0) {
     j_pr_.resize(num_proj_res, num_poses);
@@ -1584,6 +1629,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     }
   }
  // are_all_active = false;
+  // are_all_active = false;
   const bool using_prior = use_prior_ && prior_poses_.size() > 0;
 
   // If all poses are active and we are not marginalizing (therefore, we have
@@ -1680,9 +1726,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     // std::cerr << "res " << res.residual_id << " : pre" <<
     //                res.residual.norm() << std::endl;
 
-    // this array is used to calculate the robust norm
-    errors_.push_back(res.residual.squaredNorm());
-
     const Eigen::Matrix<Scalar,2,4> dt_dp_s = kLmDim == 3 ?
           cam.dTransfer3D_dP(
             t_sw_m, lm.x_w.template head<3>(),lm.x_w(3)) :
@@ -1711,7 +1754,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       // const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsv_m =
       //     dt_dp_m * t_vs_m.inverse().matrix();
 
-//      for (unsigned int ii=0; ii<6; ++ii) {
+//      for (uint32_t ii=0; ii<6; ++ii) {
 //       res.dz_dx_meas.template block<2,1>(0,ii) =
 //          dt_dp_m_tsv_m * Sophus::SE3Group<Scalar>::generator(ii) * x_v_m;
 //      }
@@ -1732,7 +1775,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         // const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsw_m_twp =
         //     -dt_dp_m_tsw_m * ref_pose.t_wp.matrix();
 
-        //for (unsigned int ii=0; ii<6; ++ii) {
+        //for (uint32_t ii=0; ii<6; ++ii) {
         //  res.dz_dx_ref.template block<2,1>(0,ii) =
         //     dt_dp_m_tsw_m_twp * Sophus::SE3Group<Scalar>::generator(ii) * x_v_r;
         //}
@@ -1782,6 +1825,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
     BA_TEST(_Test_dProjectionResidual_dX(res, pose, ref_pose, lm, rig_));
 
+    // this array is used to calculate the robust norm
+    errors_.push_back(res.residual.squaredNorm());
     // set the residual in m_R which is dense
     res.weight =  res.orig_weight;
     r_pr_.template segment<ProjectionResidual::kResSize>(res.residual_offset) =
@@ -1882,6 +1927,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   }
   PrintTimer(_j_evaluation_unary_);
 
+  errors_.reserve(num_im_res);
+  errors_.clear();
   StartTimer(_j_evaluation_inertial_);
   inertial_error_ = 0;
   for (ImuResidual& res : inertial_residuals_) {
@@ -2104,8 +2151,18 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     dse3t1t2v_dt1.template bottomRightCorner<3,3>().setIdentity();
 
     res.cov_inv.setZero();
-    res.cov_inv.diagonal() =
-            Eigen::Matrix<Scalar, ImuResidual::kResSize, 1>::Constant(1e-6);
+    Eigen::Matrix<Scalar, ImuResidual::kResSize, 1> sigmas =
+        Eigen::Matrix<Scalar, ImuResidual::kResSize, 1>::Ones();
+    // Write the bias uncertainties into the covariance matrix.
+    if (kBiasInState) {
+      sigmas.template segment<3>(9)
+          = Vector3t::Ones() * IMU_GYRO_BIAS_UNCERTAINTY * total_dt;
+      sigmas.template segment<3>(12)
+          = Vector3t::Ones() * IMU_GYRO_ACCEL_UNCERTAINTY * total_dt;
+    }
+
+    res.cov_inv.diagonal() = sigmas;
+
     // std::cout << "cres: " << std::endl << c_res.format(kLongFmt) << std::endl;
     res.cov_inv.template topLeftCorner<9,9>() =
         dse3t1t2v_dt1 * c_imu_pose *
@@ -2119,14 +2176,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
      StreamMessage(debug_level + 1) << "cov:" << std::endl <<
                                    res.cov_inv << std::endl;
     res.cov_inv = res.cov_inv.inverse();
-    res.cov_inv_sqrt = res.cov_inv.sqrt();
-    res.residual = res.cov_inv_sqrt * res.residual;
-
-
-    StreamMessage(debug_level + 1) << "cov_inv:" << std::endl <<
-                                  res.cov_inv.format(kLongFmt) << std::endl;
-    StreamMessage(debug_level + 1) << "cov_inv_sqrt:" << std::endl <<
-                                  res.cov_inv_sqrt.format(kLongFmt) << std::endl;
 
     // bias jacbian, only if bias in the state.
     if (kBiasInState) {
@@ -2259,15 +2308,47 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
     // _Test_dImuResidual_dX<Scalar, ImuResidual::kResSize, kPoseDim>(
     //       pose1, pose2, imu_pose, res, gravity, dse3_dx1, jb_q, imu_);
-
-
-    // now that we have the deltas with subtracted initial velocity,
-    // transform and gravity, we can construct the jacobian
-    r_i_.template segment<ImuResidual::kResSize>(res.residual_offset) =
-        res.residual;
-    inertial_error_ +=
-        (res.residual.transpose() * /*res.cov_inv * */res.residual);
+    // This is used to calculate the robust norm.
+    res.mahalanobis_distance =
+        res.residual.transpose() * res.cov_inv * res.residual;
+    errors_.push_back(res.mahalanobis_distance);
   }
+
+
+  if (errors_.size() > 0) {
+    auto it = errors_.begin()+std::floor(errors_.size()* 2 / 3);
+    std::nth_element(errors_.begin(),it,errors_.end());
+    const Scalar sigma = sqrt(*it);
+    // std::cout << "Projection error sigma is " << dSigma << std::endl;
+    // See "Parameter Estimation Techniques: A Tutorial with Application to
+    // Conic Fitting" by Zhengyou Zhang. PP 26 defines this magic number:
+    const Scalar c_huber = 1.2107*sigma;
+    std::cerr << "Sigma for imu errors: " << c_huber << std::endl;
+
+    // now go through the measurements and assign weights
+    for( ImuResidual& res : inertial_residuals_ ){
+      // calculate the huber norm weight for this measurement
+      Scalar weight = (res.mahalanobis_distance > c_huber ?
+                       c_huber/res.mahalanobis_distance : 1.0);
+      std::cerr << "Imu res " << res.residual_id << " error " <<
+                   res.mahalanobis_distance << " and huber w: " << weight << std::endl;
+
+      res.cov_inv = res.cov_inv * weight;
+      res.cov_inv_sqrt = res.cov_inv.sqrt();
+      decltype(res.residual) res_std_form = res.cov_inv_sqrt * res.residual;
+      proj_error_ += res.residual.squaredNorm() * res.weight;
+
+      // now that we have the deltas with subtracted initial velocity,
+      // transform and gravity, we can construct the jacobian
+      r_i_.template segment<ImuResidual::kResSize>(res.residual_offset) =
+          res_std_form;
+      // No need to multiply by sigma^-1 here, as the problem is in standard form.
+      res.mahalanobis_distance =
+          (res_std_form.transpose() * res_std_form);
+      inertial_error_ += res.mahalanobis_distance;
+    }
+  }
+  errors_.clear();
 
   // If we are marginalizing, at this point we must form the prior residual
   // between the previous pose parameters and the current estimate. We also
@@ -2377,6 +2458,11 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   if (!inertial_residuals_.empty()) {
     j_i_.reserve(j_i_sizes);
     jt_i_.reserve(Eigen::VectorXi::Constant(jt_i_.cols(), 2));
+
+    if (kCalibDim > 0) {
+      j_ki_.reserve(Eigen::VectorXi::Constant(1, num_im_res));
+      jt_ki_.reserve(Eigen::VectorXi::Constant(num_im_res, 1));
+    }
   }
 
   if (num_lm > 0) {
@@ -2384,6 +2470,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   }
 
   for (Pose& pose : poses_) {
+
     if (pose.is_active) {
       // sort the measurements by id so the sparse insert is O(1)
       std::sort(pose.proj_residuals.begin(), pose.proj_residuals.end());
@@ -2393,7 +2480,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
             res.x_meas_id == pose.id ? res.dz_dx_meas : res.dz_dx_ref;
         if (pose.is_param_mask_used) {
           is_param_mask_used_ = true;
-          for (unsigned int ii = 0 ; ii < kPrPoseDim ; ++ii) {
+          for (uint32_t ii = 0 ; ii < kPrPoseDim ; ++ii) {
              if (!pose.param_mask[ii]) {
                dz_dx.col(ii).setZero();
              }
@@ -2462,6 +2549,9 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       }
 
       std::sort(pose.inertial_residuals.begin(), pose.inertial_residuals.end());
+      std::cerr << "Inserting " << pose.inertial_residuals.size() << " inertial residuals for pose " <<
+                   pose.id << std::endl;
+
       for (const int id: pose.inertial_residuals) {
         ImuResidual& res = inertial_residuals_[id];
         Eigen::Matrix<Scalar,ImuResidual::kResSize,kPoseDim> dz_dz =
@@ -2469,7 +2559,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
         if (pose.is_param_mask_used) {
           is_param_mask_used_ = true;
-          for (unsigned int ii = 0 ; ii < kPoseDim ; ++ii) {
+          for (uint32_t ii = 0 ; ii < kPoseDim ; ++ii) {
              if (!pose.param_mask[ii]) {
                dz_dz.col(ii).setZero();
              }
@@ -2477,14 +2567,27 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         }
 
         j_i_.insert(
-          res.residual_id, pose.opt_id ).setZero().
-            template block<ImuResidual::kResSize,kPoseDim>(0,0) =
-            res.cov_inv_sqrt * dz_dz;
+          res.residual_id, pose.opt_id ) = res.cov_inv_sqrt * dz_dz;
 
+        /*
+        Eigen::Matrix<Scalar, ImuResidual::kResSize, ImuResidual::kResSize> sq = res.cov_inv_sqrt.eval();
+
+
+
+        (trans * Eigen::Matrix<Scalar, ImuResidual::kResSize, ImuResidual::kResSize>::Identity()).eval();
+
+        Eigen::Matrix<Scalar, kPoseDim, ImuResidual::kResSize> result =
+            (trans * sq).eval(); ;
         jt_i_.insert(
-          pose.opt_id, res.residual_id ).setZero().
-            template block<kPoseDim,ImuResidual::kResSize>(0,0) =
-              dz_dz.transpose() * res.cov_inv_sqrt /*res.weight*/;
+          pose.opt_id, res.residual_id ) = result; */
+
+        // ZZ why is this necessary? Will this be a problem with the unary
+        // residuals as well?
+        Eigen::Matrix<Scalar, kPoseDim, ImuResidual::kResSize> trans =
+            dz_dz.transpose().eval();
+        jt_i_.insert(
+          pose.opt_id, res.residual_id ) = trans * res.cov_inv_sqrt;
+
       }
     }
   }

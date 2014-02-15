@@ -561,10 +561,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(const uint32_t uMax
           const ProjectionResidual& res = proj_residuals_[id];
           jtj_l += (res.dz_dlm.transpose() * res.dz_dlm) *
               res.weight;
-          jtr_l += (res.dz_dlm.transpose() *
+          jtr_l += (res.dz_dlm.transpose() * sqrt(res.weight) *
                   r_pr_.template block<ProjectionResidual::kResSize,1>(
-                    res.residual_id*ProjectionResidual::kResSize, 0) *
-                    res.weight);
+                    res.residual_id*ProjectionResidual::kResSize, 0));
         }
         rhs_l_.template block<kLmDim,1>(landmarks_[ii].opt_id*kLmDim, 0) =
             jtr_l;
@@ -1274,41 +1273,25 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
 
     if (num_active_poses_ > 0) {
       if (j_pr_.cols() > 0) {
-        Eigen::SparseBlockVectorProductDenseResult(
-              j_pr_,
-              rhs_p_,
-              j_p_rhs_p,
+        Eigen::SparseBlockVectorProductDenseResult(j_pr_, rhs_p_, j_p_rhs_p,
               kPoseDim);
       }
 
       if (j_i_.cols() > 0) {
-        Eigen::SparseBlockVectorProductDenseResult(
-              j_i_,
-              rhs_p_,
-              j_i_rhs_p);
+        Eigen::SparseBlockVectorProductDenseResult(j_i_, rhs_p_, j_i_rhs_p);
       }
 
       if (j_pp_.cols() > 0) {
-        Eigen::SparseBlockVectorProductDenseResult(
-              j_pp_,
-              rhs_p_,
-              j_pp_rhs_p);
+        Eigen::SparseBlockVectorProductDenseResult(j_pp_, rhs_p_, j_pp_rhs_p);
       }
 
       if (j_u_.cols() > 0) {
-        Eigen::SparseBlockVectorProductDenseResult(
-              j_u_,
-              rhs_p_,
-              j_u_rhs_p);
+        Eigen::SparseBlockVectorProductDenseResult(j_u_, rhs_p_, j_u_rhs_p);
       }
     }
 
     if (num_active_landmarks_ > 0) {
-
-      Eigen::SparseBlockVectorProductDenseResult(
-            j_l_,
-            rhs_l_,
-            j_l_rhs_l);
+      Eigen::SparseBlockVectorProductDenseResult(j_l_, rhs_l_, j_l_rhs_l);
     }
 
     Scalar denominator = (j_p_rhs_p + j_l_rhs_l).squaredNorm() +
@@ -1824,12 +1807,12 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
     BA_TEST(_Test_dProjectionResidual_dX(res, pose, ref_pose, lm, rig_));
 
-    // this array is used to calculate the robust norm
-    errors_.push_back(res.residual.squaredNorm());
     // set the residual in m_R which is dense
     res.weight =  res.orig_weight;
-    r_pr_.template segment<ProjectionResidual::kResSize>(res.residual_offset) =
-        res.residual;
+    res.mahalanobis_distance = res.residual.squaredNorm() * res.weight;
+    // this array is used to calculate the robust norm
+    errors_.push_back(res.mahalanobis_distance);
+
   }
 
 
@@ -1859,11 +1842,14 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     // now go through the measurements and assign weights
     for( ProjectionResidual& res : proj_residuals_ ){
       // calculate the huber norm weight for this measurement
-      const Scalar e = res.residual.norm();
-      const bool is_cond =
-          !poses_[res.x_meas_id].is_active || !poses_[res.x_ref_id].is_active;
+      const Scalar e = sqrt(res.mahalanobis_distance);
+      const bool is_cond = false;
+          //!poses_[res.x_meas_id].is_active || !poses_[res.x_ref_id].is_active;
       res.weight *= (e > c_huber && !is_cond ? c_huber/e : 1.0);
-      proj_error_ += res.residual.squaredNorm() * res.weight;
+      res.mahalanobis_distance = res.residual.squaredNorm() * res.weight;
+      r_pr_.template segment<ProjectionResidual::kResSize>(res.residual_offset) =
+          res.residual * sqrt(res.weight);
+      proj_error_ += res.mahalanobis_distance;
     }
   }
   errors_.clear();
@@ -2327,8 +2313,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     // now go through the measurements and assign weights
     for( ImuResidual& res : inertial_residuals_ ){
       // Is this a conditioning edge?
-      const bool is_cond =
-          !poses_[res.pose1_id].is_active || !poses_[res.pose2_id].is_active;
+      const bool is_cond = false;
+          // !poses_[res.pose1_id].is_active || !poses_[res.pose2_id].is_active;
 
       // calculate the huber norm weight for this measurement
       const Scalar e = sqrt(res.mahalanobis_distance);
@@ -2342,7 +2328,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       res.cov_inv = res.cov_inv * weight;
       res.cov_inv_sqrt = res.cov_inv.sqrt();
       decltype(res.residual) res_std_form = res.cov_inv_sqrt * res.residual;
-      proj_error_ += res.residual.squaredNorm() * res.weight;
 
       // now that we have the deltas with subtracted initial velocity,
       // transform and gravity, we can construct the jacobian
@@ -2500,11 +2485,11 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         // so we can perform Jt*W*J*dx = Jt*W*r
         j_pr_.insert(
           res.residual_id, pose.opt_id).setZero().template block<2,6>(0,0) =
-            dz_dx;
+            dz_dx * sqrt(res.weight);
 
         jt_pr.insert(
           pose.opt_id, res.residual_id).setZero().template block<6,2>(0,0) =
-              dz_dx.transpose() * res.weight;
+              dz_dx.transpose() * sqrt(res.weight);
       }
 
 
@@ -2647,7 +2632,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       for (const int id: lm.proj_residuals) {
         const ProjectionResidual& res = proj_residuals_[id];
 
-        j_l_.insert( res.residual_id, lm.opt_id ) = res.dz_dlm;
+        j_l_.insert( res.residual_id, lm.opt_id ) = res.dz_dlm *
+            sqrt(res.weight);
       }
     }
   }

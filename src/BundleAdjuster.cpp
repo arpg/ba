@@ -1860,7 +1860,9 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     for( ProjectionResidual& res : proj_residuals_ ){
       // calculate the huber norm weight for this measurement
       const Scalar e = res.residual.norm();
-      res.weight *= (e > c_huber ? c_huber/e : 1.0);
+      const bool is_cond =
+          !poses_[res.x_meas_id].is_active || !poses_[res.x_ref_id].is_active;
+      res.weight *= (e > c_huber && !is_cond ? c_huber/e : 1.0);
       proj_error_ += res.residual.squaredNorm() * res.weight;
     }
   }
@@ -2308,8 +2310,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     res.mahalanobis_distance =
         res.residual.transpose() * res.cov_inv * res.residual;
     errors_.push_back(res.mahalanobis_distance);
-    std::cerr << "Opt mahalanobis dist for " << res.residual_id << " is " <<
-                 res.mahalanobis_distance << std::endl;
   }
 
 
@@ -2326,9 +2326,15 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
     // now go through the measurements and assign weights
     for( ImuResidual& res : inertial_residuals_ ){
+      // Is this a conditioning edge?
+      const bool is_cond =
+          !poses_[res.pose1_id].is_active || !poses_[res.pose2_id].is_active;
+
       // calculate the huber norm weight for this measurement
       const Scalar e = sqrt(res.mahalanobis_distance);
-      const Scalar weight = (e > c_huber ? c_huber/e : 1.0);
+      // We don't want to robust norm the conditioning edge
+      const Scalar weight = ((e > c_huber) && !is_cond ? c_huber/e : 1.0);
+
 
       std::cerr << "Imu res " << res.residual_id << " error " <<
                    e << " and huber w: " << weight << std::endl;

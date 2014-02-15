@@ -298,8 +298,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
       res.residual.setZero();
       // TODO: This is bad, as the error is taken in the world frame. The order
       // of these should be swapped
-      res.residual.template head<6>() =
-          SE3t::log(imu_pose.t_wp * t_wb.inverse());
+      res.residual.template head<6>() = log_decoupled(imu_pose.t_wp, t_wb);
       res.residual.template segment<3>(6) = imu_pose.v_w - pose2.v_w;
 
       if (kBiasInState) {
@@ -1649,13 +1648,13 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     root_pose.param_mask[2] = false;
 
     // If the biases are in the state, we need to regularize them
-    if (kBiasInState) {
+    /*if (kBiasInState) {
       StreamMessage(debug_level) <<
         "Regularizing bias of first pose." << std::endl;
       root_pose.param_mask[9] = root_pose.param_mask[10] =
       root_pose.param_mask[11] = root_pose.param_mask[12] =
       root_pose.param_mask[13] = root_pose.param_mask[14] = false;
-    }
+    }*/
 
     // if there is no velocity in the state, fix the three initial rotations,
     // as we don't need to accomodate gravity
@@ -2155,10 +2154,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         Eigen::Matrix<Scalar, ImuResidual::kResSize, 1>::Ones();
     // Write the bias uncertainties into the covariance matrix.
     if (kBiasInState) {
-      sigmas.template segment<3>(9)
-          = Vector3t::Ones() * IMU_GYRO_BIAS_UNCERTAINTY * total_dt;
-      sigmas.template segment<3>(12)
-          = Vector3t::Ones() * IMU_GYRO_ACCEL_UNCERTAINTY * total_dt;
+      sigmas.template segment<6>(9) = imu_.r_b * total_dt;
     }
 
     res.cov_inv.diagonal() = sigmas;
@@ -2312,26 +2308,30 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     res.mahalanobis_distance =
         res.residual.transpose() * res.cov_inv * res.residual;
     errors_.push_back(res.mahalanobis_distance);
+    std::cerr << "Opt mahalanobis dist for " << res.residual_id << " is " <<
+                 res.mahalanobis_distance << std::endl;
   }
 
 
   if (errors_.size() > 0) {
-    auto it = errors_.begin()+std::floor(errors_.size()* 2 / 3);
+    auto it = errors_.begin()+std::floor(errors_.size()* 0.5);
     std::nth_element(errors_.begin(),it,errors_.end());
     const Scalar sigma = sqrt(*it);
     // std::cout << "Projection error sigma is " << dSigma << std::endl;
     // See "Parameter Estimation Techniques: A Tutorial with Application to
     // Conic Fitting" by Zhengyou Zhang. PP 26 defines this magic number:
     const Scalar c_huber = 1.2107*sigma;
-    std::cerr << "Sigma for imu errors: " << c_huber << std::endl;
+    std::cerr << "Sigma for imu errors: " << c_huber << " median res: " <<
+                 sigma <<  std::endl;
 
     // now go through the measurements and assign weights
     for( ImuResidual& res : inertial_residuals_ ){
       // calculate the huber norm weight for this measurement
-      Scalar weight = (res.mahalanobis_distance > c_huber ?
-                       c_huber/res.mahalanobis_distance : 1.0);
+      const Scalar e = sqrt(res.mahalanobis_distance);
+      const Scalar weight = (e > c_huber ? c_huber/e : 1.0);
+
       std::cerr << "Imu res " << res.residual_id << " error " <<
-                   res.mahalanobis_distance << " and huber w: " << weight << std::endl;
+                   e << " and huber w: " << weight << std::endl;
 
       res.cov_inv = res.cov_inv * weight;
       res.cov_inv_sqrt = res.cov_inv.sqrt();
@@ -2549,9 +2549,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       }
 
       std::sort(pose.inertial_residuals.begin(), pose.inertial_residuals.end());
-      std::cerr << "Inserting " << pose.inertial_residuals.size() << " inertial residuals for pose " <<
-                   pose.id << std::endl;
-
       for (const int id: pose.inertial_residuals) {
         ImuResidual& res = inertial_residuals_[id];
         Eigen::Matrix<Scalar,ImuResidual::kResSize,kPoseDim> dz_dz =
@@ -2570,20 +2567,17 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
           res.residual_id, pose.opt_id ) = res.cov_inv_sqrt * dz_dz;
 
         /*
-        Eigen::Matrix<Scalar, ImuResidual::kResSize, ImuResidual::kResSize> sq = res.cov_inv_sqrt.eval();
-
-
-
-        (trans * Eigen::Matrix<Scalar, ImuResidual::kResSize, ImuResidual::kResSize>::Identity()).eval();
+        Eigen::Matrix<Scalar, ImuResidual::kResSize, ImuResidual::kResSize> sq =
+          res.cov_inv_sqrt.eval();
 
         Eigen::Matrix<Scalar, kPoseDim, ImuResidual::kResSize> result =
             (trans * sq).eval(); ;
         jt_i_.insert(
           pose.opt_id, res.residual_id ) = result; */
 
-        // ZZ why is this necessary? Will this be a problem with the unary
+        // ZZZZZZZ why is this necessary? Will this be a problem with the unary
         // residuals as well?
-        Eigen::Matrix<Scalar, kPoseDim, ImuResidual::kResSize> trans =
+        const Eigen::Matrix<Scalar, kPoseDim, ImuResidual::kResSize> trans =
             dz_dz.transpose().eval();
         jt_i_.insert(
           pose.opt_id, res.residual_id ) = trans * res.cov_inv_sqrt;

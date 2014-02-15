@@ -32,7 +32,7 @@
 #define IMU_GYRO_UNCERTAINTY 7.15584993e-5 //0.00104719755
 #define IMU_GYRO_BIAS_UNCERTAINTY 1.8119e-4
 #define IMU_ACCEL_UNCERTAINTY 0.0159855109 //0.0392266
-#define IMU_GYRO_ACCEL_UNCERTAINTY 0.003981242
+#define IMU_ACCEL_BIAS_UNCERTAINTY 0.003981242
 
 namespace ba {
 static const double Gravity = 9.8007;
@@ -126,7 +126,15 @@ struct ImuCalibrationT {
         IMU_GYRO_UNCERTAINTY,
         IMU_ACCEL_UNCERTAINTY,
         IMU_ACCEL_UNCERTAINTY,
-        IMU_ACCEL_UNCERTAINTY).finished().asDiagonal()) {
+        IMU_ACCEL_UNCERTAINTY).finished().asDiagonal()) ,
+        r_b((Eigen::Matrix<Scalar, 6, 1>() <<
+             IMU_GYRO_BIAS_UNCERTAINTY,
+             IMU_GYRO_BIAS_UNCERTAINTY,
+             IMU_GYRO_BIAS_UNCERTAINTY,
+             IMU_ACCEL_BIAS_UNCERTAINTY,
+             IMU_ACCEL_BIAS_UNCERTAINTY,
+             IMU_ACCEL_BIAS_UNCERTAINTY).finished())
+  {
   }
 
   /// \brief Calibration from vehicle to sensor frame (monocular for now)
@@ -146,6 +154,8 @@ struct ImuCalibrationT {
   /// \brief Sensor uncertainty. The first 3 rows/cols are gyroscope
   /// and the last are accel
   Eigen::Matrix<Scalar, 6, 6> r;
+
+  Eigen::Matrix<Scalar, 6, 1> r_b;
 };
 
 template<typename Scalar>

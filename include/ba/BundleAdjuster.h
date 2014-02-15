@@ -104,7 +104,9 @@ public:
             const SE3t& t_vs = SE3t(),
             const Scalar trust_region_size = 1.0,
             const double gyro_uncertainty = IMU_GYRO_UNCERTAINTY,
-            const double accel_uncertainty = IMU_ACCEL_UNCERTAINTY)
+            const double accel_uncertainty = IMU_ACCEL_UNCERTAINTY,
+            const double gyro_bias_uncertainty = IMU_GYRO_BIAS_UNCERTAINTY,
+            const double accel_bias_uncertainty = IMU_ACCEL_BIAS_UNCERTAINTY)
   {
     // if LmSize == 0, there is no need for a camera rig or landmarks
     assert(num_landmarks != 0 || LmSize == 0);
@@ -129,6 +131,14 @@ public:
               accel_uncertainty,
               accel_uncertainty,
               accel_uncertainty).finished().asDiagonal());
+
+    imu_.r_b <<
+              gyro_bias_uncertainty,
+              gyro_bias_uncertainty,
+              gyro_bias_uncertainty,
+              accel_bias_uncertainty,
+              accel_bias_uncertainty,
+              accel_bias_uncertainty;
 
     landmarks_.reserve(num_landmarks);
     proj_residuals_.reserve(num_measurements);

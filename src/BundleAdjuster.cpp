@@ -399,7 +399,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(const uint32_t uMax
   }
 
   use_prior_ = use_prior;
-  const bool use_triangular = false;
+  const bool use_triangular = true;
   do_sparse_solve_ = true;
   do_last_pose_cov_ = false;
 
@@ -881,12 +881,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(const uint32_t uMax
     summary_.cond_inertial_error += res.mahalanobis_distance;
   }
 
-  for (const ImuResidual& res : inertial_residuals_) {
+  /*for (const ImuResidual& res : inertial_residuals_) {
     std::cerr << "Mahalanobis dist. for residual " << res.residual_id <<
-                 " : " << res.mahalanobis_distance /*<< " res: " <<
-                 res.residual.transpose() << " norm: " <<
-                 res.residual.norm() */<< std::endl;
-  }
+                 " : " << res.mahalanobis_distance << std::endl;
+  }*/
 
   summary_.num_cond_proj_residuals = conditioning_proj_residuals_.size();
   summary_.num_proj_residuals = proj_residuals_.size();
@@ -2307,14 +2305,14 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     // See "Parameter Estimation Techniques: A Tutorial with Application to
     // Conic Fitting" by Zhengyou Zhang. PP 26 defines this magic number:
     const Scalar c_huber = 1.2107*sigma;
-    std::cerr << "Sigma for imu errors: " << c_huber << " median res: " <<
-                 sigma <<  std::endl;
+    //std::cerr << "Sigma for imu errors: " << c_huber << " median res: " <<
+    //             sigma <<  std::endl;
 
     // now go through the measurements and assign weights
     for( ImuResidual& res : inertial_residuals_ ){
       // Is this a conditioning edge?
-      const bool is_cond = false;
-          // !poses_[res.pose1_id].is_active || !poses_[res.pose2_id].is_active;
+      const bool is_cond =
+          !poses_[res.pose1_id].is_active || !poses_[res.pose2_id].is_active;
 
       // calculate the huber norm weight for this measurement
       const Scalar e = sqrt(res.mahalanobis_distance);
@@ -2322,8 +2320,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       const Scalar weight = ((e > c_huber) && !is_cond ? c_huber/e : 1.0);
 
 
-      std::cerr << "Imu res " << res.residual_id << " error " <<
-                   e << " and huber w: " << weight << std::endl;
+      // std::cerr << "Imu res " << res.residual_id << " error " <<
+      //              e << " and huber w: " << weight << std::endl;
 
       res.cov_inv = res.cov_inv * weight;
       res.cov_inv_sqrt = res.cov_inv.sqrt();

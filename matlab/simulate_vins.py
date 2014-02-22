@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import sympy as sp
+from sympy.utilities.lambdify import lambdastr
 
 
 def enum(**enums):
@@ -91,13 +92,16 @@ def generate_trajectory(type):
     pixel_sigma = 1.5
     bias_sigma = np.sqrt(1e-12)
     
-    gyro_bias = np.array([0.0675766003822892, 
-                          0.0161325225711009, 
-                          0.0381344050809982]) + np.random.normal(0, bias_sigma, 3)
-    accel_bias = np.array([-1.77133250613857,
-                           -0.423571591333655,
-                           -0.189646578628859])  + np.random.normal(0, bias_sigma, 3)
-                           
+    #gyro_bias = np.array([0.0675766003822892, 
+    #                      0.0161325225711009, 
+    #                      0.0381344050809982]) + np.random.normal(0, bias_sigma, 3)
+    #accel_bias = np.array([-1.77133250613857,
+    #                       -0.423571591333655,
+    #                       -0.189646578628859])  + np.random.normal(0, bias_sigma, 3)
+
+    gyro_bias = np.array([0, 0, 0]) 
+    accel_bias = np.array([0, 0, 0])
+                                                      
     print 'Gyro bias: ' + str(gyro_bias)
     print 'Accel bias: ' + str(gyro_bias)
     
@@ -113,7 +117,7 @@ def generate_trajectory(type):
     expr = 7.5 + sp.sin(4 * t - np.pi / 2) / 2 
         
     if type == PathTypes.CURVY_SQUARE:
-        trajectory = ([expr.subs(t, np.pi + t / 3) * sp.cos(np.pi + t / 3), 
+        trajectory = sp.Matrix([expr.subs(t, np.pi + t / 3) * sp.cos(np.pi + t / 3), 
                     expr.subs(t, np.pi + t / 3) * sp.sin(np.pi + t / 3), 
                     -1.5,   
                     0, 
@@ -168,28 +172,28 @@ def generate_trajectory(type):
                             trajectory_vals[5,0].T]
     
     gyro_lambda = sp.lambdify(t, trajectory_gyro, modules=({'ImmutableMatrix':np.array}, 'numpy'))
-    gyro_vals = gyro_lambda(t_vals_imu)
     
-    for i in range(0, 3):
-        if gyro_vals[i,0].__class__ != np.ndarray:
-            gyro_vals[i,0] = np.ones(len(t_vals_imu)) * gyro_vals[i,0]
+    gyro_vals = gyro_lambda(t_vals_imu[0])
+    for i in range(1, len(t_vals_imu)):
+        gyro_vals = np.c_[gyro_vals, gyro_lambda(t_vals_imu[i])]
+        
             
     gyro_vals = np.c_[t_vals_imu,
-                      gyro_vals[0,0] + np.random.normal(0, gyro_sigma, len(t_vals_imu)) + gyro_bias[0],
-                      gyro_vals[1,0] + np.random.normal(0, gyro_sigma, len(t_vals_imu)) + gyro_bias[1],
-                      gyro_vals[2,0] + np.random.normal(0, gyro_sigma, len(t_vals_imu)) + gyro_bias[2]]
+                      gyro_vals[0],# + np.random.normal(0, gyro_sigma, len(t_vals_imu)) + gyro_bias[0],
+                      gyro_vals[1],# + np.random.normal(0, gyro_sigma, len(t_vals_imu)) + gyro_bias[1],
+                      gyro_vals[2]]# + np.random.normal(0, gyro_sigma, len(t_vals_imu)) + gyro_bias[2]]
     
     accel_lambda = sp.lambdify(t, trajectory_accel, modules=({'ImmutableMatrix':np.array}, 'numpy'))
-    accel_vals = accel_lambda(t_vals_imu)
     
-    for i in range(0, 3):
-        if accel_vals[i,0].__class__ != np.ndarray:
-            accel_vals[i,0] = np.ones(len(t_vals_imu)) * accel_vals[i,0]
+    accel_vals = accel_lambda(t_vals_imu[0])
+    for i in range(1, len(t_vals_imu)):
+        accel_vals = np.c_[accel_vals, accel_lambda(t_vals_imu[i])]
     
+
     accel_vals = np.c_[t_vals_imu,
-                       accel_vals[0,0] + np.random.normal(0, accel_sigma, len(t_vals_imu)) + accel_bias[0],
-                       accel_vals[1,0] + np.random.normal(0, accel_sigma, len(t_vals_imu)) + accel_bias[1],
-                       accel_vals[2,0] + np.random.normal(0, accel_sigma, len(t_vals_imu)) + accel_bias[2]]
+                       accel_vals[0],# + np.random.normal(0, accel_sigma, len(t_vals_imu)) * 0 + accel_bias[0],
+                       accel_vals[1],# + np.random.normal(0, accel_sigma, len(t_vals_imu)) + accel_bias[1],
+                       accel_vals[2]]# + np.random.normal(0, accel_sigma, len(t_vals_imu)) + accel_bias[2]]
     
     # create random points
     points = random_points_on_sphere(num_points, 80)
@@ -216,7 +220,7 @@ def generate_trajectory(type):
                 in_count = in_count + 1
                 point_proj = project_fov(point, fx, fy, ux, uy, w)
                 #point_proj = project_linear(point, fx, fy, ux, uy)
-                point_proj + np.random.normal(0, pixel_sigma, 2)
+                #point_proj = point_proj + np.random.normal(0, pixel_sigma, 2)
                 
                 if (point_proj[0] > 0 and point_proj[0]< image_width and
                     point_proj[1] > 0 and point_proj[1]< image_height):
@@ -232,6 +236,9 @@ def generate_trajectory(type):
     np.savetxt("points.csv", tracks, fmt="%.12f,%d, %d, %d, %.12f, %.12f")
     np.savetxt("accel.csv", accel_vals, fmt="%.12f, %.12f, %.12f, %.12f")
     np.savetxt("gyro.csv", gyro_vals, fmt="%.12f, %.12f, %.12f, %.12f")
+    np.savetxt("poses.csv", trajectory_vals.T, fmt="%.12f, %.12f, %.12f, %.12f, %.12f, %.12f")
+    np.savetxt("timestamps.csv", t_vals, fmt="%.12f")
+    
                      
                     
     print 'Plotting trajectory and landmarks.'
@@ -247,4 +254,4 @@ def generate_trajectory(type):
     print 'Done.'
     pass
 
-generate_trajectory(PathTypes.CURVY_WALK) 
+generate_trajectory(PathTypes.CURVY_SQUARE) 

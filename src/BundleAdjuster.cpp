@@ -1272,25 +1272,25 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
                                   std::endl;
 
     if (num_active_poses_ > 0) {
-      if (j_pr_.cols() > 0) {
+      if (proj_residuals_.size() > 0) {
         Eigen::SparseBlockVectorProductDenseResult(j_pr_, rhs_p_, j_p_rhs_p,
               kPoseDim);
       }
 
-      if (j_i_.cols() > 0) {
+      if (inertial_residuals_.size() > 0) {
         Eigen::SparseBlockVectorProductDenseResult(j_i_, rhs_p_, j_i_rhs_p);
       }
 
-      if (j_pp_.cols() > 0) {
+      if (binary_residuals_.size() > 0) {
         Eigen::SparseBlockVectorProductDenseResult(j_pp_, rhs_p_, j_pp_rhs_p);
       }
 
-      if (j_u_.cols() > 0) {
+      if (unary_residuals_.size() > 0) {
         Eigen::SparseBlockVectorProductDenseResult(j_u_, rhs_p_, j_u_rhs_p);
       }
     }
 
-    if (num_active_landmarks_ > 0) {
+    if (num_active_landmarks_ > 0 && proj_residuals_.size() > 0) {
       Eigen::SparseBlockVectorProductDenseResult(j_l_, rhs_l_, j_l_rhs_l);
     }
 

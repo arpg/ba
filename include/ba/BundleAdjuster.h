@@ -45,7 +45,7 @@ struct SolutionSummary
 
 template<typename Scalar=double,int LmSize=1, int PoseSize=6, int CalibSize=8>
 class BundleAdjuster
-{  
+{
   static const uint32_t kPrPoseDim = 6;
   static const uint32_t kLmDim = LmSize;
   static const uint32_t kPoseDim = PoseSize;
@@ -319,15 +319,16 @@ public:
 
   ////////////////////////////////////////////////////////////////////////////
   uint32_t AddBinaryConstraint(const uint32_t pose1_id,
-                                   const uint32_t pose2_id,
-                                   const SE3t& t_12)
+                               const uint32_t pose2_id,
+                               const SE3t& t_12,
+                               Scalar weight = 1.0)
   {
     assert(pose1_id < poses_.size());
     assert(pose2_id < poses_.size());
 
     //now add this constraint to pose A
     BinaryResidual residual;
-    residual.orig_weight = 1.0;
+    residual.orig_weight = weight;
     residual.x1_id = pose1_id;
     residual.x2_id = pose2_id;
     residual.residual_id = binary_residuals_.size();

@@ -38,6 +38,8 @@ list(APPEND HEADERS
     ${INCDIR}/SparseBlockMatrixOps.h
     ${INCDIR}/Types.h
     ${INCDIR}/Utils.h
+    ${INCDIR}/CeresCostFunctions.h
+    ${INCDIR}/BundleAdjusterTest.h
 )
 
 add_custom_target(${PROJECT_NAME} SOURCES ${HEADERS})

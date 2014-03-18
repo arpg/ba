@@ -28,7 +28,7 @@ using std::vector;
 using namespace std;
 
 //=============================================================================
-ba::BundleAdjuster<double,0,6,0>  slam;
+ba::BundleAdjuster<double,0,9,0>  slam;
 
 vector<unsigned int> nodes;
 
@@ -191,7 +191,12 @@ void f_gps(double timestamp, double utm_e, double utm_n, double altitude)
 	if (nodes.size() >= 2)
 	{
 		vector<ImuMeasurement> imu_meas = imu_buffer.GetRange(last_gps_timestamp, timestamp);
-    // slam.AddImuResidual(nodes.back()-1, nodes.back(), imu_meas);
+    if (imu_meas.size() == 0) {
+      std::cerr << "Could not find imu measurements between : " <<
+                   last_gps_timestamp << " and " << timestamp << std::endl;
+      exit(0);
+    }
+    slam.AddImuResidual(nodes.back()-1, nodes.back(), imu_meas);
 	}
 
 
@@ -258,7 +263,7 @@ void parse_file(const char* filename)
 			if (fscanf(input, "%lf %lf %lf %lf %lf %lf %lf", &time, angleRates, angleRates+1,angleRates+2, accels, accels+1, accels+2) != EOF)
 			{
 				add_gyro_and_speed(time, angleRates[0], angleRates[1], angleRates[2], speed);
-				//add_imu(time, angleRates, accels);
+        add_imu(time, angleRates, accels);
 			}
 		}	else {
 			fprintf(stderr, "Unknown symbol <%s>\n", name);

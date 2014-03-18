@@ -1819,19 +1819,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
   }
 
-
-  // std::cout << "Max dZ_dX norm: " << maxdZ_dX_norm << " with dZ_dX: " <<
-  // std::endl << maxdZ_dX << " with dZ_dX_fd: "  << std::endl <<
-  // maxdZ_dX_fd << std::endl;
-
-  // std::cout << "Max dZ_dPm norm: " << maxdZ_dPm_norm << " with error: " <<
-  // std::endl << maxdZ_dPm << " with dZ_dPm_fd: " << std::endl  <<
-  // maxdZ_dPm_fd <<  std::endl;
-
-  // std::cout << "Max dZ_dPr norm: " << maxdZ_dPr_norm << " with error: " <<
-  // std::endl << maxdZ_dPr <<  " with dZ_dPr_fd: " << std::endl  <<
-  // maxdZ_dPr_fd  << std::endl;
-
   // get the sigma for robust norm calculation. This call is O(n) on average,
   // which is desirable over O(nlogn) sort
   if (errors_.size() > 0) {
@@ -1892,6 +1879,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
   StartTimer(_j_evaluation_unary_);
   unary_error_ = 0;
+  errors_.clear();
   for( UnaryResidual& res : unary_residuals_ ){
     const SE3t& t_wp = poses_[res.pose_id].t_wp;
     res.dz_dx = dlog_decoupled_dx(t_wp, res.t_wp);
@@ -1901,10 +1889,42 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     res.residual = res.cov_inv_sqrt * log_decoupled(t_wp, res.t_wp);
 
     res.weight = res.orig_weight;
-    r_u_.template segment<UnaryResidual::kResSize>(res.residual_offset) =
-        res.residual;
-    unary_error_ += res.residual.transpose() * res.cov_inv * res.residual;
+    res.mahalanobis_distance =
+        (res.residual.transpose() * res.cov_inv * res.residual);
+    // this array is used to calculate the robust norm
+    errors_.push_back(res.mahalanobis_distance);
+    // r_u_.template segment<UnaryResidual::kResSize>(res.residual_offset) =
+    //     res.residual;
+    // unary_error_ += res.residual.transpose() * res.cov_inv * res.residual;
   }
+
+  if (errors_.size() > 0) {
+    auto it = errors_.begin()+std::floor(errors_.size()* 0.5);
+    std::nth_element(errors_.begin(),it,errors_.end());
+    const Scalar sigma = sqrt(*it);
+    const Scalar c_huber = 1.2107 * sigma;
+    // now go through the measurements and assign weights
+    for( UnaryResidual& res : unary_residuals_ ){
+      // calculate the huber norm weight for this measurement
+      const Scalar e = sqrt(res.mahalanobis_distance);
+      // We don't want to robust norm the conditioning edge
+      const Scalar weight = ((e > c_huber) ? c_huber/e : 1.0);
+
+      res.cov_inv = res.cov_inv * weight;
+      res.cov_inv_sqrt = res.cov_inv.sqrt();
+      decltype(res.residual) res_std_form = res.cov_inv_sqrt * res.residual;
+
+      // now that we have the deltas with subtracted initial velocity,
+      // transform and gravity, we can construct the jacobian
+      r_u_.template segment<UnaryResidual::kResSize>(res.residual_offset) =
+          res_std_form;
+      // No need to multiply by sigma^-1 here, as the problem is in standard form.
+      res.mahalanobis_distance =
+          (res_std_form.transpose() * res_std_form);
+      unary_error_ += res.mahalanobis_distance;
+    }
+  }
+  errors_.clear();
   PrintTimer(_j_evaluation_unary_);
 
   errors_.reserve(num_im_res);
@@ -2640,6 +2660,6 @@ template class BundleAdjuster<REAL_TYPE, 1,15,0>;
 
 // specializations required for the applications
 #ifdef BUILD_APPS
-template class BundleAdjuster<double, 0,6,0>;
+template class BundleAdjuster<double, 0,5,0>;
 #endif
 }

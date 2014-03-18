@@ -43,7 +43,7 @@ struct SolutionSummary
 };
 
 
-template<typename Scalar=double,int LmSize=1, int PoseSize=6, int CalibSize=8>
+template<typename Scalar=double,int LmSize=1, int PoseSize=6, int CalibSize=0>
 class BundleAdjuster
 {
   static const uint32_t kPrPoseDim = 6;
@@ -98,9 +98,9 @@ public:
 
 
   ////////////////////////////////////////////////////////////////////////////
-  void Init(const uint32_t num_poses,
-            const uint32_t num_measurements,
-            const uint32_t num_landmarks = 0,
+  void Init(uint32_t num_poses,
+            uint32_t num_measurements,
+            uint32_t num_landmarks = 0,
             const SE3t& t_vs = SE3t(),
             const Scalar trust_region_size = 1.0,
             const double gyro_uncertainty = IMU_GYRO_UNCERTAINTY,
@@ -110,6 +110,12 @@ public:
   {
     // if LmSize == 0, there is no need for a camera rig or landmarks
     assert(num_landmarks != 0 || LmSize == 0);
+
+    // If any of these are zero, they will destroy some of the predictive maths
+    // further ahead, so set them to a default value.
+    num_poses = std::max(1u, num_poses);
+    num_measurements = std::max(1u, num_measurements);
+    num_landmarks = std::max(1u, num_landmarks);
 
     // set the initial trust region size
     trust_region_size_ = trust_region_size;
@@ -307,7 +313,7 @@ public:
     residual.residual_offset = unary_residual_offset_;
     residual.t_wp = t_wv;
     residual.cov_inv = covariance.inverse();
-    residual.cov_inv = residual.cov_inv.sqrt();
+    residual.cov_inv_sqrt = residual.cov_inv.sqrt();
 
     unary_residuals_.push_back(residual);
     unary_residual_offset_ += UnaryResidual::kResSize;

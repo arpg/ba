@@ -368,7 +368,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
 
 ////////////////////////////////////////////////////////////////////////////////
 template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
-void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(const uint32_t uMaxIter, const Scalar gn_damping,
+void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
+    const uint32_t uMaxIter, const Scalar gn_damping,
     const bool error_increase_allowed, const bool use_dogleg,
     const bool use_prior)
 {
@@ -469,6 +470,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(const uint32_t uMax
 
       VectorXt jt_pp_r_pp(num_pose_params);
       Eigen::SparseBlockVectorProductDenseResult(jt_pp_, r_pp_, jt_pp_r_pp);
+      std::cerr << "Adding binary rhs: " << jt_pp_r_pp.norm() << std::endl;
       rhs_p_ += jt_pp_r_pp;
     }
 
@@ -483,6 +485,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(const uint32_t uMax
 
       VectorXt jt_u_r_u(num_pose_params);
       Eigen::SparseBlockVectorProductDenseResult(jt_u_, r_u_, jt_u_r_u);
+      std::cerr << "Adding unary rhs: " << jt_u_r_u.norm() << std::endl;
       rhs_p_ += jt_u_r_u;
     }
 
@@ -1473,6 +1476,9 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     GetLandmarkDelta(delta.delta_p, rhs_l_,  vi_, jt_l_j_pr_,
                      num_active_poses_, num_active_landmarks_, delta.delta_l);
 
+    delta.delta_l *= gn_damping;
+    delta.delta_p *= gn_damping;
+
 
     // We have to calculate the residuals here, as during the inner loop of
     // dogleg, the residuals are constantly changing.
@@ -1860,21 +1866,18 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     const SE3t& t_w1 = poses_[res.x1_id].t_wp;
     const SE3t& t_w2 = poses_[res.x2_id].t_wp;
     const SE3t t_1w = t_w1.inverse();
-    // the negative sign here is because exp(x) is inside the inverse
-    // when we invert (Twb*exp(x)).inverse
-    // res.dz_dx1 = -dLog_dX(SE3t(), t_1w * t_w2 * res.t_21);
-    // res.dz_dx2 = dLog_dX(t_1w * t_w2, res.t_21);
+
     const Sophus::SE3Group<Scalar> t_12 = t_1w * t_w2;
 
-    // res.residual = SE3t::log(t_1w * t_w2 * res.t_21);
     res.residual = log_decoupled(t_12, res.t_12);
 
-    res.dz_dx1 = dLog_decoupled_dt1(t_12, res.t_12) *
-        dt1_t2_dt1(t_1w, t_w2) *
+    const Eigen::Matrix<Scalar, 6, 7> dlog_dt1 =
+        dLog_decoupled_dt1(t_12, res.t_12);
+
+    res.dz_dx1 = dlog_dt1 * dt1_t2_dt1(t_1w, t_w2) *
         dinv_exp_decoupled_dx<Scalar>(t_w1);
 
-    res.dz_dx2 = dLog_decoupled_dt1(t_12, res.t_12) *
-        dt1_t2_dt2(t_1w, t_w2) *
+    res.dz_dx2 = dlog_dt1 * dt1_t2_dt2(t_1w, t_w2) *
         dexp_decoupled_dx<Scalar>(t_w2);
 
     BA_TEST(_Test_dBinaryResidual_dX(res, t_w1, t_w2));
@@ -1884,13 +1887,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         res.residual;
 
     binary_error_ += res.residual.squaredNorm() * res.weight;
-
-    //std::cerr << "Binary residual " << res.residual_id << " is " <<
-    //             res.residual.transpose() << " with p1:" << std::endl <<
-    //             t_w1.matrix().format(kLongFmt) << std::endl << " with p2: " << std::endl <<
-    //             t_w2.matrix().format(kLongFmt) << std::endl << " with t12: " << std::endl <<
-    //             res.t_21.matrix().format(kLongFmt) << std::endl << " with t_res:" << std::endl <<
-    //             (t_1w * t_w2 * res.t_21).matrix().format(kLongFmt) << std::endl;
   }
   PrintTimer(_j_evaluation_binary_);
 
@@ -1899,12 +1895,11 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   for( UnaryResidual& res : unary_residuals_ ){
     const SE3t& t_wp = poses_[res.pose_id].t_wp;
     res.dz_dx = dlog_decoupled_dx(t_wp, res.t_wp);
-    // res.dz_dx = dLog_dX(res.t_wp.inverse() * t_wp, SE3t());
 
     BA_TEST(_Test_dUnaryResidual_dX(res, t_wp));
 
-    // res.residual = SE3t::log(res.t_wp.inverse() * t_wp);
     res.residual = res.cov_inv_sqrt * log_decoupled(t_wp, res.t_wp);
+
     res.weight = res.orig_weight;
     r_u_.template segment<UnaryResidual::kResSize>(res.residual_offset) =
         res.residual;

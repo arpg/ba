@@ -154,38 +154,44 @@ void f_gps(double timestamp, double utm_e, double utm_n, double altitude)
 	incremental_differential_pose *= incremental_differential_update;
 	gps.push_back( Eigen::Vector3d(utm_e, utm_n, altitude) );
 
+  Sophus::SE3d utm_prior(
+        Eigen::Quaterniond::Identity(),
+        Eigen::Vector3d(utm_e-offset_e, utm_n-offset_n, altitude-offset_u));
+
 	/* First time, use GPS prior at coordinate origin */
 	if (nodes.empty())
 	{
 		Sophus::SE3d pose(Eigen::Quaterniond::Identity(), Eigen::Vector3d::Zero());
-		nodes.push_back( slam.AddPose(pose , true, timestamp) );
+    nodes.push_back( slam.AddPose(pose , true, timestamp) );
 	} else {
 		unsigned int recent = nodes.back();
 		const Sophus::SE3d & recent_pose = slam.GetPose(recent).t_wp;
-		Sophus::SE3d estimate = recent_pose * incremental_gyro_update;
-		//Sophus::SE3d estimate = recent_pose * incremental_differential_update;
-		nodes.push_back( slam.AddPose(estimate, true, timestamp) );
+    Sophus::SE3d estimate = recent_pose * incremental_gyro_update;
+    // Sophus::SE3d estimate = recent_pose * incremental_differential_update;
+    nodes.push_back( slam.AddPose(estimate, true, timestamp) );
+    // std::cerr << "Adding pose at " << estimate.matrix() << std::endl;
 	}
 
 	/* Add unary constraint to SLAM */
 	{
 		Eigen::Matrix<double,6,1> cov_diag;
-		cov_diag << 1000,1000,30000, DBL_MAX, DBL_MAX, DBL_MAX;
-		Sophus::SE3d utm_prior(Eigen::Quaterniond::Identity(), Eigen::Vector3d(utm_e-offset_e, utm_n-offset_n, altitude-offset_u));
+    cov_diag << 1000,1000,30000, DBL_MAX, DBL_MAX, DBL_MAX;
 		slam.AddUnaryConstraint(nodes.back(), utm_prior, cov_diag.asDiagonal());
+    // std::cerr << "Adding unary constraint for pose " << nodes.back() << " at " <<
+    //              utm_prior.matrix() << std::endl;
 	}
 
 	if (nodes.size() >= 2)
 	{
-		//slam.AddBinaryConstraint(nodes.back()-1, nodes.back(), incremental_differential_update);
-		slam.AddBinaryConstraint(nodes.back()-1, nodes.back(), incremental_gyro_update);
+    //slam.AddBinaryConstraint(nodes.back()-1, nodes.back(), incremental_differential_update);
+    slam.AddBinaryConstraint(nodes.back()-1, nodes.back(), incremental_gyro_update);
 	}
 	
 
 	if (nodes.size() >= 2)
 	{
 		vector<ImuMeasurement> imu_meas = imu_buffer.GetRange(last_gps_timestamp, timestamp);
-		//slam.AddImuResidual(nodes.back()-1, nodes.back(), imu_meas);
+    // slam.AddImuResidual(nodes.back()-1, nodes.back(), imu_meas);
 	}
 
 
@@ -207,7 +213,7 @@ void f_gps(double timestamp, double utm_e, double utm_n, double altitude)
 void setup()
 {
 	fprintf(stderr, "Init BA\n");
-	slam.Init(100,0);
+  slam.Init(100,0, 0, Sophus::SE3d(), 100000);
 
 	Eigen::Matrix<double,3,1> gravity;
 	gravity << 0,0,9.8;
@@ -266,7 +272,7 @@ void parse_file(const char* filename)
 void solve()
 {
 	fprintf(stderr, "BA::Solve w [%zu] poses\n", nodes.size());
-	slam.Solve(100,0.2,false,false);
+  slam.Solve(25, 0.2, false, true);
 	fprintf(stderr, "finish BA::Solve\n");
 }
 
@@ -276,7 +282,7 @@ int main(int argc, char** argv)
 	setup();
 	parse_file(argv[1]);
 	
-	ba::debug_level_threshold = 1;
+  ba::debug_level_threshold = 0;
 
 	solve();
 }

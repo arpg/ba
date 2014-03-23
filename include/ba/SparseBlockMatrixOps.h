@@ -322,14 +322,14 @@ namespace Eigen {
       // away to enable writing to it
       Res& res = const_cast<Res&>(resMat);
 
-      const typename Lhs::Scalar zero = Lhs::Scalar::Zero();
+      // const typename Lhs::Scalar zero = Lhs::Scalar::Zero();
       // return sparse_sparse_product_with_pruning_impl2(lhs,rhs,res);
       typedef typename Lhs::Scalar BlockType;
       typedef typename Rhs::Scalar RhsBlockType;
       typedef typename Lhs::Index Index;
 
       // make sure to call innerSize/outerSize since we fake the storage order.
-      Index rows = lhs.innerSize();
+      // Index rows = lhs.innerSize();
       Index cols = lhs.outerSize();
       //int size = lhs.outerSize();
       eigen_assert(lhs.innerSize() == rhs.innerSize() && lhs.outerSize() == rhs.outerSize());

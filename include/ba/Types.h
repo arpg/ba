@@ -80,6 +80,7 @@ struct LandmarkT {
   Eigen::Matrix<Scalar, 4, 1> x_w;
   std::vector<int> proj_residuals;
   int external_id;
+  uint32_t num_outlier_residuals;
   uint32_t id;
   uint32_t opt_id;
   uint32_t ref_pose_id;
@@ -275,6 +276,8 @@ struct BinaryResidualT : public ResidualT<Scalar, 6> {
   Eigen::Matrix<Scalar, kResSize, 6> dz_dx1;
   Eigen::Matrix<Scalar, kResSize, 6> dz_dx2;
   Eigen::Matrix<Scalar, kResSize, 1> residual;
+  Eigen::Matrix<Scalar, kResSize, kResSize> cov_inv;
+  Eigen::Matrix<Scalar, kResSize, kResSize> cov_inv_sqrt;
 };
 
 template<typename Scalar = double, int LmSize = 1>

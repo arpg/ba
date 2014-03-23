@@ -176,15 +176,19 @@ void f_gps(double timestamp, double utm_e, double utm_n, double altitude)
 	{
 		Eigen::Matrix<double,6,1> cov_diag;
     cov_diag << 1000,1000,30000, DBL_MAX, DBL_MAX, DBL_MAX;
-		slam.AddUnaryConstraint(nodes.back(), utm_prior, cov_diag.asDiagonal());
-    // std::cerr << "Adding unary constraint for pose " << nodes.back() << " at " <<
-    //              utm_prior.matrix() << std::endl;
+    slam.AddUnaryConstraint(nodes.back(), utm_prior,
+                            cov_diag.asDiagonal());
+    // std::cerr << "Adding unary constraint for pose " << nodes.back() <<
+    //              " at " << utm_prior.matrix() << std::endl;
 	}
 
 	if (nodes.size() >= 2)
 	{
-    //slam.AddBinaryConstraint(nodes.back()-1, nodes.back(), incremental_differential_update);
-    slam.AddBinaryConstraint(nodes.back()-1, nodes.back(), incremental_gyro_update);
+    // cov_diag << 1000,1000,30000, DBL_MAX, DBL_MAX, DBL_MAX;
+    // slam.AddBinaryConstraint(nodes.back()-1, nodes.back(),
+    // incremental_differential_update);
+    // slam.AddBinaryConstraint(nodes.back()-1, nodes.back(),
+    //                          incremental_gyro_update, cov_diag.asDiagonal());
 	}
 	
 

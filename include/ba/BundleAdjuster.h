@@ -329,6 +329,21 @@ public:
                                const SE3t& t_12,
                                Scalar weight = 1.0)
   {
+    const Eigen::Matrix<Scalar, BinaryResidual::kResSize,
+      UnaryResidual::kResSize> covariance =
+        Eigen::Matrix<Scalar, BinaryResidual::kResSize,
+              UnaryResidual::kResSize>::Identity();
+    return AddBinaryConstraint(pose1_id, pose2_id, t_12, covariance, weight);
+  }
+
+  ////////////////////////////////////////////////////////////////////////////
+  uint32_t AddBinaryConstraint(const uint32_t pose1_id,
+                               const uint32_t pose2_id,
+                               const SE3t& t_12,
+                               Eigen::Matrix<Scalar, BinaryResidual::kResSize,
+                               UnaryResidual::kResSize> covariance,
+                               Scalar weight = 1.0)
+  {
     assert(pose1_id < poses_.size());
     assert(pose2_id < poses_.size());
 
@@ -340,6 +355,8 @@ public:
     residual.residual_id = binary_residuals_.size();
     residual.residual_offset = binary_residual_offset_;
     residual.t_12 = t_12;
+    residual.cov_inv = covariance.inverse();
+    residual.cov_inv_sqrt = residual.cov_inv.sqrt();
 
     binary_residuals_.push_back(residual);
     binary_residual_offset_ += BinaryResidual::kResSize;
@@ -471,6 +488,7 @@ public:
   const { return landmarks_[id].x_w; }
   bool IsLandmarkReliable(const uint32_t id)
   const { return landmarks_[id].is_reliable; }
+  double LandmarkOutlierRatio(const uint32_t id) const;
 
   void GetErrors( Scalar &proj_error,
                   Scalar &unary_error,

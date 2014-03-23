@@ -898,7 +898,6 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
   }
 }
 
-////////////////////////////////////////////////////////////////////////////////
 template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
 void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::MarginalizePose(
     int root_pose_id)
@@ -1614,6 +1613,12 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       break;
     }
   }
+
+  // Reset the outlier count.
+  for (Landmark& lm : landmarks_) {
+    lm.num_outlier_residuals = 0;
+  }
+
  // are_all_active = false;
   // are_all_active = false;
   const bool using_prior = use_prior_ && prior_poses_.size() > 0;
@@ -1695,11 +1700,11 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     Pose& ref_pose = poses_[res.x_ref_id];
     auto& cam = rig_.cameras[res.cam_id].camera;
 
-    const SE3t t_vs_m =
+    const SE3t& t_vs_m =
         (kTvsInState ? pose.t_vs : rig_.cameras[res.cam_id].T_wc);
-    const SE3t t_vs_r =
+    const SE3t& t_vs_r =
         (kTvsInState ? ref_pose.t_vs :  rig_.cameras[lm.ref_cam_id].T_wc);
-    const SE3t t_sw_m =
+    const SE3t& t_sw_m =
         pose.GetTsw(res.cam_id, rig_, kTvsInState);
     const SE3t t_ws_r =
         ref_pose.GetTsw(lm.ref_cam_id, rig_, kTvsInState).inverse();
@@ -1712,11 +1717,16 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     // std::cerr << "res " << res.residual_id << " : pre" <<
     //                res.residual.norm() << std::endl;
 
+    const Vector4t x_s_m = kLmDim == 1 ?
+        MultHomogeneous(t_sw_m * t_ws_r, lm.x_s) :
+        MultHomogeneous(t_sw_m, lm.x_w);
+
+    const Eigen::Matrix<Scalar,2,4> dt_dp_m = cam.dTransfer3D_dP(
+          SE3t(), x_s_m.template head<3>(),x_s_m(3));
+
     const Eigen::Matrix<Scalar,2,4> dt_dp_s = kLmDim == 3 ?
-          cam.dTransfer3D_dP(
-            t_sw_m, lm.x_w.template head<3>(),lm.x_w(3)) :
-          cam.dTransfer3D_dP(
-            t_sw_m*t_ws_r, lm.x_s.template head<3>(),lm.x_s(3));
+          dt_dp_m * t_sw_m.matrix() :
+          dt_dp_m * (t_sw_m*t_ws_r).matrix();
 
     // Landmark Jacobian
     if (lm.is_active) {
@@ -1724,27 +1734,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     }
 
     if (pose.is_active || ref_pose.is_active) {
-      // std::cout << "Calculating j for residual with poseid " << pose.Id <<
-      // " and refPoseId " << refPose.Id << std::endl;
-      // derivative for the measurement pose
-      const Vector4t x_v_r = MultHomogeneous(t_vs_r, lm.x_s);
-      const Vector4t x_v_m = kLmDim == 1 ?
-          MultHomogeneous(pose.t_wp.inverse() * t_ws_r, lm.x_s) :
-          MultHomogeneous(pose.t_wp.inverse(), lm.x_w);
-      const Vector4t x_s_m = kLmDim == 1 ?
-          MultHomogeneous(t_sw_m * t_ws_r, lm.x_s) :
-          MultHomogeneous(t_sw_m, lm.x_w);
-      const Eigen::Matrix<Scalar,2,4> dt_dp_m = cam.dTransfer3D_dP(
-            SE3t(), x_s_m.template head<3>(),x_s_m(3));
-
-      // const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsv_m =
-      //     dt_dp_m * t_vs_m.inverse().matrix();
-
-//      for (uint32_t ii=0; ii<6; ++ii) {
-//       res.dz_dx_meas.template block<2,1>(0,ii) =
-//          dt_dp_m_tsv_m * Sophus::SE3Group<Scalar>::generator(ii) * x_v_m;
-//      }
-
       res.dz_dx_meas =
           -dt_dp_m *
           dt_x_dt<Scalar>(t_sw_m, t_ws_r.matrix() * lm.x_s) *
@@ -1754,59 +1743,12 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       // only need this if we are in inverse depth mode and the poses aren't
       // the same
       if (kLmDim == 1) {
-        // derivative for the reference pose
-        // const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsw_m =
-        //     dt_dp_m * (pose.t_wp * t_vs_m).inverse().matrix();
-
-        // const Eigen::Matrix<Scalar,2,4> dt_dp_m_tsw_m_twp =
-        //     -dt_dp_m_tsw_m * ref_pose.t_wp.matrix();
-
-        //for (uint32_t ii=0; ii<6; ++ii) {
-        //  res.dz_dx_ref.template block<2,1>(0,ii) =
-        //     dt_dp_m_tsw_m_twp * Sophus::SE3Group<Scalar>::generator(ii) * x_v_r;
-        //}
-
         res.dz_dx_ref =
             -dt_dp_m *
             dt_x_dt<Scalar>(t_sw_m * ref_pose.t_wp, t_vs_r.matrix() * lm.x_s) *
             dt1_t2_dt2(t_sw_m, ref_pose.t_wp) *
             dexp_decoupled_dx(ref_pose.t_wp);
       }
-
-      // calculate jacobian wrt to camera parameters
-      // [TEST]: This is only working for fov models
-      // Vector3t Xs_m_norm = Xs_m.template head<3>() / Xs_m[3];
-      // const VectorXt params =
-      // m_Rig.cameras[res.CameraId].camera.GenericParams();
-      //
-      // res.dZ_dK =
-      // -m_Rig.cameras[res.CameraId].camera.dMap_dParams(Xs_m_norm, params);
-
-      //{
-      //double dEps = 1e-9;
-      //Eigen::Matrix<Scalar,2,5> dZ_dK_fd;
-      //for(int ii = 0; ii < 6 ; ii++) {
-      //    Eigen::Matrix<Scalar,5,1> delta;
-      //    delta.setZero();
-      //    delta[ii] = dEps;
-      //    m_Rig.cameras[res.CameraId].camera.SetGenericParams(
-      //    params + delta);
-      //    const Vector2t pPlus =
-      //    -m_Rig.cameras[res.CameraId].camera.Transfer3D(SE3t(),
-      //    Xs_m.template head<3>(),Xs_m(3));
-      //
-      //    delta[ii] = -dEps;
-      //    m_Rig.cameras[res.CameraId].camera.SetGenericParams(params + delta);
-      //    const Vector2t pMinus =
-      //    -m_Rig.cameras[res.CameraId].camera.Transfer3D(
-      //    SE3t(), Xs_m.template head<3>(),Xs_m(3));
-      //    dZ_dK_fd.col(ii) = (pPlus-pMinus)/(2*dEps);
-      //}
-      //std::cout << "dZ_dK   :" << std::endl << res.dZ_dK << std::endl;
-      //std::cout << "dZ_dK_fd:" << std::endl << dZ_dK_fd << " norm: " <<
-      //(res.dZ_dK - dZ_dK_fd).norm() <<  std::endl;
-      //m_Rig.cameras[res.CameraId].camera.SetGenericParams(params);
-      //}
     }
 
     BA_TEST(_Test_dProjectionResidual_dX(res, pose, ref_pose, lm, rig_));
@@ -1822,7 +1764,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   // get the sigma for robust norm calculation. This call is O(n) on average,
   // which is desirable over O(nlogn) sort
   if (errors_.size() > 0) {
-    auto it = errors_.begin()+std::floor(errors_.size()/2);
+    auto it = errors_.begin()+std::floor(errors_.size() * 2. / 3.);
     std::nth_element(errors_.begin(),it,errors_.end());
     const Scalar sigma = sqrt(*it);
     // std::cout << "Projection error sigma is " << dSigma << std::endl;
@@ -1836,10 +1778,15 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       const Scalar e = sqrt(res.mahalanobis_distance);
       const bool is_cond = false;
           //!poses_[res.x_meas_id].is_active || !poses_[res.x_ref_id].is_active;
-      res.weight *= (e > c_huber && !is_cond ? c_huber/e : 1.0);
+      const bool is_outlier = e > c_huber;
+      res.weight *= (is_outlier && !is_cond ? c_huber/e : 1.0);
       res.mahalanobis_distance = res.residual.squaredNorm() * res.weight;
       r_pr_.template segment<ProjectionResidual::kResSize>(res.residual_offset) =
           res.residual * sqrt(res.weight);
+      // If this is an outlier, mark it as such
+      if (e > 1.0) {
+        landmarks_[res.landmark_id].num_outlier_residuals++;
+      }
       proj_error_ += res.mahalanobis_distance;
     }
   }
@@ -1856,7 +1803,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
     const Sophus::SE3Group<Scalar> t_12 = t_1w * t_w2;
 
-    res.residual = log_decoupled(t_12, res.t_12);
+    res.residual = res.cov_inv_sqrt * log_decoupled(t_12, res.t_12);
 
     const Eigen::Matrix<Scalar, 6, 7> dlog_dt1 =
         dLog_decoupled_dt1(t_12, res.t_12);
@@ -1873,7 +1820,9 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     r_pp_.template segment<BinaryResidual::kResSize>(res.residual_offset) =
         res.residual;
 
-    binary_error_ += res.residual.squaredNorm() * res.weight;
+    res.mahalanobis_distance =
+        (res.residual.transpose() * res.cov_inv * res.residual);
+    binary_error_ +=  res.mahalanobis_distance * res.weight;
   }
   PrintTimer(_j_evaluation_binary_);
 
@@ -2524,11 +2473,11 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
 
         j_pp_.insert(
           res.residual_id, pose.opt_id ).setZero().template block<6,6>(0,0) =
-            dz_dz;
+            res.cov_inv_sqrt * dz_dz;
 
         jt_pp_.insert(
           pose.opt_id, res.residual_id ).setZero().template block<6,6>(0,0) =
-            dz_dz.transpose() * res.weight;
+            dz_dz.transpose() * res.cov_inv_sqrt * res.weight;
       }
 
       // add the unary constraints
@@ -2654,12 +2603,21 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   PrintTimer  (_j_insertion_landmarks);
   PrintTimer(_j_insertion_);
 }
+
+template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
+double BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::
+  LandmarkOutlierRatio(const uint32_t id) const
+{
+  return (double)landmarks_[id].num_outlier_residuals /
+      landmarks_[id].proj_residuals.size();
+}
+
 // specializations
 template class BundleAdjuster<REAL_TYPE, 1,6,0>;
 template class BundleAdjuster<REAL_TYPE, 1,15,0>;
 
 // specializations required for the applications
 #ifdef BUILD_APPS
-template class BundleAdjuster<double, 0,5,0>;
+template class BundleAdjuster<double, 0,9,0>;
 #endif
 }

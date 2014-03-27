@@ -477,7 +477,8 @@ public:
   const Pose& GetPose(const uint32_t id) const  {
     if (id >= poses_.size()) {
       std::cerr << "Attempted to get pose with id " << id << " from BA. "
-                   "Aborting..." << std::endl;
+                << " when poses_.size() is only " << poses_.size()
+                << "Aborting..." << std::endl;
       throw 0;
     }
     return poses_[id];

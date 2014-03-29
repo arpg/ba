@@ -485,10 +485,12 @@ public:
   }
 
   // return the landmark in the world frame
-  const Vector4t& GetLandmark(const uint32_t id)
-  const { return landmarks_[id].x_w; }
-  bool IsLandmarkReliable(const uint32_t id)
-  const { return landmarks_[id].is_reliable; }
+  const Landmark& GetLandmarkObj(const uint32_t id) const
+    { return landmarks_[id]; }
+  const Vector4t& GetLandmark(const uint32_t id) const
+    { return landmarks_[id].x_w; }
+  bool IsLandmarkReliable(const uint32_t id) const
+  { return landmarks_[id].is_reliable; }
   double LandmarkOutlierRatio(const uint32_t id) const;
 
   void GetErrors( Scalar &proj_error,

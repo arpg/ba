@@ -551,18 +551,17 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       rhs_l_.resize(num_lm*kLmDim);
       rhs_l_.setZero();
       StartTimer(_schur_complement_v);
-      Eigen::Matrix<Scalar,kLmDim,kLmDim> jtj_l;
       Eigen::Matrix<Scalar,kLmDim,1> jtr_l;
       for (uint32_t ii = 0; ii < landmarks_.size() ; ++ii) {
         // Skip inactive landmarks.
         if ( !landmarks_[ii].is_active) {
           continue;
         }
-        jtj_l.setZero();
+        landmarks_[ii].jtj.setZero();
         jtr_l.setZero();
         for (const int id : landmarks_[ii].proj_residuals) {
           const ProjectionResidual& res = proj_residuals_[id];
-          jtj_l += (res.dz_dlm.transpose() * res.dz_dlm) *
+          landmarks_[ii].jtj += (res.dz_dlm.transpose() * res.dz_dlm) *
               res.weight;
           jtr_l += (res.dz_dlm.transpose() * sqrt(res.weight) *
                   r_pr_.template block<ProjectionResidual::kResSize,1>(
@@ -571,16 +570,17 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
         rhs_l_.template block<kLmDim,1>(landmarks_[ii].opt_id*kLmDim, 0) =
             jtr_l;
         if (kLmDim == 1) {
-          if (fabs(jtj_l(0,0)) < 1e-6) {
-            jtj_l(0,0) += 1e-6;
+          if (fabs(landmarks_[ii].jtj(0,0)) < 1e-6) {
+            landmarks_[ii].jtj(0,0) += 1e-6;
           }
         } else {
-          if (jtj_l.norm() < 1e-6) {
-            jtj_l.diagonal() +=
+          if (landmarks_[ii].jtj.norm() < 1e-6) {
+            landmarks_[ii].jtj.diagonal() +=
                 Eigen::Matrix<Scalar, kLmDim, 1>::Constant(1e-6);
           }
         }
-        vi_.insert(landmarks_[ii].opt_id, landmarks_[ii].opt_id) = jtj_l.inverse();
+        vi_.insert(landmarks_[ii].opt_id, landmarks_[ii].opt_id) =
+            landmarks_[ii].jtj.inverse();
       }
 
       PrintTimer(_schur_complement_v);
@@ -1622,6 +1622,27 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
  // are_all_active = false;
   // are_all_active = false;
   const bool using_prior = use_prior_ && prior_poses_.size() > 0;
+
+  // If we are doing an inertial run, and any poses have no inertial constraints
+  // we must regularize their velocity and (if applicable) biases.
+  if (kVelInState) {
+    for (Pose& pose : poses_)
+    {
+      if (pose.inertial_residuals.size() == 0) {
+        StreamMessage(debug_level) <<
+          "Pose id " << pose.id << " found with no inertial residuals. "
+          " regularizing velocities and biases. " << std::endl;
+        pose.is_param_mask_used = true;
+        pose.param_mask.assign(kPoseDim, true);
+        pose.param_mask[6] = pose.param_mask[7]  = pose.param_mask[8] = false;
+        if (kBiasInState) {
+          pose.param_mask[9] = pose.param_mask[10] =
+          pose.param_mask[11] = pose.param_mask[12] =
+          pose.param_mask[13] = pose.param_mask[14] = false;
+        }
+      }
+    }
+  }
 
   // If all poses are active and we are not marginalizing (therefore, we have
   // no prior) then regularize some parameters by setting the parameter mask.

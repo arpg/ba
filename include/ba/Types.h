@@ -87,6 +87,7 @@ struct LandmarkT {
   uint32_t ref_cam_id;
   bool is_active;
   bool is_reliable;
+  Eigen::Matrix<Scalar, LmSize, LmSize> jtj;
 };
 
 template<typename Scalar>

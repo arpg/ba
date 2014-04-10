@@ -40,6 +40,10 @@ struct SolutionSummary
   Scalar cond_inertial_error;
   Scalar proj_error_;
   Scalar inertial_error;
+
+  Scalar delta_norm;
+  Scalar pre_solve_norm;
+  Scalar post_solve_norm;
 };
 
 template<typename Scalar=double>
@@ -53,6 +57,10 @@ struct Options
 
   // Outlier thresholds
   Scalar projection_outlier_threshold = 1.0;
+
+  // Exit thresholds
+  Scalar error_change_threshold = 0.01;
+  Scalar param_change_threshold = 1e-3;
 };
 
 

@@ -15,6 +15,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
     const Delta& delta, const bool do_rollback,
     const Scalar damping)
 {
+  // Write the delta norm into the solution summary.
+  summary_.delta_norm = delta.delta_l.norm() + delta.delta_p.norm();
+
   VectorXt delta_calib;
   if (kCalibDim > 0 && delta.delta_p.size() > 0) {
     delta_calib = delta.delta_p.template tail(kCalibDim);
@@ -173,21 +176,6 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
       } else {
         landmarks_[ii].x_w.template head<kLmDim>() -= lm_delta;
       }
-      // std::cout << "Adjusting landmark with zref: " <<
-      // m_vLandmarks[ii].Zref.transpose() << " from " <<
-      // m_vLandmarks[ii].Xs.transpose() << std::endl;
-
-      // m_vLandmarks[ii].Xs /= m_vLandmarks[ii].Xs[3];
-      // const Scalar depth = m_vLandmarks[ii].Xs.template head<3>().norm();
-      // reproject this landmark
-      // VectorXt origParams = m_Rig.cameras[0].camera.GenericParams();
-      // m_Rig.cameras[0].camera.SetGenericParams(
-      //    m_vPoses[m_vLandmarks[ii].RefPoseId].CamParams);
-      // Vector3t Xs_reproj =
-      //    m_Rig.cameras[0].camera.Unproject(m_vLandmarks[ii].Zref);
-      // m_vLandmarks[ii].Xs.template head<3>() = Xs_reproj*depth;
-      // m_Rig.cameras[0].camera.SetGenericParams(origParams);
-      // std::cout << "to " << m_vLandmarks[ii].Xs.transpose() << std::endl;
     }
   }
 }
@@ -379,6 +367,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
   do_last_pose_cov_ = false;
 
   for (uint32_t kk = 0 ; kk < uMaxIter ; ++kk) {
+    StreamMessage(debug_level) << ">> Iteration " << kk << std::endl;
     StartTimer(_BuildProblem_);
     BuildProblem();
     PrintTimer(_BuildProblem_);
@@ -477,7 +466,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       rhs_p_ += jt_i_r_i;
     }
 
-    StreamMessage(debug_level) << "rhs_p_ norm after intertial res: " <<
+    StreamMessage(debug_level + 1) << "rhs_p_ norm after intertial res: " <<
                                   rhs_p_.squaredNorm() << std::endl;
 
     PrintTimer(_jtj_);
@@ -748,9 +737,23 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     }
 
     // std::cout << "running solve internal with " << use_dogleg << std::endl;
-    if (!SolveInternal(rhs_p_sc, gn_damping,
-                       error_increase_allowed,
+    if (!SolveInternal(rhs_p_sc, gn_damping, error_increase_allowed,
                        use_dogleg)) {
+      StreamMessage(debug_level) << "Exiting due to error increase." <<
+                                    std::endl;
+      break;
+    }
+
+    if ((fabs(summary_.post_solve_norm - summary_.pre_solve_norm) /
+        summary_.pre_solve_norm) < options_.error_change_threshold ) {
+      StreamMessage(debug_level) << "Exiting due to error change too small." <<
+                                    std::endl;
+      break;
+    }
+
+    if (summary_.delta_norm < options_.param_change_threshold) {
+      StreamMessage(debug_level) << "Exiting due to param change too small." <<
+                                    std::endl;
       break;
     }
 
@@ -928,9 +931,9 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     VectorXt j_l_rhs_l(ProjectionResidual::kResSize * proj_residuals_.size());
     j_l_rhs_l.setZero();
 
-    StreamMessage(debug_level) << "rhs_p_ norm: " <<  rhs_p_.squaredNorm() <<
+    StreamMessage(debug_level + 1) << "rhs_p_ norm: " << rhs_p_.squaredNorm() <<
                                   std::endl;
-    StreamMessage(debug_level) << "rhs_l_ norm: " <<  rhs_l_.squaredNorm() <<
+    StreamMessage(debug_level + 1) << "rhs_l_ norm: " << rhs_l_.squaredNorm() <<
                                   std::endl;
 
     if (num_active_poses_ > 0) {
@@ -961,15 +964,15 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
                           j_u_rhs_p.squaredNorm() +
                           j_i_rhs_p.squaredNorm();
 
-    StreamMessage(debug_level) << "j_p_rhs_p norm: " <<
+    StreamMessage(debug_level + 1) << "j_p_rhs_p norm: " <<
                                   j_p_rhs_p.squaredNorm() << std::endl;
-    StreamMessage(debug_level) << "j_l_rhs_l norm: " <<
+    StreamMessage(debug_level + 1) << "j_l_rhs_l norm: " <<
                                   j_l_rhs_l.squaredNorm() << std::endl;
-    StreamMessage(debug_level) << "j_i_rhs_p norm: " <<
+    StreamMessage(debug_level + 1) << "j_i_rhs_p norm: " <<
                                   j_i_rhs_p.squaredNorm() << std::endl;
 
     Scalar factor = numerator/denominator;
-    StreamMessage(debug_level) << "factor: " << factor <<
+    StreamMessage(debug_level + 1) << "factor: " << factor <<
                                   " nom: " << numerator << " denom: " <<
                  denominator << std::endl;
     delta_sd.delta_p = rhs_p_ * factor;
@@ -978,7 +981,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     // now calculate the steepest descent norm
     Scalar delta_sd_norm = sqrt(delta_sd.delta_p.squaredNorm() +
                                 delta_sd.delta_l.squaredNorm());
-    StreamMessage(debug_level) << "sd norm : " << delta_sd_norm <<
+    StreamMessage(debug_level + 1) << "sd norm : " << delta_sd_norm <<
                                   std::endl;
 
     while (1) {
@@ -992,7 +995,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
           }
           Scalar delta_gn_norm = sqrt(delta_gn.delta_p.squaredNorm() +
                                       delta_gn.delta_l.squaredNorm());
-          StreamMessage(debug_level) << "gn norm: " << delta_gn_norm <<
+          StreamMessage(debug_level + 1) << "gn norm: " << delta_gn_norm <<
                                         std::endl;
         }
 
@@ -1009,7 +1012,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
           trust_region_size_ << std::endl;
 
         if (!gn_computed) {
-          StreamMessage(debug_level) << "Computing gauss newton " <<
+          StreamMessage(debug_level + 1) << "Computing gauss newton " <<
                                         std::endl;
           if (num_active_poses_ > 0) {
             CalculateGn(rhs_p_sc, delta_gn.delta_p);            
@@ -1062,11 +1065,6 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
 
       Scalar delta_dl_norm = sqrt(delta_dl.delta_p.squaredNorm() +
                                   delta_dl.delta_l.squaredNorm());
-      if (!std::isnormal(delta_dl_norm) || delta_dl_norm < 1e-4) {
-        StreamMessage(debug_level) << "Step size too small, quitting" <<
-                                      std::endl;
-        return false;
-      }
 
       // Make copies of the initial parameters.
       decltype(landmarks_) landmarks_copy = landmarks_;
@@ -1079,26 +1077,27 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
       // dogleg, the residuals are constantly changing.
       EvaluateResiduals(&proj_error, &binary_error,
                         &unary_error, &inertial_error);
-      const Scalar prev_error = proj_error + inertial_error + binary_error +
+      summary_.pre_solve_norm = proj_error + inertial_error + binary_error +
                                 unary_error;
       ApplyUpdate(delta_dl, false);
 
       StreamMessage(debug_level) << std::setprecision (15) <<
-        "Pre-solve norm: " << prev_error << " with Epr:" <<
+        "Pre-solve norm: " << summary_.pre_solve_norm << " with Epr:" <<
         proj_error << " and Ei:" << inertial_error <<
         " and Epp: " << binary_error << " and Eu " << unary_error << std::endl;
 
       EvaluateResiduals(&proj_error, &binary_error,
                         &unary_error, &inertial_error);
-      const Scalar post_error = proj_error + inertial_error + binary_error +
+      summary_.post_solve_norm = proj_error + inertial_error + binary_error +
                                 unary_error;
 
       StreamMessage(debug_level) << std::setprecision (15) <<
-        "Post-solve norm: " << post_error << " with Epr:" <<
-        proj_error << " and Ei:" << inertial_error <<
-        " and Epp: " << binary_error << " and Eu " << unary_error << std::endl;
+        "Post-solve norm: " << summary_.post_solve_norm << " update delta: " <<
+        summary_.delta_norm << " with Epr:" << proj_error << " and Ei:" <<
+        inertial_error << " and Epp: " << binary_error << " and Eu " <<
+        unary_error << std::endl;
 
-      if (post_error > prev_error) {
+      if (summary_.post_solve_norm > summary_.pre_solve_norm) {
         landmarks_ = landmarks_copy;
         poses_ = poses_copy;
         imu_ = imu_copy;
@@ -1179,14 +1178,6 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
       binary_error_ = binary_error;
       inertial_error_ = inertial_error;
     }
-
-
-    if (fabs(prev_error - postError)/prev_error < 0.001) {
-      StreamMessage(debug_level) << "Error decrease less than 0.1%, "
-                                    "aborting." << std::endl;
-      return false;
-    }
-
   }
   return true;
 }
@@ -2011,7 +2002,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     }
   }
 
-  StreamMessage(debug_level) << "Reserving jacobians..." << std::endl;
+  StreamMessage(debug_level + 1) << "Reserving jacobians..." << std::endl;
 
   if (!proj_residuals_.empty() && num_poses > 0) {
     j_pr_.reserve(j_pr_sizes);

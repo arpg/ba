@@ -187,6 +187,11 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
     Scalar* unary_error, Scalar* inertial_error)
 {
   if (proj_error) {
+    // Reset the outlier count.
+    for (Landmark& lm : landmarks_) {
+      lm.num_outlier_residuals = 0;
+    }
+
     *proj_error = 0;
     for (ProjectionResidual& res : proj_residuals_) {
       Landmark& lm = landmarks_[res.landmark_id];
@@ -210,7 +215,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
       res.mahalanobis_distance = res.residual.squaredNorm() * res.weight;
       *proj_error += res.mahalanobis_distance;
       // If this is an outlier, mark it as such
-      if (res.mahalanobis_distance > options_.projection_outlier_threshold) {
+      if (res.residual.norm() > options_.projection_outlier_threshold) {
         landmarks_[res.landmark_id].num_outlier_residuals++;
       }
     }
@@ -1265,11 +1270,6 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       are_all_active = false;
       break;
     }
-  }
-
-  // Reset the outlier count.
-  for (Landmark& lm : landmarks_) {
-    lm.num_outlier_residuals = 0;
   }
 
   // If we are doing an inertial run, and any poses have no inertial constraints

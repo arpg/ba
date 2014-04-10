@@ -42,6 +42,20 @@ struct SolutionSummary
   Scalar inertial_error;
 };
 
+template<typename Scalar=double>
+struct Options
+{
+  Scalar trust_region_size = 1.0;
+  Scalar gyro_uncertainty = IMU_GYRO_UNCERTAINTY;
+  Scalar accel_uncertainty = IMU_ACCEL_UNCERTAINTY;
+  Scalar gyro_bias_uncertainty = IMU_GYRO_BIAS_UNCERTAINTY;
+  Scalar accel_bias_uncertainty = IMU_ACCEL_BIAS_UNCERTAINTY;
+
+  // Outlier thresholds
+  Scalar projection_outlier_threshold = 1.0;
+};
+
+
 
 template<typename Scalar=double,int LmSize=1, int PoseSize=6, int CalibSize=0>
 class BundleAdjuster
@@ -91,35 +105,28 @@ public:
   BundleAdjuster() :
     imu_(SE3t(),Vector3t::Zero(),Vector3t::Zero(),Vector2t::Zero()),
     translation_enabled_(kCalibDim > 15 ? false : true),
-    total_tvs_change_(0),
-    tvs_trans_prior_(1.0),
-    tvs_rot_prior_(1.0)
+    total_tvs_change_(0)
   {}
 
 
   ////////////////////////////////////////////////////////////////////////////
-  void Init(uint32_t num_poses,
-            uint32_t num_measurements,
+  void Init(const Options<Scalar>& options,
+            uint32_t num_poses = 0,
+            uint32_t num_measurements = 0,
             uint32_t num_landmarks = 0,
-            const SE3t& t_vs = SE3t(),
-            const Scalar trust_region_size = 1.0,
-            const double gyro_uncertainty = IMU_GYRO_UNCERTAINTY,
-            const double accel_uncertainty = IMU_ACCEL_UNCERTAINTY,
-            const double gyro_bias_uncertainty = IMU_GYRO_BIAS_UNCERTAINTY,
-            const double accel_bias_uncertainty = IMU_ACCEL_BIAS_UNCERTAINTY)
+            const SE3t& t_vs = SE3t())
   {
-    // if LmSize == 0, there is no need for a camera rig or landmarks
-    assert(num_landmarks != 0 || LmSize == 0);
-
     // If any of these are zero, they will destroy some of the predictive maths
     // further ahead, so set them to a default value.
     num_poses = std::max(1u, num_poses);
     num_measurements = std::max(1u, num_measurements);
     num_landmarks = std::max(1u, num_landmarks);
 
-    // set the initial trust region size
-    trust_region_size_ = trust_region_size;
+    // if LmSize == 0, there is no need for a camera rig or landmarks
+    assert(num_landmarks != 0 || LmSize == 0);
 
+    options_ = options;
+    trust_region_size_ = options_.trust_region_size;
     root_pose_id_ = 0;
     num_active_poses_ = 0;
     num_active_landmarks_ = 0;
@@ -131,20 +138,20 @@ public:
     imu_.t_vs = t_vs;
     last_tvs_ = imu_.t_vs;
     imu_.r = ((Eigen::Matrix<Scalar, 6, 1>() <<
-              gyro_uncertainty,
-              gyro_uncertainty,
-              gyro_uncertainty,
-              accel_uncertainty,
-              accel_uncertainty,
-              accel_uncertainty).finished().asDiagonal());
+              options.gyro_uncertainty,
+              options.gyro_uncertainty,
+              options.gyro_uncertainty,
+              options.accel_uncertainty,
+              options.accel_uncertainty,
+              options.accel_uncertainty).finished().asDiagonal());
 
     imu_.r_b <<
-              gyro_bias_uncertainty,
-              gyro_bias_uncertainty,
-              gyro_bias_uncertainty,
-              accel_bias_uncertainty,
-              accel_bias_uncertainty,
-              accel_bias_uncertainty;
+              options.gyro_bias_uncertainty,
+              options.gyro_bias_uncertainty,
+              options.gyro_bias_uncertainty,
+              options.accel_bias_uncertainty,
+              options.accel_bias_uncertainty,
+              options.accel_bias_uncertainty;
 
     landmarks_.reserve(num_landmarks);
     proj_residuals_.reserve(num_measurements);
@@ -459,8 +466,7 @@ public:
   void Solve(const uint32_t uMaxIter,
              const Scalar gn_damping = 1.0,
              const bool error_increase_allowed = false,
-             const bool use_dogleg = true,
-             const bool use_prior = false);
+             const bool use_dogleg = true);
 
   void SetRootPoseId(const uint32_t id) { root_pose_id_ = id; }
 
@@ -474,7 +480,13 @@ public:
 
   const ImuCalibration& GetImuCalibration() const { return imu_; }
   void SetImuCalibration(const ImuCalibration& calib) { imu_ = calib; }
-  const Pose& GetPose(const uint32_t id) const  {
+  const ProjectionResidual& GetProjectionResidual(uint32_t id) const
+  {
+    return proj_residuals_[id];
+  }
+
+  const Pose& GetPose(const uint32_t id) const
+  {
     if (id >= poses_.size()) {
       std::cerr << "Attempted to get pose with id " << id << " from BA. "
                 << " when poses_.size() is only " << poses_.size()
@@ -505,13 +517,6 @@ public:
   }
 
   const SolutionSummary<Scalar>& GetSolutionSummary() { return summary_; }
-  void MarginalizePose(int root_pose_id = -1);
-  void TransformPriorSE3(const SE3t& t_a1a2);
-  void ClearPrior()
-  {
-    prior_poses_.clear();
-    prior_.resize(0,0);
-  }
 
 private:
   bool SolveInternal(VectorXt rhs_p_sc, const Scalar gn_damping,
@@ -574,10 +579,7 @@ private:
   BlockMat<Eigen::Matrix<Scalar, kLmDim, kPrPoseDim>> jt_l_j_pr_;
   BlockMat<Eigen::Matrix<Scalar, kPrPoseDim, kLmDim>> jt_pr_j_l_;
 
-  aligned_vector<Eigen::Matrix<Scalar, 6, 6>> j_prior_twp_;
-  std::vector<Pose> prior_poses_;
-  MatrixXt jt_prior_;
-  MatrixXt prior_;
+
   VectorXt rhs_p_;
   VectorXt rhs_l_;
   VectorXt r_pi_;
@@ -586,7 +588,6 @@ private:
   Eigen::SparseMatrix<Scalar> s_sparse_;
   Scalar trust_region_size_;
 
-  bool use_prior_;
   bool translation_enabled_;
   bool is_param_mask_used_;
   bool do_sparse_solve_;
@@ -597,8 +598,6 @@ private:
   Scalar binary_error_;
   Scalar unary_error_;
   Scalar inertial_error_;
-  Scalar tvs_trans_prior_;
-  Scalar tvs_rot_prior_;
   uint32_t root_pose_id_;
   uint32_t num_active_poses_;
   uint32_t num_active_landmarks_;
@@ -619,6 +618,7 @@ private:
   Eigen::Matrix<Scalar,kPoseDim+1,kPoseDim+1> last_pose_cov_;
 
   SolutionSummary<Scalar> summary_;
+  Options<Scalar> options_;
 };
 
 static const int NOT_USED = 0;

@@ -222,7 +222,9 @@ void f_gps(double timestamp, double utm_e, double utm_n, double altitude)
 void setup()
 {
 	fprintf(stderr, "Init BA\n");
-  slam.Init(100,0, 0, Sophus::SE3d(), 100000);
+  ba::Options<double> options;
+  options.trust_region_size = 100000;
+  slam.Init(options);
 
 	Eigen::Matrix<double,3,1> gravity;
 	gravity << 0,0,9.8;

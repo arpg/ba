@@ -79,6 +79,7 @@ struct LandmarkT {
   Eigen::Matrix<Scalar, 4, 1> x_s;
   Eigen::Matrix<Scalar, 4, 1> x_w;
   std::vector<int> proj_residuals;
+  std::vector<Eigen::Vector2d> residuals;
   int external_id;
   uint32_t num_outlier_residuals;
   uint32_t id;

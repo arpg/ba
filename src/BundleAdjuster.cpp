@@ -44,7 +44,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
       const Eigen::Matrix<Scalar, 6, 1>& update =
           delta_calib.template block<6,1>(2,0)*coef;
       imu_.t_vs = SE3t::exp(update)*imu_.t_vs;
-      rig_.cameras[0].T_wc = imu_.t_vs;
+      rig_.t_wc_[0] = imu_.t_vs;
 
       StreamMessage(debug_level) <<
         "Tvs delta is " << (update).transpose() << std::endl;
@@ -61,12 +61,12 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
     StreamMessage(debug_level) <<
       "calib delta: " << (update).transpose() << std::endl;
 
-    const VectorXt params = rig_.cameras[0].camera.GenericParams();
-    rig_.cameras[0].camera.SetGenericParams(params-(update*coef));
+    // const VectorXt params = rig_.cameras_[0]->GetParams();
+    // rig_.cameras[0].camera.SetGenericParams(params-(update*coef));
 
-    StreamMessage(debug_level) <<
-      "new params: " << rig_.cameras[0].camera.GenericParams().transpose() <<
-      std::endl;
+    // StreamMessage(debug_level) <<
+    //   "new params: " << rig_.cameras[0].camera.GenericParams().transpose() <<
+    //   std::endl;
   }
 
   // update poses
@@ -203,9 +203,9 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
           ref_pose.GetTsw(lm.ref_cam_id,rig_, kTvsInState).inverse();
 
       const Vector2t p = kLmDim == 3 ?
-            rig_.cameras[res.cam_id].camera.Transfer3D(
+            rig_.cameras_[res.cam_id]->Transfer3d(
               t_sw_m, lm.x_w.template head<3>(),lm.x_w(3)) :
-            rig_.cameras[res.cam_id].camera.Transfer3D(
+            rig_.cameras_[res.cam_id]->Transfer3d(
               t_sw_m*t_ws_r, lm.x_s.template head<3>(),lm.x_s(3));
 
       res.residual = res.z - p;
@@ -386,7 +386,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     StartTimer(_rhs_mult_);
     // calculate bp and bl
     rhs_p_.resize(num_pose_params);
-    VectorXt bk;
+    VectorXt rhs_k;
     vi_.resize(num_lm, num_lm);
 
     VectorXt rhs_p_sc(num_pose_params + kCalibDim);
@@ -625,41 +625,42 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
                            num_pose_params, kCalibDim).transpose();
 
       // and the rhs for the calibration params
-      bk.resize(kCalibDim,1);
-      Eigen::SparseBlockVectorProductDenseResult(jt_ki_, r_i_, bk);
-      rhs_p_sc.template tail<kCalibDim>() = bk;
+      rhs_k.resize(kCalibDim,1);
+      Eigen::SparseBlockVectorProductDenseResult(jt_ki_, r_i_, rhs_k);
+      rhs_p_sc.template tail<kCalibDim>() = rhs_k;
     }
 
     if(kCamParamsInCalib){
-      /*BlockMat< Eigen::Matrix<Scalar, kCalibDim, kCalibDim>> jt_kpr_j_kpr(1, 1);
+      BlockMat< Eigen::Matrix<Scalar, kCalibDim, kCalibDim>> jt_kpr_j_kpr(1, 1);
       Eigen::SparseBlockProduct(jt_kpr_, j_kpr_, jt_kpr_j_kpr);
       MatrixXt djt_kpr_j_kpr(kCalibDim, kCalibDim);
       Eigen::LoadDenseFromSparse(jt_kpr_j_kpr, djt_kpr_j_kpr);
-      s.template block<kCalibDim, kCalibDim>(num_pose_params, num_pose_params)
+      s_.template block<kCalibDim, kCalibDim>(num_pose_params, num_pose_params)
           += djt_kpr_j_kpr;
       std::cout << "djt_kpr_j_kpr: " << djt_kpr_j_kpr << std::endl;
 
       BlockMat<Eigen::Matrix<Scalar, kPoseDim, kCalibDim>>
-          jt_or_j_kpr(num_poses, 1);
+          jt_pr_j_kpr(num_poses, 1);
 
-      Eigen::SparseBlockProduct(jt_pr, j_kpr_, jt_or_j_kpr);
-      MatrixXt djt_or_j_kpr(kPoseDim*num_poses, kCalibDim);
-      Eigen::LoadDenseFromSparse(jt_or_j_kpr, djt_or_j_kpr);
-      std::cout << "djt_or_j_kpr: " << djt_or_j_kpr << std::endl;
-      s.template block(0, num_pose_params, num_pose_params, kCalibDim) +=
-          djt_or_j_kpr;
-      s.template block(num_pose_params, 0, kCalibDim, num_pose_params) +=
-          djt_or_j_kpr.transpose();
+      Eigen::SparseBlockProduct(jt_pr, j_kpr_, jt_pr_j_kpr);
+      MatrixXt djt_pr_j_kpr(kPoseDim*num_poses, kCalibDim);
+      Eigen::LoadDenseFromSparse(jt_pr_j_kpr, djt_pr_j_kpr);
+      std::cout << "djt_pr_j_kpr: " << djt_pr_j_kpr << std::endl;
+      s_.template block(0, num_pose_params, num_pose_params, kCalibDim) +=
+          djt_pr_j_kpr;
+      s_.template block(num_pose_params, 0, kCalibDim, num_pose_params) +=
+          djt_pr_j_kpr.transpose();
 
-      bk.resize(kCalibDim,1);
-      Eigen::SparseBlockVectorProductDenseResult(jt_kpr_, r_pr_, bk);
-      rhs_p.template tail<kCalibDim>() += bk;
+      rhs_k.resize(kCalibDim,1);
+      Eigen::SparseBlockVectorProductDenseResult(jt_kpr_, r_pr_, rhs_k);
+      rhs_p_.template tail<kCalibDim>() += rhs_k;
 
       // schur complement
       BlockMat< Eigen::Matrix<Scalar, kCalibDim, kLmDim>> jt_kpr_jl(1, num_lm);
       BlockMat< Eigen::Matrix<Scalar, kLmDim, kCalibDim>> jt_l_j_kpr(num_lm, 1);
       Eigen::SparseBlockProduct(jt_kpr_,j_l_,jt_kpr_jl);
-      Eigen::SparseBlockProduct(jt_l_,j_kpr_,jt_l_j_kpr);
+      decltype(jt_l_j_kpr)::forceTranspose(jt_kpr_jl, jt_l_j_kpr);
+      //Eigen::SparseBlockProduct(jt_l_,j_kpr_,jt_l_j_kpr);
       //Jlt_Jkpr = Jkprt_Jl.transpose();
 
       MatrixXt djt_pr_j_l_vi_jt_l_j_kpr(kPoseDim*num_poses, kCalibDim);
@@ -667,21 +668,21 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
           jt_pr_j_l_vi_jt_l_j_kpr(num_poses, 1);
 
       Eigen::SparseBlockProduct(
-            jt_pr_j_l_vi,jt_l_j_kpr, jt_pr_j_l_vi_jt_l_j_kpr);
+            jt_pr_j_l_vi, jt_l_j_kpr, jt_pr_j_l_vi_jt_l_j_kpr);
       Eigen::LoadDenseFromSparse(
             jt_pr_j_l_vi_jt_l_j_kpr, djt_pr_j_l_vi_jt_l_j_kpr);
 
       std::cout << "jt_pr_j_l_vi_jt_l_j_kpr: " <<
                    djt_pr_j_l_vi_jt_l_j_kpr << std::endl;
 
-      s.template block(0, num_pose_params, num_pose_params, kCalibDim) -=
+      s_.template block(0, num_pose_params, num_pose_params, kCalibDim) -=
           djt_pr_j_l_vi_jt_l_j_kpr;
-      s.template block(num_pose_params, 0, kCalibDim, num_pose_params) -=
+      s_.template block(num_pose_params, 0, kCalibDim, num_pose_params) -=
           djt_pr_j_l_vi_jt_l_j_kpr.transpose();
 
       BlockMat<Eigen::Matrix<Scalar, kCalibDim, kLmDim>>
           jt_kpr_j_l_vi(1, num_lm);
-      Eigen::SparseBlockProduct(jt_kpr_jl,vi,jt_kpr_j_l_vi);
+      Eigen::SparseBlockProduct(jt_kpr_jl, vi_, jt_kpr_j_l_vi);
 
       BlockMat<Eigen::Matrix<Scalar, kCalibDim, kCalibDim>>
           jt_kpr_j_l_vi_jt_l_j_kpr(1, 1);
@@ -698,22 +699,21 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       std::cout << "djt_kpr_j_l_vi_jt_l_j_kpr: " <<
                    djt_kpr_j_l_vi_jt_l_j_kpr << std::endl;
 
-      s.template block<kCalibDim, kCalibDim>(num_pose_params, num_pose_params)
+      s_.template block<kCalibDim, kCalibDim>(num_pose_params, num_pose_params)
           -= djt_kpr_j_l_vi_jt_l_j_kpr;
 
       VectorXt jt_kpr_j_l_vi_bl;
       jt_kpr_j_l_vi_bl.resize(kCalibDim);
       Eigen::SparseBlockVectorProductDenseResult(
-            jt_kpr_j_l_vi, bl, jt_kpr_j_l_vi_bl);
+            jt_kpr_j_l_vi, rhs_l_, jt_kpr_j_l_vi_bl);
       // std::cout << "Eigen::SparseBlockVectorProductDenseResult(Wp_V_inv, bl,"
       // " WV_inv_bl) took  " << Toc(dSchurTime) << " seconds."  << std::endl;
 
       std::cout << "jt_kpr_j_l_vi_bl: " <<
                    jt_kpr_j_l_vi_bl.transpose() << std::endl;
       std::cout << "rhs_p.template tail<kCalibDim>(): " <<
-                   rhs_p.template tail<kCalibDim>().transpose() << std::endl;
-      rhs_p.template tail<kCalibDim>() -= jt_kpr_j_l_vi_bl;
-      */
+                   rhs_p_.template tail<kCalibDim>().transpose() << std::endl;
+      rhs_p_.template tail<kCalibDim>() -= jt_kpr_j_l_vi_bl;
     }
 
     // regularize masked parameters.
@@ -1075,7 +1075,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
       decltype(landmarks_) landmarks_copy = landmarks_;
       decltype(poses_) poses_copy = poses_;
       decltype(imu_) imu_copy = imu_;
-      decltype(rig_) rig_copy = rig_;
+      // decltype(rig_) rig_copy = rig_;
 
 
       // We have to calculate the residuals here, as during the inner loop of
@@ -1106,7 +1106,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
         landmarks_ = landmarks_copy;
         poses_ = poses_copy;
         imu_ = imu_copy;
-        rig_ = rig_copy;
+        // rig_ = rig_copy;
 
         trust_region_size_ /= 2;
         StreamMessage(debug_level) << "Error increased, reducing "
@@ -1368,20 +1368,21 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     Landmark& lm = landmarks_[res.landmark_id];
     Pose& pose = poses_[res.x_meas_id];
     Pose& ref_pose = poses_[res.x_ref_id];
-    auto& cam = rig_.cameras[res.cam_id].camera;
+    auto& cam = rig_.cameras_[res.cam_id];
 
     const SE3t& t_vs_m =
-        (kTvsInState ? pose.t_vs : rig_.cameras[res.cam_id].T_wc);
+        (kTvsInState ? pose.t_vs : rig_.t_wc_[res.cam_id]);
     const SE3t& t_vs_r =
-        (kTvsInState ? ref_pose.t_vs :  rig_.cameras[lm.ref_cam_id].T_wc);
+        (kTvsInState ? ref_pose.t_vs :  rig_.t_wc_[lm.ref_cam_id]);
     const SE3t& t_sw_m =
         pose.GetTsw(res.cam_id, rig_, kTvsInState);
     const SE3t t_ws_r =
         ref_pose.GetTsw(lm.ref_cam_id, rig_, kTvsInState).inverse();
 
     const Vector2t p = kLmDim == 3 ?
-          cam.Transfer3D(t_sw_m, lm.x_w.template head<3>(),lm.x_w(3)) :
-          cam.Transfer3D(t_sw_m*t_ws_r, lm.x_s.template head<3>(),lm.x_s(3));;
+          cam->Transfer3d(t_sw_m, lm.x_w.template head<3>(), lm.x_w(3)) :
+          cam->Transfer3d(t_sw_m * t_ws_r, lm.x_s.template head<3>(),
+                          lm.x_s(3));
 
     res.residual = res.z - p;
     // std::cerr << "res " << res.residual_id << " : pre" <<
@@ -1391,7 +1392,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
         MultHomogeneous(t_sw_m * t_ws_r, lm.x_s) :
         MultHomogeneous(t_sw_m, lm.x_w);
 
-    const Eigen::Matrix<Scalar,2,4> dt_dp_m = cam.dTransfer3D_dP(
+    const Eigen::Matrix<Scalar,2,4> dt_dp_m = cam->dTransfer3d_dray(
           SE3t(), x_s_m.template head<3>(),x_s_m(3));
 
     const Eigen::Matrix<Scalar,2,4> dt_dp_s = kLmDim == 3 ?
@@ -2183,16 +2184,16 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
       }
     }
 
-    for (const ProjectionResidual& res : proj_residuals_) {
-      // include imu to camera terms (6 total)
-      if (kCalibDim > 8) {
+    // include imu to camera terms (6 total)
+    if (kCamParamsInCalib > 8) {
+      for (const ProjectionResidual& res : proj_residuals_) {
         const Eigen::Matrix<Scalar,2,5>& dz_dk = res.dz_dcam_params;
         j_kpr_.coeffRef(res.residual_id,0).setZero().
             template block(0,8,2,5) = dz_dk.template block(0,0,2,5);
 
         jt_kpr_.coeffRef(0,res.residual_id).setZero().
             template block(8,0,5,2) =
-                dz_dk.template block(0,0,2,5).transpose() * res.weight;
+            dz_dk.template block(0,0,2,5).transpose() * res.weight;
       }
     }
   }

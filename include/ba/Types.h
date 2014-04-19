@@ -24,7 +24,7 @@
 #include <Eigen/Eigen>
 #include <sophus/se3.hpp>
 #include "Utils.h"
-#include <calibu/Calibu.h>
+#include <calibu/cam/camera_crtp_interop.h>
 
 // #define IMU_GYRO_UNCERTAINTY 7.15584993e-5  // 0.00104719755 // 0.1 //
 // #define IMU_ACCEL_UNCERTAINTY 0.00159855109  // 0.0392266 // 10
@@ -59,11 +59,11 @@ struct PoseT {
   std::vector<Sophus::SE3Group<Scalar>> t_sw;
 
   const Sophus::SE3Group<Scalar>& GetTsw(const uint32_t cam_id,
-                                         const calibu::CameraRigT<Scalar>& rig,
+                                         const calibu::Rig<Scalar>& rig,
                                          const bool use_internal_t_sw) {
     while (t_sw.size() <= cam_id) {
       if (use_internal_t_sw == false) {
-        t_sw.push_back((t_wp * rig.cameras[t_sw.size()].T_wc).inverse());
+        t_sw.push_back((t_wp * rig.t_wc_[t_sw.size()]).inverse());
       } else {
         // this needs to be modified to work with stereo
         t_sw.push_back((t_wp * t_vs).inverse());

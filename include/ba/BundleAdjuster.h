@@ -17,6 +17,7 @@
 #include "CeresCostFunctions.h"
 #include "Utils.h"
 #include "Types.h"
+#include <calibu/cam/camera_crtp_interop.h>
 // #ifdef ENABLE_TESTING
 #include "BundleAdjusterTest.h"
 // Only used for matrix square root.
@@ -167,7 +168,7 @@ public:
     poses_.reserve(num_poses);
 
     // clear all arrays
-    rig_.cameras.clear();
+    rig_.Clear();
     poses_.clear();
     proj_residuals_.clear();
     binary_residuals_.clear();
@@ -199,8 +200,8 @@ public:
   uint32_t AddCamera( const calibu::CameraModelInterfaceT<Scalar>& cam_param,
                           const SE3t&                        cam_pose)
   {
-    rig_.Add(cam_param, cam_pose);
-    return rig_.cameras.size()-1;
+    rig_.AddCamera(calibu::CreateFromOldCamera<Scalar>(cam_param), cam_pose);
+    return rig_.cameras_.size()-1;
   }
 
   ////////////////////////////////////////////////////////////////////////////
@@ -245,7 +246,7 @@ public:
     pose.cam_params = cam_params;
     pose.is_active = is_active;
     pose.is_param_mask_used = false;
-    pose.t_sw.reserve(rig_.cameras.size());
+    pose.t_sw.reserve(rig_.cameras_.size());
 
     pose.id = poses_.size();
     if (is_active) {
@@ -614,7 +615,8 @@ private:
   uint32_t unary_residual_offset_;
   uint32_t proj_residual_offset;
   uint32_t inertial_residual_offset_;
-  calibu::CameraRigT<Scalar> rig_;
+  // calibu::CameraRigT<Scalar> rig_;
+  calibu::Rig<Scalar> rig_;
   std::vector<Pose> poses_;
   std::vector<Landmark> landmarks_;
   std::vector<ProjectionResidual > proj_residuals_;

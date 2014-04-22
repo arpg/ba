@@ -62,6 +62,11 @@ struct Options
   // Exit thresholds
   Scalar error_change_threshold = 0.01;
   Scalar param_change_threshold = 1e-3;
+
+  bool use_dogleg = true;
+  bool use_triangular_matrices = true;
+  bool use_sparse_solver = true;
+  bool write_reduced_camera_matrix = false;
 };
 
 
@@ -98,6 +103,7 @@ class BundleAdjuster
   struct Delta
   {
     VectorXt delta_p;
+    VectorXt delta_k;
     VectorXt delta_l;
   };
 
@@ -108,7 +114,7 @@ public:
   static const bool kTvsInState = (kPoseDim >= 21);
   static const bool kGravityInCalib = (kCalibDim >= 2);
   static const bool kTvsInCalib = (kCalibDim >= 8);
-  static const bool kCamParamsInCalib = (kCalibDim > 8);
+  static const bool kCamParamsInCalib = (kCalibDim > 0);
 
   ////////////////////////////////////////////////////////////////////////////
   BundleAdjuster() :
@@ -196,12 +202,13 @@ public:
 
 
   ////////////////////////////////////////////////////////////////////////////
-  uint32_t AddCamera( const calibu::CameraModelInterfaceT<Scalar>& cam_param,
-                          const SE3t&                        cam_pose)
+  uint32_t AddCamera(const calibu::CameraModelInterfaceT<Scalar>& cam_param,
+                     const SE3t& cam_pose)
   {
     rig_.AddCamera(calibu::CreateFromOldCamera<Scalar>(cam_param), cam_pose);
     return rig_.cameras_.size()-1;
   }
+
 
   ////////////////////////////////////////////////////////////////////////////
   uint32_t AddPose(const SE3t& t_wp,
@@ -474,8 +481,7 @@ public:
 
   void Solve(const uint32_t uMaxIter,
              const Scalar gn_damping = 1.0,
-             const bool error_increase_allowed = false,
-             const bool use_dogleg = true);
+             const bool error_increase_allowed = false);
 
   void SetRootPoseId(const uint32_t id) { root_pose_id_ = id; }
 
@@ -526,17 +532,15 @@ public:
   }
 
   const SolutionSummary<Scalar>& GetSolutionSummary() { return summary_; }
+  Options<Scalar>& options() { return options_; }
 
 private:
   bool SolveInternal(VectorXt rhs_p_sc, const Scalar gn_damping,
                      const bool error_increase_allowed, const bool use_dogleg);
 
-  void CalculateGn(const VectorXt& rhs_p, VectorXt& delta_gn);
-  void GetLandmarkDelta(
-      const VectorXt &delta_p, const VectorXt &rhs_l,
-      const BlockMat<Eigen::Matrix<Scalar, kLmDim, kLmDim> > &vi,
-      const BlockMat<Eigen::Matrix<Scalar, kLmDim, kPrPoseDim> > &jt_l_j_pr,
-      const uint32_t num_poses, const uint32_t num_lm, VectorXt &delta_l);
+  void CalculateGn(const VectorXt& rhs_p, Delta &delta);
+  void GetLandmarkDelta(const Delta& delta, const uint32_t num_poses,
+                        const uint32_t num_lm, VectorXt &delta_l);
 
   void ApplyUpdate(const Delta& delta, const bool bRollback,
                    const Scalar damping = 1.0);
@@ -586,10 +590,12 @@ private:
   BlockMat<Eigen::Matrix<Scalar, kPoseDim, kPoseDim>> u_;
   BlockMat<Eigen::Matrix<Scalar, kLmDim, kLmDim>> vi_;
   BlockMat<Eigen::Matrix<Scalar, kLmDim, kPrPoseDim>> jt_l_j_pr_;
+  BlockMat< Eigen::Matrix<Scalar, kLmDim, CalibSize>> jt_l_j_kpr_;
   BlockMat<Eigen::Matrix<Scalar, kPrPoseDim, kLmDim>> jt_pr_j_l_;
 
 
   VectorXt rhs_p_;
+  VectorXt rhs_k_;
   VectorXt rhs_l_;
   VectorXt r_pi_;
 
@@ -599,7 +605,6 @@ private:
 
   bool translation_enabled_;
   bool is_param_mask_used_;
-  bool do_sparse_solve_;
   bool do_last_pose_cov_;
   Scalar total_tvs_change_;
   SE3t last_tvs_;

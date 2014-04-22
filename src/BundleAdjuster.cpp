@@ -10,19 +10,19 @@ int debug_level_threshold = 0;
 // #define DAMPING 0.1
 
 ////////////////////////////////////////////////////////////////////////////////
-template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
-void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
+template< typename Scalar,int LmSize, int PoseSize, int CalibSize >
+void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::ApplyUpdate(
     const Delta& delta, const bool do_rollback,
     const Scalar damping)
 {
   // Write the delta norm into the solution summary.
   summary_.delta_norm = delta.delta_l.norm() + delta.delta_p.norm();
 
-  VectorXt delta_calib;
-  if (kCalibDim > 0 && delta.delta_p.size() > 0) {
-    delta_calib = delta.delta_p.template tail(kCalibDim);
-    // std::cout << "Delta calib: " << deltaCalib.transpose() << std::endl;
-  }
+//  VectorXt delta_calib;
+//  if (kCalibDim > 0 && delta.delta_p.size() > 0) {
+//    delta_calib = delta.delta_p.template tail(kCalibDim);
+//    // std::cout << "Delta calib: " << deltaCalib.transpose() << std::endl;
+//  }
 
   Eigen::Matrix<Scalar, 3, 3> j_pose_update;
 
@@ -54,19 +54,28 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
   }
 
   // update the camera parameters
-  if (kCamParamsInCalib && delta_calib.rows() > 8){
-    const Eigen::Matrix<Scalar, 5, 1>& update =
-        delta_calib.template block<5,1>(8,0)*coef;
+  if (kCamParamsInCalib && delta.delta_k.rows() > 0){
+    double* params = rig_.cameras_[0]->GetParams();
+    std::cerr << "Prev params: " << params[0] << " " << params[1] << " " <<
+                 params[2] << " " << params[3] << std::endl;
+    for (int ii = 0 ; ii < rig_.cameras_[0]->NumParams() ; ++ii) {
+      params[ii] -= delta.delta_k[ii];
+    }
+    std::cerr << "Post params: " << params[0] << " " << params[1] << " " <<
+                 params[2] << " " << params[3] << std::endl;
 
-    StreamMessage(debug_level) <<
-      "calib delta: " << (update).transpose() << std::endl;
 
-    // const VectorXt params = rig_.cameras_[0]->GetParams();
-    // rig_.cameras[0].camera.SetGenericParams(params-(update*coef));
-
-    // StreamMessage(debug_level) <<
-    //   "new params: " << rig_.cameras[0].camera.GenericParams().transpose() <<
-    //   std::endl;
+    // If we are in inverse depth mode, we have to reproject all landmarks.
+    if (kLmDim == 1) {
+      for (size_t ii = 0 ; ii < landmarks_.size() ; ++ii) {
+        Landmark& lm = landmarks_[ii];
+        std::cerr << "Prev x_s for lm " << ii << ":" << lm.x_s.transpose();
+        const double norm = lm.x_s.template head<3>().norm();
+        lm.x_s.template head<3>() =
+            rig_.cameras_[0]->Unproject(lm.z_ref).normalized() * norm;
+        std::cerr << " post x_s: " << lm.x_s.transpose() << std::endl;
+      }
+    }
   }
 
   // update poses
@@ -181,8 +190,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::ApplyUpdate(
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
-void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
+template<typename Scalar,int LmSize, int PoseSize, int CalibSize>
+void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::EvaluateResiduals(
     Scalar* proj_error, Scalar* binary_error,
     Scalar* unary_error, Scalar* inertial_error)
 {
@@ -336,10 +345,10 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::EvaluateResiduals(
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
-void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
+template< typename Scalar,int LmSize, int PoseSize, int CalibSize >
+void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::Solve(
     const uint32_t uMaxIter, const Scalar gn_damping,
-    const bool error_increase_allowed, const bool use_dogleg)
+    const bool error_increase_allowed)
 {
   if (proj_residuals_.empty() && binary_residuals_.empty() &&
       unary_residuals_.empty() && inertial_residuals_.empty()) {
@@ -367,8 +376,7 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     }
   }
 
-  const bool use_triangular = true;
-  do_sparse_solve_ = true;
+  options_.use_sparse_solver = true;
   do_last_pose_cov_ = false;
 
   for (uint32_t kk = 0 ; kk < uMaxIter ; ++kk) {
@@ -379,23 +387,23 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 
 
     const uint32_t num_poses = num_active_poses_;
-    const uint32_t num_pose_params = num_poses*kPoseDim;
+    const uint32_t num_pose_params = num_poses * kPoseDim;
     const uint32_t num_lm = num_active_landmarks_;
 
     StartTimer(_steup_problem_);
     StartTimer(_rhs_mult_);
     // calculate bp and bl
     rhs_p_.resize(num_pose_params);
-    VectorXt rhs_k;
+    rhs_k_.resize(CalibSize);
     vi_.resize(num_lm, num_lm);
 
-    VectorXt rhs_p_sc(num_pose_params + kCalibDim);
+    VectorXt rhs_p_sc(num_pose_params + CalibSize);
     jt_l_j_pr_.resize(num_lm, num_poses);
 
     BlockMat< Eigen::Matrix<Scalar, kPrPoseDim, kLmDim>>
         jt_pr_j_l_vi(num_poses, num_lm);
 
-    s_.resize(num_pose_params+kCalibDim, num_pose_params+kCalibDim);
+    s_.resize(num_pose_params + CalibSize, num_pose_params + CalibSize);
 
     PrintTimer(_rhs_mult_);
 
@@ -406,13 +414,15 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     vi_.setZero();
     u_.setZero();
     rhs_p_.setZero();
+    rhs_k_.setZero();
     s_.setZero();
     rhs_p_sc.setZero();
 
     if (proj_residuals_.size() > 0 && num_poses > 0) {
       BlockMat< Eigen::Matrix<Scalar, kPrPoseDim, kPrPoseDim>> jt_pr_j_pr(
             num_poses, num_poses);
-      Eigen::SparseBlockProduct(jt_pr, j_pr_, jt_pr_j_pr, use_triangular);
+      Eigen::SparseBlockProduct(jt_pr, j_pr_, jt_pr_j_pr,
+                                options_.use_triangular_matrices);
 
       decltype(u_) temp_u = u_;
       // this is a block add, as jt_pr_j_pr does not have the same block
@@ -432,7 +442,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       BlockMat< Eigen::Matrix<Scalar, kPoseDim, kPoseDim> > jt_pp_j_pp(
             num_poses, num_poses);
 
-      Eigen::SparseBlockProduct(jt_pp_ ,j_pp_, jt_pp_j_pp, use_triangular);
+      Eigen::SparseBlockProduct(jt_pp_ ,j_pp_, jt_pp_j_pp,
+                                options_.use_triangular_matrices);
       decltype(u_) temp_u = u_;
       Eigen::SparseBlockAdd(temp_u,jt_pp_j_pp,u_);
 
@@ -447,7 +458,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       BlockMat< Eigen::Matrix<Scalar, kPoseDim, kPoseDim> > jt_u_j_u(
             num_poses, num_poses);
 
-      Eigen::SparseBlockProduct(jt_u_, j_u_, jt_u_j_u, use_triangular);
+      Eigen::SparseBlockProduct(jt_u_, j_u_, jt_u_j_u,
+                                options_.use_triangular_matrices);
       decltype(u_) temp_u = u_;
       Eigen::SparseBlockAdd(temp_u, jt_u_j_u, u_);
 
@@ -462,7 +474,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       BlockMat< Eigen::Matrix<Scalar, kPoseDim, kPoseDim> > jt_i_j_i(
             num_poses, num_poses);
 
-      Eigen::SparseBlockProduct(jt_i_, j_i_, jt_i_j_i, use_triangular);
+      Eigen::SparseBlockProduct(jt_i_, j_i_, jt_i_j_i,
+                                options_.use_triangular_matrices);
       decltype(u_) temp_u = u_;
       Eigen::SparseBlockAdd(temp_u, jt_i_j_i, u_);
 
@@ -551,7 +564,8 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
               jt_pr_j_l_vi_jt_l_j_pr(num_poses, num_poses);
 
         Eigen::SparseBlockProduct(jt_pr_j_l_vi, jt_l_j_pr_,
-                                  jt_pr_j_l_vi_jt_l_j_pr, use_triangular);
+                                  jt_pr_j_l_vi_jt_l_j_pr,
+                                  options_.use_triangular_matrices);
         PrintTimer(_schur_complement_jtpr_jl_vi_jtl_jpr);
 
         //StartTimer(_schur_complement_jtpr_jl_vi_jtl_jpr_d);
@@ -604,117 +618,141 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
     PrintTimer(_schur_complement_);
 
     // fill in the calibration components if any
-    if (kCalibDim && inertial_residuals_.size() > 0 &&
+    /*
+    if (CalibSize && inertial_residuals_.size() > 0 &&
         num_poses > 0) {
-      BlockMat<Eigen::Matrix<Scalar,kCalibDim,kCalibDim>> jt_ki_j_ki(1, 1);
+      BlockMat<Eigen::Matrix<Scalar,CalibSize,CalibSize>> jt_ki_j_ki(1, 1);
       Eigen::SparseBlockProduct(jt_ki_, j_ki_, jt_ki_j_ki);
       Eigen::LoadDenseFromSparse(
-            jt_ki_j_ki, s_.template block<kCalibDim, kCalibDim>(
+            jt_ki_j_ki, s_.template block<CalibSize, CalibSize>(
               num_pose_params, num_pose_params));
 
-      BlockMat<Eigen::Matrix<Scalar, kPoseDim, kCalibDim>>
+      BlockMat<Eigen::Matrix<Scalar, kPoseDim, CalibSize>>
             jt_i_j_ki(num_poses, 1);
 
       Eigen::SparseBlockProduct(jt_i_, j_ki_, jt_i_j_ki);
       Eigen::LoadDenseFromSparse(
             jt_i_j_ki,
-            s_.template block(0, num_pose_params, num_pose_params, kCalibDim));
+            s_.template block(0, num_pose_params, num_pose_params, CalibSize));
 
-      s_.template block(num_pose_params, 0, kCalibDim, num_pose_params) =
-          s_.template block(0, num_pose_params,
-                           num_pose_params, kCalibDim).transpose();
+      if (!options_.use_triangular_matrices) {
+        s_.template block(num_pose_params, 0, CalibSize, num_pose_params) =
+            s_.template block(0, num_pose_params,
+                             num_pose_params, CalibSize).transpose();
+      }
 
       // and the rhs for the calibration params
-      rhs_k.resize(kCalibDim,1);
-      Eigen::SparseBlockVectorProductDenseResult(jt_ki_, r_i_, rhs_k);
-      rhs_p_sc.template tail<kCalibDim>() = rhs_k;
-    }
+      VectorXt jt_ki_r_i(CalibSize, 1);
+      Eigen::SparseBlockVectorProductDenseResult(jt_ki_, r_i_, jt_ki_r_i);
+      rhs_k_ += jt_ki_r_i;
+    }*/
 
     if(kCamParamsInCalib){
-      BlockMat< Eigen::Matrix<Scalar, kCalibDim, kCalibDim>> jt_kpr_j_kpr(1, 1);
-      Eigen::SparseBlockProduct(jt_kpr_, j_kpr_, jt_kpr_j_kpr);
-      MatrixXt djt_kpr_j_kpr(kCalibDim, kCalibDim);
-      Eigen::LoadDenseFromSparse(jt_kpr_j_kpr, djt_kpr_j_kpr);
-      s_.template block<kCalibDim, kCalibDim>(num_pose_params, num_pose_params)
-          += djt_kpr_j_kpr;
-      std::cout << "djt_kpr_j_kpr: " << djt_kpr_j_kpr << std::endl;
+      //MatrixXt djt_kpr(CalibSize, j_kpr_.rows() * 2);
+      //MatrixXt dj_kpr(j_kpr_.rows() * 2, CalibSize);
+      //Eigen::LoadDenseFromSparse(j_kpr_, dj_kpr);
+      //std::cerr << "dj_kpr:\n" << dj_kpr << std::endl;
 
-      BlockMat<Eigen::Matrix<Scalar, kPoseDim, kCalibDim>>
+      //Eigen::LoadDenseFromSparse(jt_kpr_, djt_kpr);
+      //std::cerr << "djt_kpr:\n" << djt_kpr << std::endl;
+
+      BlockMat< Eigen::Matrix<Scalar, CalibSize, CalibSize>> jt_kpr_j_kpr(1, 1);
+      Eigen::SparseBlockProduct(jt_kpr_, j_kpr_, jt_kpr_j_kpr);
+      MatrixXt djt_kpr_j_kpr(CalibSize, CalibSize);
+      Eigen::LoadDenseFromSparse(jt_kpr_j_kpr, djt_kpr_j_kpr);
+      s_.template block<CalibSize, CalibSize>(num_pose_params, num_pose_params)
+          += djt_kpr_j_kpr;
+      std::cerr << "djt_kpr_j_kpr: " << djt_kpr_j_kpr << std::endl;
+
+      BlockMat<Eigen::Matrix<Scalar, kPoseDim, CalibSize>>
           jt_pr_j_kpr(num_poses, 1);
 
       Eigen::SparseBlockProduct(jt_pr, j_kpr_, jt_pr_j_kpr);
-      MatrixXt djt_pr_j_kpr(kPoseDim*num_poses, kCalibDim);
+      MatrixXt djt_pr_j_kpr(kPoseDim * num_poses, CalibSize);
       Eigen::LoadDenseFromSparse(jt_pr_j_kpr, djt_pr_j_kpr);
-      std::cout << "djt_pr_j_kpr: " << djt_pr_j_kpr << std::endl;
-      s_.template block(0, num_pose_params, num_pose_params, kCalibDim) +=
+      std::cerr << "djt_pr_j_kpr: " << djt_pr_j_kpr << std::endl;
+      s_.template block(0, num_pose_params, num_pose_params, CalibSize) +=
           djt_pr_j_kpr;
-      s_.template block(num_pose_params, 0, kCalibDim, num_pose_params) +=
-          djt_pr_j_kpr.transpose();
+      if (!options_.use_triangular_matrices) {
+        s_.template block(num_pose_params, 0, CalibSize, num_pose_params) +=
+           djt_pr_j_kpr.transpose();
+      }
 
-      rhs_k.resize(kCalibDim,1);
-      Eigen::SparseBlockVectorProductDenseResult(jt_kpr_, r_pr_, rhs_k);
-      rhs_p_.template tail<kCalibDim>() += rhs_k;
+      VectorXt jt_kpr_r_pr(CalibSize, 1);
+      Eigen::SparseBlockVectorProductDenseResult(jt_kpr_, r_pr_, jt_kpr_r_pr);
+      rhs_k_ += jt_kpr_r_pr;
+    }
 
+    // Assign the calibration parameter RHS vector.
+    if (CalibSize) {
+      rhs_p_sc.template tail<CalibSize>() = rhs_k_;
+    }
+
+    // Do the schur complement with the calibration parameters.
+    if(kCamParamsInCalib && kLmDim > 0 && num_lm > 0) {
+      jt_l_j_kpr_.resize(num_lm, 1);
       // schur complement
-      BlockMat< Eigen::Matrix<Scalar, kCalibDim, kLmDim>> jt_kpr_jl(1, num_lm);
-      BlockMat< Eigen::Matrix<Scalar, kLmDim, kCalibDim>> jt_l_j_kpr(num_lm, 1);
-      Eigen::SparseBlockProduct(jt_kpr_,j_l_,jt_kpr_jl);
-      decltype(jt_l_j_kpr)::forceTranspose(jt_kpr_jl, jt_l_j_kpr);
+      BlockMat< Eigen::Matrix<Scalar, CalibSize, kLmDim>> jt_kpr_jl(1, num_lm);
+      Eigen::SparseBlockProduct(jt_kpr_, j_l_, jt_kpr_jl);
+      decltype(jt_l_j_kpr_)::forceTranspose(jt_kpr_jl, jt_l_j_kpr_);
       //Eigen::SparseBlockProduct(jt_l_,j_kpr_,jt_l_j_kpr);
       //Jlt_Jkpr = Jkprt_Jl.transpose();
 
-      MatrixXt djt_pr_j_l_vi_jt_l_j_kpr(kPoseDim*num_poses, kCalibDim);
-      BlockMat<Eigen::Matrix<Scalar, kPoseDim, kCalibDim>>
+      MatrixXt djt_pr_j_l_vi_jt_l_j_kpr(kPoseDim*num_poses, CalibSize);
+      BlockMat<Eigen::Matrix<Scalar, kPoseDim, CalibSize>>
           jt_pr_j_l_vi_jt_l_j_kpr(num_poses, 1);
 
       Eigen::SparseBlockProduct(
-            jt_pr_j_l_vi, jt_l_j_kpr, jt_pr_j_l_vi_jt_l_j_kpr);
+            jt_pr_j_l_vi, jt_l_j_kpr_, jt_pr_j_l_vi_jt_l_j_kpr);
       Eigen::LoadDenseFromSparse(
             jt_pr_j_l_vi_jt_l_j_kpr, djt_pr_j_l_vi_jt_l_j_kpr);
 
-      std::cout << "jt_pr_j_l_vi_jt_l_j_kpr: " <<
+      std::cerr << "jt_pr_j_l_vi_jt_l_j_kpr: " <<
                    djt_pr_j_l_vi_jt_l_j_kpr << std::endl;
 
-      s_.template block(0, num_pose_params, num_pose_params, kCalibDim) -=
+      s_.template block(0, num_pose_params, num_pose_params, CalibSize) -=
           djt_pr_j_l_vi_jt_l_j_kpr;
-      s_.template block(num_pose_params, 0, kCalibDim, num_pose_params) -=
-          djt_pr_j_l_vi_jt_l_j_kpr.transpose();
+      if (!options_.use_triangular_matrices) {
+        s_.template block(num_pose_params, 0, CalibSize, num_pose_params) -=
+            djt_pr_j_l_vi_jt_l_j_kpr.transpose();
+      }
 
-      BlockMat<Eigen::Matrix<Scalar, kCalibDim, kLmDim>>
+      BlockMat<Eigen::Matrix<Scalar, CalibSize, kLmDim>>
           jt_kpr_j_l_vi(1, num_lm);
       Eigen::SparseBlockProduct(jt_kpr_jl, vi_, jt_kpr_j_l_vi);
 
-      BlockMat<Eigen::Matrix<Scalar, kCalibDim, kCalibDim>>
+      BlockMat<Eigen::Matrix<Scalar, CalibSize, CalibSize>>
           jt_kpr_j_l_vi_jt_l_j_kpr(1, 1);
       Eigen::SparseBlockProduct(
             jt_kpr_j_l_vi,
-            jt_l_j_kpr,
+            jt_l_j_kpr_,
             jt_kpr_j_l_vi_jt_l_j_kpr);
 
-      MatrixXt djt_kpr_j_l_vi_jt_l_j_kpr(kCalibDim, kCalibDim);
+      MatrixXt djt_kpr_j_l_vi_jt_l_j_kpr(CalibSize, CalibSize);
       Eigen::LoadDenseFromSparse(
             jt_kpr_j_l_vi_jt_l_j_kpr,
             djt_kpr_j_l_vi_jt_l_j_kpr);
 
-      std::cout << "djt_kpr_j_l_vi_jt_l_j_kpr: " <<
+      std::cerr << "djt_kpr_j_l_vi_jt_l_j_kpr: " <<
                    djt_kpr_j_l_vi_jt_l_j_kpr << std::endl;
 
-      s_.template block<kCalibDim, kCalibDim>(num_pose_params, num_pose_params)
+      s_.template block<CalibSize, CalibSize>(num_pose_params, num_pose_params)
           -= djt_kpr_j_l_vi_jt_l_j_kpr;
 
       VectorXt jt_kpr_j_l_vi_bl;
-      jt_kpr_j_l_vi_bl.resize(kCalibDim);
+      jt_kpr_j_l_vi_bl.resize(CalibSize);
       Eigen::SparseBlockVectorProductDenseResult(
             jt_kpr_j_l_vi, rhs_l_, jt_kpr_j_l_vi_bl);
       // std::cout << "Eigen::SparseBlockVectorProductDenseResult(Wp_V_inv, bl,"
       // " WV_inv_bl) took  " << Toc(dSchurTime) << " seconds."  << std::endl;
 
-      std::cout << "jt_kpr_j_l_vi_bl: " <<
+      std::cerr << "jt_kpr_j_l_vi_bl: " <<
                    jt_kpr_j_l_vi_bl.transpose() << std::endl;
-      std::cout << "rhs_p.template tail<kCalibDim>(): " <<
-                   rhs_p_.template tail<kCalibDim>().transpose() << std::endl;
-      rhs_p_.template tail<kCalibDim>() -= jt_kpr_j_l_vi_bl;
+      std::cerr << "rhs_p.template tail<CalibSize>(): " <<
+                   rhs_p_.template tail<CalibSize>().transpose() << std::endl;
+      rhs_p_sc.template tail<CalibSize>() -= jt_kpr_j_l_vi_bl;
     }
+
 
     // regularize masked parameters.
     if (is_param_mask_used_) {
@@ -730,20 +768,45 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
       }
     }
 
-    // std::ofstream("s.txt", std::ios_base::trunc) << s_.format(kLongCsvFmt);
+    if (options_.write_reduced_camera_matrix) {
+      std::cerr << "Writing reduced camera matrix for " << num_pose_params <<
+                   " pose parameters and " << CalibSize << " calib "
+                   " parameters " << std::endl;
+      std::ofstream("s.txt", std::ios_base::trunc) << s_.format(kLongCsvFmt);
+      std::ofstream("rhs.txt", std::ios_base::trunc) << rhs_p_sc.format(kLongCsvFmt);
+
+      MatrixXt dj_pr(j_pr_.rows() * ProjectionResidual::kResSize,
+                     j_pr_.cols() * kPrPoseDim);
+      Eigen::LoadDenseFromSparse(j_pr_, dj_pr);
+      std::ofstream("j_pr.txt", std::ios_base::trunc) << dj_pr.format(kLongCsvFmt);
+
+      MatrixXt dj_l(j_l_.rows() * ProjectionResidual::kResSize,
+                     j_l_.cols() * kLmDim);
+      Eigen::LoadDenseFromSparse(j_l_, dj_l);
+      std::ofstream("j_l.txt", std::ios_base::trunc) << dj_l.format(kLongCsvFmt);
+
+      MatrixXt dj_kpr(j_kpr_.rows() * ProjectionResidual::kResSize,
+                     j_kpr_.cols() * CalibSize);
+      Eigen::LoadDenseFromSparse(j_kpr_, dj_kpr);
+      std::ofstream("j_kpr.txt", std::ios_base::trunc) << dj_kpr.format(kLongCsvFmt);
+
+      MatrixXt djt_kpr = dj_kpr.transpose();
+      MatrixXt djt_kpr_dj_kpr = (djt_kpr * dj_kpr).eval();
+      std::ofstream("jt_kpr_j_kpr.txt", std::ios_base::trunc) << djt_kpr_dj_kpr.format(kLongCsvFmt);
+    }
 
     PrintTimer(_steup_problem_);
 
     // now we have to solve for the pose constraints
     StartTimer(_solve_);
     // Precompute the sparse s matrix if necessary.
-    if (do_sparse_solve_) {
+    if (options_.use_sparse_solver) {
       s_sparse_ = s_.sparseView();
     }
 
     // std::cout << "running solve internal with " << use_dogleg << std::endl;
     if (!SolveInternal(rhs_p_sc, gn_damping, error_increase_allowed,
-                       use_dogleg)) {
+                       options_.use_dogleg)) {
       StreamMessage(debug_level) << "Exiting due to error increase." <<
                                     std::endl;
       break;
@@ -820,37 +883,38 @@ void BundleAdjuster<Scalar,kLmDim,kPoseDim,kCalibDim>::Solve(
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
-void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::GetLandmarkDelta(
-    const VectorXt& delta_p, const VectorXt& rhs_l,
-    const BlockMat< Eigen::Matrix<Scalar, kLmDim, kLmDim>>& vi,
-    const BlockMat< Eigen::Matrix<Scalar, kLmDim, kPrPoseDim>>& jt_l_j_pr,
-    const uint32_t num_poses, const uint32_t num_lm,
+template< typename Scalar,int LmSize, int PoseSize, int CalibSize>
+void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::GetLandmarkDelta(
+    const Delta& delta,  const uint32_t num_poses, const uint32_t num_lm,
     VectorXt& delta_l)
 {
   StartTimer(_back_substitution_);
   if (num_lm > 0) {
     delta_l.resize(num_lm*kLmDim);
-    VectorXt rhs_l_sc =  rhs_l;
+    VectorXt rhs_l_sc =  rhs_l_;
 
     if (num_poses > 0) {
-      VectorXt jt_l_j_pr_delta_p;
-      jt_l_j_pr_delta_p.resize(num_lm*kLmDim);
+      VectorXt wt_delta_p_k;
+      wt_delta_p_k.resize(num_lm * kLmDim);
       // this is the strided multiplication as delta_p has all pose parameters,
       // however jt_l_j_pr_delta_p is only with respect to the 6 pose parameters
       Eigen::SparseBlockVectorProductDenseResult(
-            jt_l_j_pr,
-            delta_p.head(num_poses*kPoseDim),
-            jt_l_j_pr_delta_p,
-            kPoseDim, -1);
+            jt_l_j_pr_, delta.delta_p, wt_delta_p_k, kPoseDim, -1);
 
-      rhs_l_sc.resize(num_lm*kLmDim );
-      rhs_l_sc -=  jt_l_j_pr_delta_p;
+      rhs_l_sc.resize(num_lm*kLmDim);
+      rhs_l_sc -=  wt_delta_p_k;
+
+      if (kCamParamsInCalib && CalibSize > 0) {
+        Eigen::SparseBlockVectorProductDenseResult(
+             jt_l_j_kpr_, delta.delta_k, wt_delta_p_k);
+        rhs_l_sc -=  wt_delta_p_k;
+      }
     }
 
     for (size_t ii = 0 ; ii < num_lm ; ++ii) {
       delta_l.template block<kLmDim,1>( ii*kLmDim, 0 ).noalias() =
-          vi.coeff(ii,ii)*rhs_l_sc.template block<kLmDim,1>(ii*kLmDim,0);
+          vi_.coeff(ii, ii) *
+          rhs_l_sc.template block<kLmDim, 1>(ii * kLmDim, 0);
     }
   }
   PrintTimer(_back_substitution_);
@@ -858,15 +922,22 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::GetLandmarkDelta(
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
-void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::CalculateGn(
-    const VectorXt& rhs_p, VectorXt& delta_gn)
+template< typename Scalar,int LmSize, int PoseSize, int CalibSize >
+void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::CalculateGn(
+    const VectorXt& rhs_p, Delta& delta)
 {
-  if (do_sparse_solve_) {
+  if (options_.use_sparse_solver) {
      Eigen::SimplicialLDLT<Eigen::SparseMatrix<Scalar>, Eigen::Upper>
          solver;
      solver.compute(s_sparse_);
-    delta_gn = (rhs_p.rows() == 0 ? VectorXt() : solver.solve(rhs_p));
+     if (rhs_p.rows() != 0) {
+       VectorXt delta_p_k = solver.solve(rhs_p);
+       delta.delta_p = delta_p_k.head(delta_p_k.rows() - CalibSize);
+       delta.delta_k = delta_p_k.tail(CalibSize);
+     } else {
+       delta.delta_p = VectorXt();
+       delta.delta_k = VectorXt();
+     }
 
     //if (do_last_pose_cov_) {
     //  //const uint32_t start_offset = rhs_p.rows()-kPoseDim;
@@ -890,7 +961,14 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::CalculateGn(
     Eigen::LDLT<Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>,
                 Eigen::Upper> solver;
     solver.compute(s_);
-    delta_gn = (rhs_p.rows() == 0 ? VectorXt() : solver.solve(rhs_p));
+    if (rhs_p.rows() != 0) {
+      VectorXt delta_p_k = solver.solve(rhs_p);
+      delta.delta_p = delta_p_k.head(delta_p_k.rows() - CalibSize);
+      delta.delta_k = delta_p_k.tail(CalibSize);
+    } else {
+      delta.delta_p = VectorXt();
+      delta.delta_k = VectorXt();
+    }
   }
 
   // Do rank revealing QR
@@ -902,8 +980,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::CalculateGn(
 
 
 ////////////////////////////////////////////////////////////////////////////////
-template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
-bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
+template<typename Scalar,int LmSize, int PoseSize, int CalibSize>
+bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::SolveInternal(
     VectorXt rhs_p_sc, const Scalar gn_damping,
     const bool error_increase_allowed, const bool use_dogleg
     )
@@ -923,10 +1001,13 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     // TODO: make sure the sd solution here is consistent with the covariances
 
     // calculate steepest descent result
-    Scalar numerator = rhs_p_.squaredNorm() + rhs_l_.squaredNorm();
+    Scalar numerator = rhs_p_.squaredNorm() + rhs_l_.squaredNorm() +
+        rhs_k_.squaredNorm();
 
     VectorXt j_p_rhs_p(ProjectionResidual::kResSize * proj_residuals_.size());
     j_p_rhs_p.setZero();
+    VectorXt j_kp_rhs_k(ProjectionResidual::kResSize * proj_residuals_.size());
+    j_kp_rhs_k.setZero();
     VectorXt j_pp_rhs_p(BinaryResidual::kResSize * binary_residuals_.size());
     j_pp_rhs_p.setZero();
     VectorXt j_u_rhs_p(UnaryResidual::kResSize * unary_residuals_.size());
@@ -945,6 +1026,10 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
       if (proj_residuals_.size() > 0) {
         Eigen::SparseBlockVectorProductDenseResult(j_pr_, rhs_p_, j_p_rhs_p,
               kPoseDim);
+        if (kCamParamsInCalib) {
+          Eigen::SparseBlockVectorProductDenseResult(j_kpr_, rhs_k_,
+                                                     j_kp_rhs_k);
+        }
       }
 
       if (inertial_residuals_.size() > 0) {
@@ -967,7 +1052,8 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     Scalar denominator = (j_p_rhs_p + j_l_rhs_l).squaredNorm() +
                           j_pp_rhs_p.squaredNorm() +
                           j_u_rhs_p.squaredNorm() +
-                          j_i_rhs_p.squaredNorm();
+                          j_i_rhs_p.squaredNorm() +
+                          j_kp_rhs_k.squaredNorm();
 
     StreamMessage(debug_level + 1) << "j_p_rhs_p norm: " <<
                                   j_p_rhs_p.squaredNorm() << std::endl;
@@ -981,6 +1067,7 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
                                   " nom: " << numerator << " denom: " <<
                  denominator << std::endl;
     delta_sd.delta_p = rhs_p_ * factor;
+    delta_sd.delta_k = rhs_k_ * factor;
     delta_sd.delta_l = rhs_l_ * factor;
 
     // now calculate the steepest descent norm
@@ -992,24 +1079,13 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
     while (1) {
 
       if (delta_sd_norm > trust_region_size_) {
-
-        // zzzzzzzz remove
-        {
-          if (num_active_poses_ > 0) {
-            CalculateGn(rhs_p_sc, delta_gn.delta_p);
-          }
-          Scalar delta_gn_norm = sqrt(delta_gn.delta_p.squaredNorm() +
-                                      delta_gn.delta_l.squaredNorm());
-          StreamMessage(debug_level + 1) << "gn norm: " << delta_gn_norm <<
-                                        std::endl;
-        }
-
         StreamMessage(debug_level) <<
           "sd norm larger than trust region of " <<
           trust_region_size_ << " chosing sd update " << std::endl;
 
         Scalar factor = trust_region_size_ / delta_sd_norm;
         delta_dl.delta_p = factor * delta_sd.delta_p;
+        delta_dl.delta_k = factor * delta_sd.delta_k;
         delta_dl.delta_l = factor * delta_sd.delta_l;
       }else {
         StreamMessage(debug_level) <<
@@ -1020,16 +1096,16 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
           StreamMessage(debug_level + 1) << "Computing gauss newton " <<
                                         std::endl;
           if (num_active_poses_ > 0) {
-            CalculateGn(rhs_p_sc, delta_gn.delta_p);            
+            CalculateGn(rhs_p_sc, delta_gn);
           }
           // now back substitute the landmarks
-          GetLandmarkDelta(delta_gn.delta_p, rhs_l_,  vi_, jt_l_j_pr_,
-                           num_active_poses_, num_active_landmarks_,
-                           delta_gn.delta_l);
+          GetLandmarkDelta(delta_gn,  num_active_poses_,
+                           num_active_landmarks_, delta_gn.delta_l);
           gn_computed = true;
         }
 
         Scalar delta_gn_norm = sqrt(delta_gn.delta_p.squaredNorm() +
+                                    delta_gn.delta_k.squaredNorm() +
                                     delta_gn.delta_l.squaredNorm());
         if (!std::isnan(delta_gn_norm) && !std::isinf(delta_gn_norm) &&
             delta_gn_norm <= trust_region_size_) {
@@ -1044,13 +1120,17 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
             "region of " << trust_region_size_ << std::endl;
 
           VectorXt diff_p = delta_gn.delta_p - delta_sd.delta_p;
+          VectorXt diff_k = delta_gn.delta_k - delta_sd.delta_k;
           VectorXt diff_l = delta_gn.delta_l - delta_sd.delta_l;
-          Scalar a = diff_p.squaredNorm() + diff_l.squaredNorm();
+          Scalar a = diff_p.squaredNorm() + diff_l.squaredNorm() +
+              diff_k.squaredNorm();
           Scalar b = 2 * (diff_p.transpose() * delta_sd.delta_p +
+                          diff_k.transpose() * delta_sd.delta_k +
                           diff_l.transpose() * delta_sd.delta_l)[0];
 
           // std::cout << "tr: " << trust_region_size_ << std::endl;
           Scalar c = (delta_sd.delta_p.squaredNorm() +
+                      delta_sd.delta_k.squaredNorm() +
                       delta_sd.delta_l.squaredNorm()) -
                       trust_region_size_ * trust_region_size_;
 
@@ -1064,17 +1144,18 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
           }
 
           delta_dl.delta_p = delta_sd.delta_p + beta*(diff_p);
+          delta_dl.delta_k = delta_sd.delta_k+ beta*(diff_k);
           delta_dl.delta_l = delta_sd.delta_l + beta*(diff_l);
         }
       }
-
-      Scalar delta_dl_norm = sqrt(delta_dl.delta_p.squaredNorm() +
-                                  delta_dl.delta_l.squaredNorm());
 
       // Make copies of the initial parameters.
       decltype(landmarks_) landmarks_copy = landmarks_;
       decltype(poses_) poses_copy = poses_;
       decltype(imu_) imu_copy = imu_;
+      double params_backup[10];
+      memcpy(params_backup, rig_.cameras_[0]->GetParams(),
+          rig_.cameras_[0]->NumParams());
       // decltype(rig_) rig_copy = rig_;
 
 
@@ -1106,6 +1187,8 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
         landmarks_ = landmarks_copy;
         poses_ = poses_copy;
         imu_ = imu_copy;
+        memcpy(rig_.cameras_[0]->GetParams(), params_backup,
+            rig_.cameras_[0]->NumParams());
         // rig_ = rig_copy;
 
         trust_region_size_ /= 2;
@@ -1129,19 +1212,22 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
 
     Delta delta;
     if (num_active_poses_ > 0) {
-      CalculateGn(rhs_p_sc, delta.delta_p);
+      CalculateGn(rhs_p_sc, delta);
     }
 
     decltype(landmarks_) landmarks_copy = landmarks_;
     decltype(poses_) poses_copy = poses_;
     decltype(imu_) imu_copy = imu_;
-    decltype(rig_) rig_copy = rig_;
+    double params_backup[10];
+    memcpy(params_backup, rig_.cameras_[0]->GetParams(),
+        rig_.cameras_[0]->NumParams());
 
     // now back substitute the landmarks
-    GetLandmarkDelta(delta.delta_p, rhs_l_,  vi_, jt_l_j_pr_,
-                     num_active_poses_, num_active_landmarks_, delta.delta_l);
+    GetLandmarkDelta(delta, num_active_poses_, num_active_landmarks_,
+                     delta.delta_l);
 
     delta.delta_l *= gn_damping;
+    delta.delta_k *= gn_damping;
     delta.delta_p *= gn_damping;
 
 
@@ -1175,7 +1261,8 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
        landmarks_ = landmarks_copy;
        poses_ = poses_copy;
        imu_ = imu_copy;
-       rig_ = rig_copy;
+       memcpy(rig_.cameras_[0]->GetParams(), params_backup,
+           rig_.cameras_[0]->NumParams());
       return false;
     } else {
       proj_error_ = proj_error;
@@ -1189,8 +1276,8 @@ bool BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::SolveInternal(
 
 
 ////////////////////////////////////////////////////////////////////////////////
-template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
-void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
+template<typename Scalar,int LmSize, int PoseSize, int CalibSize>
+void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
 {
   // resize as needed
   const uint32_t num_poses = num_active_poses_;
@@ -1214,7 +1301,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     r_pr_.setZero();
     j_l_.setZero();
 
-    if (kCalibDim > 0) {
+    if (kCamParamsInCalib) {
       j_kpr_.resize(num_proj_res, 1);
       jt_kpr_.resize(1, num_proj_res);
       j_kpr_.setZero();
@@ -1251,7 +1338,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     jt_i_.setZero();
     r_i_.setZero();
 
-    if (kCalibDim > 0) {
+    if (kTvsInCalib) {
       j_ki_.resize(num_im_res, 1);
       jt_ki_.resize(1, num_im_res);
       j_ki_.setZero();
@@ -1368,7 +1455,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     Landmark& lm = landmarks_[res.landmark_id];
     Pose& pose = poses_[res.x_meas_id];
     Pose& ref_pose = poses_[res.x_ref_id];
-    auto& cam = rig_.cameras_[res.cam_id];
+    calibu::CameraInterface<Scalar>* cam = rig_.cameras_[res.cam_id];
 
     const SE3t& t_vs_m =
         (kTvsInState ? pose.t_vs : rig_.t_wc_[res.cam_id]);
@@ -1419,6 +1506,47 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
             dt_x_dt<Scalar>(t_sw_m * ref_pose.t_wp, t_vs_r.matrix() * lm.x_s) *
             dt1_t2_dt2(t_sw_m, ref_pose.t_wp) *
             dexp_decoupled_dx(ref_pose.t_wp);
+
+        if (kCamParamsInCalib) {
+          res.dz_dcam_params =
+              -cam->dTransfer_dparams(t_sw_m * t_ws_r, lm.z_ref, lm.x_s(3));
+
+          /*
+          std::cerr << "dz_dcam_params for " << res.residual_id << " with z " <<
+                       landmarks_[res.landmark_id].z_ref.transpose() << "is\n" <<
+                       res.dz_dcam_params << std::endl;
+
+
+          calibu::CameraInterface<Scalar>* cam = rig_.cameras_[0];
+          Scalar* params = cam->GetParams();
+          const double eps = 1e-6;
+          Eigen::Matrix<Scalar, 2, Eigen::Dynamic> jacobian_fd(
+                2, cam->NumParams());
+          // Test the transfer jacobian.
+          for (int ii = 0 ; ii < cam->NumParams()  ; ++ii) {
+            const double old_param = params[ii];
+            // modify the parameters and transfer again.
+            params[ii] = old_param + eps;
+            const Vector3t ray_plus = cam->Unproject(lm.z_ref);
+            const Vector2t pix_plus = cam->Transfer3d(t_sw_m * t_ws_r,
+                                                      ray_plus, lm.x_s(3));
+
+            params[ii] = old_param - eps;
+            const Vector3t ray_minus = cam->Unproject(lm.z_ref);
+            const Vector2t pix_minus = cam->Transfer3d(t_sw_m * t_ws_r,
+                                                       ray_minus, lm.x_s(3));
+
+            jacobian_fd.col(ii) = -(pix_plus - pix_minus) / (2 * eps);
+            params[ii] = old_param;
+          }
+
+          // Now compare the two jacobians.
+          std::cerr << "jacobian:\n" << res.dz_dcam_params <<
+                       "\n jacobian_fd:\n" << jacobian_fd << "\n error: " <<
+                       (res.dz_dcam_params - jacobian_fd).norm() <<
+                       std::endl;
+          */
+        }
       }
     }
 
@@ -2009,6 +2137,11 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     j_pr_.reserve(j_pr_sizes);
     jt_pr.reserve(Eigen::VectorXi::Constant(jt_pr.cols(),
                                             kLmDim == 1 ? 2 : 1));
+
+    if (kCamParamsInCalib) {
+      j_kpr_.reserve(Eigen::VectorXi::Constant(1, num_proj_res));
+      jt_kpr_.reserve(Eigen::VectorXi::Constant(num_proj_res, 1));
+    }
   }
 
   if (!binary_residuals_.empty()) {
@@ -2025,7 +2158,7 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     j_i_.reserve(j_i_sizes);
     jt_i_.reserve(Eigen::VectorXi::Constant(jt_i_.cols(), 2));
 
-    if (kCalibDim > 0) {
+    if (kTvsInCalib) {
       j_ki_.reserve(Eigen::VectorXi::Constant(1, num_im_res));
       jt_ki_.reserve(Eigen::VectorXi::Constant(num_im_res, 1));
     }
@@ -2185,15 +2318,19 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
     }
 
     // include imu to camera terms (6 total)
-    if (kCamParamsInCalib > 8) {
+    if (kCamParamsInCalib) {
       for (const ProjectionResidual& res : proj_residuals_) {
-        const Eigen::Matrix<Scalar,2,5>& dz_dk = res.dz_dcam_params;
+        const Eigen::Matrix<Scalar,2, Eigen::Dynamic>& dz_dk =
+            res.dz_dcam_params;
+
+        const double weight_sqrt = sqrt(res.weight);
         j_kpr_.coeffRef(res.residual_id,0).setZero().
-            template block(0,8,2,5) = dz_dk.template block(0,0,2,5);
+          template block(0, 0, 2, dz_dk.cols()) =
+          dz_dk.template block(0, 0, 2, dz_dk.cols()) * weight_sqrt;
 
         jt_kpr_.coeffRef(0,res.residual_id).setZero().
-            template block(8,0,5,2) =
-            dz_dk.template block(0,0,2,5).transpose() * res.weight;
+          template block(0, 0, dz_dk.cols(), 2) =
+          dz_dk.template block(0, 0, 2, dz_dk.cols()).transpose() * weight_sqrt;
       }
     }
   }
@@ -2217,8 +2354,8 @@ void BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::BuildProblem()
   PrintTimer(_j_insertion_);
 }
 
-template< typename Scalar,int kLmDim, int kPoseDim, int kCalibDim >
-double BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::
+template<typename Scalar,int LmSize, int PoseSize, int CalibSize>
+double BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::
   LandmarkOutlierRatio(const uint32_t id) const
 {
   return (double)landmarks_[id].num_outlier_residuals /
@@ -2226,6 +2363,7 @@ double BundleAdjuster<Scalar, kLmDim, kPoseDim, kCalibDim>::
 }
 
 // specializations
+template class BundleAdjuster<REAL_TYPE, 1,6,4>;
 template class BundleAdjuster<REAL_TYPE, 1,6,0>;
 template class BundleAdjuster<REAL_TYPE, 1,15,0>;
 

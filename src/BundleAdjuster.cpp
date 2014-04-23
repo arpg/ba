@@ -69,11 +69,11 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::ApplyUpdate(
     if (kLmDim == 1) {
       for (size_t ii = 0 ; ii < landmarks_.size() ; ++ii) {
         Landmark& lm = landmarks_[ii];
-        std::cerr << "Prev x_s for lm " << ii << ":" << lm.x_s.transpose();
+        // std::cerr << "Prev x_s for lm " << ii << ":" << lm.x_s.transpose();
         const double norm = lm.x_s.template head<3>().norm();
         lm.x_s.template head<3>() =
             rig_.cameras_[0]->Unproject(lm.z_ref).normalized() * norm;
-        std::cerr << " post x_s: " << lm.x_s.transpose() << std::endl;
+        // std::cerr << " post x_s: " << lm.x_s.transpose() << std::endl;
       }
     }
   }
@@ -376,9 +376,6 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::Solve(
     }
   }
 
-  options_.use_sparse_solver = true;
-  do_last_pose_cov_ = false;
-
   for (uint32_t kk = 0 ; kk < uMaxIter ; ++kk) {
     StreamMessage(debug_level) << ">> Iteration " << kk << std::endl;
     StartTimer(_BuildProblem_);
@@ -662,7 +659,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::Solve(
       Eigen::LoadDenseFromSparse(jt_kpr_j_kpr, djt_kpr_j_kpr);
       s_.template block<CalibSize, CalibSize>(num_pose_params, num_pose_params)
           += djt_kpr_j_kpr;
-      std::cerr << "djt_kpr_j_kpr: " << djt_kpr_j_kpr << std::endl;
+      // std::cerr << "djt_kpr_j_kpr: " << djt_kpr_j_kpr << std::endl;
 
       BlockMat<Eigen::Matrix<Scalar, kPoseDim, CalibSize>>
           jt_pr_j_kpr(num_poses, 1);
@@ -670,7 +667,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::Solve(
       Eigen::SparseBlockProduct(jt_pr, j_kpr_, jt_pr_j_kpr);
       MatrixXt djt_pr_j_kpr(kPoseDim * num_poses, CalibSize);
       Eigen::LoadDenseFromSparse(jt_pr_j_kpr, djt_pr_j_kpr);
-      std::cerr << "djt_pr_j_kpr: " << djt_pr_j_kpr << std::endl;
+      // std::cerr << "djt_pr_j_kpr: " << djt_pr_j_kpr << std::endl;
       s_.template block(0, num_pose_params, num_pose_params, CalibSize) +=
           djt_pr_j_kpr;
       if (!options_.use_triangular_matrices) {
@@ -707,8 +704,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::Solve(
       Eigen::LoadDenseFromSparse(
             jt_pr_j_l_vi_jt_l_j_kpr, djt_pr_j_l_vi_jt_l_j_kpr);
 
-      std::cerr << "jt_pr_j_l_vi_jt_l_j_kpr: " <<
-                   djt_pr_j_l_vi_jt_l_j_kpr << std::endl;
+      // std::cerr << "jt_pr_j_l_vi_jt_l_j_kpr: " <<
+      //              djt_pr_j_l_vi_jt_l_j_kpr << std::endl;
 
       s_.template block(0, num_pose_params, num_pose_params, CalibSize) -=
           djt_pr_j_l_vi_jt_l_j_kpr;
@@ -733,8 +730,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::Solve(
             jt_kpr_j_l_vi_jt_l_j_kpr,
             djt_kpr_j_l_vi_jt_l_j_kpr);
 
-      std::cerr << "djt_kpr_j_l_vi_jt_l_j_kpr: " <<
-                   djt_kpr_j_l_vi_jt_l_j_kpr << std::endl;
+      // std::cerr << "djt_kpr_j_l_vi_jt_l_j_kpr: " <<
+      //              djt_kpr_j_l_vi_jt_l_j_kpr << std::endl;
 
       s_.template block<CalibSize, CalibSize>(num_pose_params, num_pose_params)
           -= djt_kpr_j_l_vi_jt_l_j_kpr;
@@ -746,10 +743,10 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::Solve(
       // std::cout << "Eigen::SparseBlockVectorProductDenseResult(Wp_V_inv, bl,"
       // " WV_inv_bl) took  " << Toc(dSchurTime) << " seconds."  << std::endl;
 
-      std::cerr << "jt_kpr_j_l_vi_bl: " <<
-                   jt_kpr_j_l_vi_bl.transpose() << std::endl;
-      std::cerr << "rhs_p.template tail<CalibSize>(): " <<
-                   rhs_p_.template tail<CalibSize>().transpose() << std::endl;
+      // std::cerr << "jt_kpr_j_l_vi_bl: " <<
+      //              jt_kpr_j_l_vi_bl.transpose() << std::endl;
+      // std::cerr << "rhs_p.template tail<CalibSize>(): " <<
+      //              rhs_p_.template tail<CalibSize>().transpose() << std::endl;
       rhs_p_sc.template tail<CalibSize>() -= jt_kpr_j_l_vi_bl;
     }
 
@@ -779,6 +776,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::Solve(
                      j_pr_.cols() * kPrPoseDim);
       Eigen::LoadDenseFromSparse(j_pr_, dj_pr);
       std::ofstream("j_pr.txt", std::ios_base::trunc) << dj_pr.format(kLongCsvFmt);
+
+      std::ofstream("r_pr.txt", std::ios_base::trunc) << r_pr_.format(kLongCsvFmt);
 
       MatrixXt dj_l(j_l_.rows() * ProjectionResidual::kResSize,
                      j_l_.cols() * kLmDim);
@@ -930,8 +929,14 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::CalculateGn(
      Eigen::SimplicialLDLT<Eigen::SparseMatrix<Scalar>, Eigen::Upper>
          solver;
      solver.compute(s_sparse_);
+     if (solver.info() != Eigen::Success) {
+       std::cerr << "SimplicialLDLT FAILED!" << std::endl;
+     }
      if (rhs_p.rows() != 0) {
        VectorXt delta_p_k = solver.solve(rhs_p);
+       if (solver.info() != Eigen::Success) {
+         std::cerr << "SimplicialLDLT SOLVE FAILED!" << std::endl;
+       }
        delta.delta_p = delta_p_k.head(delta_p_k.rows() - CalibSize);
        delta.delta_k = delta_p_k.tail(CalibSize);
      } else {
@@ -961,10 +966,40 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::CalculateGn(
     Eigen::LDLT<Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>,
                 Eigen::Upper> solver;
     solver.compute(s_);
+    if (solver.info() != Eigen::Success) {
+      std::cerr << "LDLT FAILED!" << std::endl;
+    }
     if (rhs_p.rows() != 0) {
-      VectorXt delta_p_k = solver.solve(rhs_p);
-      delta.delta_p = delta_p_k.head(delta_p_k.rows() - CalibSize);
+      const VectorXt delta_p_k = solver.solve(rhs_p);
+      if (solver.info() != Eigen::Success) {
+        std::cerr << "LDLT SOLVE FAILED!" << std::endl;
+      }
+      const uint32_t num_pose_params = delta_p_k.rows() - CalibSize;
+      delta.delta_p = delta_p_k.head(num_pose_params);
       delta.delta_k = delta_p_k.tail(CalibSize);
+
+      if (options_.calculate_calibration_marginals) {
+        std::cerr << "Calculating s.inverse() " << std::endl;
+        MatrixXt cov(delta_p_k.rows(), CalibSize);
+        for (int ii = 0; ii < CalibSize ; ++ii) {
+          VectorXt res = solver.solve(
+                VectorXt::Unit(rhs_p.rows(), num_pose_params + ii));
+          if (solver.info() != Eigen::Success) {
+            std::cerr << "LDLT SOLVE FAILED!" << std::endl;
+          }
+          cov.col(ii) = res;
+          //std::cerr << "Solving col " << ii << " with vec " <<
+          //             VectorXt::Unit(rhs_p.rows(), num_pose_params + ii).transpose() <<
+          //             " and result " << res.transpose() << std::endl;
+        }
+        const Eigen::MatrixXd sigma =
+            cov.template bottomRightCorner<CalibSize, CalibSize>();
+        std::cerr << "Calibration marginals are : \n" << sigma << std::endl;
+        std::ofstream("sigma.txt", std::ios_base::app) <<
+          sigma.diagonal().transpose().format(kLongCsvFmt) << std::endl;
+
+      }
+
     } else {
       delta.delta_p = VectorXt();
       delta.delta_k = VectorXt();

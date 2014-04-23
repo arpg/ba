@@ -67,6 +67,7 @@ struct Options
   bool use_triangular_matrices = true;
   bool use_sparse_solver = true;
   bool write_reduced_camera_matrix = false;
+  bool calculate_calibration_marginals = false;
 };
 
 
@@ -605,7 +606,6 @@ private:
 
   bool translation_enabled_;
   bool is_param_mask_used_;
-  bool do_last_pose_cov_;
   Scalar total_tvs_change_;
   SE3t last_tvs_;
   Scalar proj_error_;

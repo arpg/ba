@@ -6,18 +6,17 @@ set(BA_VERSION ${BA_VERSION_MAJOR}.${BA_VERSION_MINOR})
 
 option(EXPORT_BA "Should BA be exported." ON)
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/CMakeModules/")
-list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake_modules/")
 
-
-if( ANDROID )
-    add_definitions(-DREAL_TYPE=float)
+include(AndroidUtils)
+if(ANDROID)
+  add_definitions(-DREAL_TYPE=float)
 else()
-    add_definitions(-DREAL_TYPE=double)
+  add_definitions(-DREAL_TYPE=double)
 endif()
 add_definitions(-DSOPHUS_DISABLE_ENSURES)
 
-if( TEST_FLOAT )
-    add_definitions(-DREAL_TYPE=float)
+if(TEST_FLOAT)
+  add_definitions(-DREAL_TYPE=float)
 endif()
 
 option( BUILD_APPLICATIONS "Build Applications" ON )
@@ -27,13 +26,7 @@ if( BUILD_APPLICATIONS )
 endif()
 
 
-if(NOT ANDROID)
-    option(BUILD_SHARED_LIBS "Build Shared Library" ON)
-else()
-    set(BUILD_SHARED_LIBS OFF)
-    set( CMAKE_CXX_FLAGS "-llog ${CMAKE_CXX_FLAGS}" )
-endif()
-
+option(BUILD_SHARED_LIBS "Build Shared Library" ON)
 set( CMAKE_CXX_FLAGS "-std=c++0x -Wall ${CMAKE_CXX_FLAGS}" )
 if(${CMAKE_CXX_COMPILER_ID} STREQUAL "Clang")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")

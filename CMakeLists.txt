@@ -7,7 +7,6 @@ set(BA_VERSION ${BA_VERSION_MAJOR}.${BA_VERSION_MINOR})
 option(EXPORT_BA "Should BA be exported." ON)
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/CMakeModules/")
 
-include(AndroidUtils)
 if(ANDROID)
   add_definitions(-DREAL_TYPE=float)
 else()

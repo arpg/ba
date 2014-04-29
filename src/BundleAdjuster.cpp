@@ -976,30 +976,23 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::CalculateGn(
       }
       const uint32_t num_pose_params = delta_p_k.rows() - CalibSize;
       delta.delta_p = delta_p_k.head(num_pose_params);
-      delta.delta_k = delta_p_k.tail(CalibSize);
+      if (CalibSize) {
+        delta.delta_k = delta_p_k.tail(CalibSize);
 
-      if (options_.calculate_calibration_marginals) {
-        std::cerr << "Calculating s.inverse() " << std::endl;
-        MatrixXt cov(delta_p_k.rows(), CalibSize);
-        for (int ii = 0; ii < CalibSize ; ++ii) {
-          VectorXt res = solver.solve(
-                VectorXt::Unit(rhs_p.rows(), num_pose_params + ii));
-          if (solver.info() != Eigen::Success) {
-            std::cerr << "LDLT SOLVE FAILED!" << std::endl;
+        if (options_.calculate_calibration_marginals) {
+          MatrixXt cov(delta_p_k.rows(), CalibSize);
+          for (int ii = 0; ii < CalibSize ; ++ii) {
+            VectorXt res = solver.solve(
+                  VectorXt::Unit(rhs_p.rows(), num_pose_params + ii));
+            if (solver.info() != Eigen::Success) {
+              std::cerr << "LDLT SOLVE FAILED!" << std::endl;
+            }
+            cov.col(ii) = res;
           }
-          cov.col(ii) = res;
-          //std::cerr << "Solving col " << ii << " with vec " <<
-          //             VectorXt::Unit(rhs_p.rows(), num_pose_params + ii).transpose() <<
-          //             " and result " << res.transpose() << std::endl;
+          summary_.calibration_marginals =
+              cov.template bottomRightCorner<CalibSize, CalibSize>();
         }
-        const Eigen::MatrixXd sigma =
-            cov.template bottomRightCorner<CalibSize, CalibSize>();
-        std::cerr << "Calibration marginals are : \n" << sigma << std::endl;
-        std::ofstream("sigma.txt", std::ios_base::app) <<
-          sigma.diagonal().transpose().format(kLongCsvFmt) << std::endl;
-
       }
-
     } else {
       delta.delta_p = VectorXt();
       delta.delta_k = VectorXt();

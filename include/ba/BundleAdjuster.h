@@ -179,6 +179,14 @@ public:
     proj_residuals_.reserve(num_measurements);
     poses_.reserve(num_poses);
 
+    // Delete the cameras that we own.
+    for (size_t ii = 0; ii < rig_.cameras_.size() ; ++ii) {
+      if (camera_owned_[ii] == true) {
+        delete rig_.cameras_[ii];
+      }
+    }
+    rig_.cameras_.clear();
+
     // clear all arrays
     rig_.Clear();
     poses_.clear();
@@ -213,7 +221,21 @@ public:
                      const SE3t& cam_pose)
   {
     rig_.AddCamera(calibu::CreateFromOldCamera<Scalar>(cam_param), cam_pose);
+    // Signal that we own this camera so we delete it.
+    camera_owned_.resize(rig_.cameras_.size());
+    camera_owned_.back() = true;
     return rig_.cameras_.size()-1;
+  }
+
+  ////////////////////////////////////////////////////////////////////////////
+  uint32_t AddCamera(calibu::CameraInterface<Scalar>* cam,
+                     const SE3t& cam_pose)
+  {
+    rig_.AddCamera(cam, cam_pose);
+    // Signal that we don't own this camera so we don't delete it.
+    camera_owned_.resize(rig_.cameras_.size());
+    camera_owned_.back() = false;
+    return rig_.cameras_.size();
   }
 
 
@@ -540,6 +562,7 @@ public:
 
   const SolutionSummary<Scalar>& GetSolutionSummary() { return summary_; }
   Options<Scalar>& options() { return options_; }
+  const calibu::Rig<Scalar>& rig() { return rig_; }
 
 private:
   bool SolveInternal(VectorXt rhs_p_sc, const Scalar gn_damping,
@@ -627,6 +650,7 @@ private:
   uint32_t inertial_residual_offset_;
   // calibu::CameraRigT<Scalar> rig_;
   calibu::Rig<Scalar> rig_;
+  std::vector<bool> camera_owned_;
   std::vector<Pose> poses_;
   std::vector<Landmark> landmarks_;
   std::vector<ProjectionResidual > proj_residuals_;

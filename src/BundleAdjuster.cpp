@@ -56,13 +56,20 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::ApplyUpdate(
   // update the camera parameters
   if (kCamParamsInCalib && delta.delta_k.rows() > 0){
     double* params = rig_.cameras_[0]->GetParams();
-    std::cerr << "Prev params: " << params[0] << " " << params[1] << " " <<
-                 params[2] << " " << params[3] << std::endl;
-    for (int ii = 0 ; ii < rig_.cameras_[0]->NumParams() ; ++ii) {
+    std::cerr << "Prev params: " ;
+    for (uint32_t ii = 0 ; ii < rig_.cameras_[0]->NumParams() ; ++ii) {
+      std::cerr << params[ii] << " ";
+    }
+    std::cerr << std::endl;
+    std::cerr << "delta k: " << delta.delta_k.transpose() << std::endl;
+    for (uint32_t ii = 0 ; ii < rig_.cameras_[0]->NumParams() ; ++ii) {
       params[ii] -= delta.delta_k[ii];
     }
-    std::cerr << "Post params: " << params[0] << " " << params[1] << " " <<
-                 params[2] << " " << params[3] << std::endl;
+    std::cerr << "Post params: " ;
+    for (uint32_t ii = 0 ; ii < rig_.cameras_[0]->NumParams() ; ++ii) {
+      std::cerr << params[ii] << " ";
+    }
+    std::cerr << std::endl;
 
 
     // If we are in inverse depth mode, we have to reproject all landmarks.

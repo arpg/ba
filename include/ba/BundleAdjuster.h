@@ -70,6 +70,9 @@ struct Options
   bool use_sparse_solver = true;
   bool write_reduced_camera_matrix = false;
   bool calculate_calibration_marginals = false;
+
+  // Robust norms.
+  bool use_robust_norm_for_proj_residuals = true;
 };
 
 

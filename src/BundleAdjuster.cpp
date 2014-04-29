@@ -1610,10 +1610,10 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
     for( ProjectionResidual& res : proj_residuals_ ){
       // calculate the huber norm weight for this measurement
       const Scalar e = sqrt(res.mahalanobis_distance);
-      const bool is_cond = false;
+      const bool use_robust = options_.use_robust_norm_for_proj_residuals;
           //!poses_[res.x_meas_id].is_active || !poses_[res.x_ref_id].is_active;
       const bool is_outlier = e > c_huber;
-      res.weight *= (is_outlier && !is_cond ? c_huber/e : 1.0);
+      res.weight *= (is_outlier && use_robust ? c_huber/e : 1.0);
       res.mahalanobis_distance = res.residual.squaredNorm() * res.weight;
       r_pr_.template segment<ProjectionResidual::kResSize>(res.residual_offset) =
           res.residual * sqrt(res.weight);

@@ -46,6 +46,8 @@ struct SolutionSummary
   Scalar delta_norm;
   Scalar pre_solve_norm;
   Scalar post_solve_norm;
+
+  Eigen::MatrixXd calibration_marginals;
 };
 
 template<typename Scalar=double>

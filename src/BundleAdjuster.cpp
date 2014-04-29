@@ -758,7 +758,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::Solve(
           for (uint32_t ii = 0 ; ii < pose.param_mask.size() ; ++ii) {
             if (!pose.param_mask[ii]) {
               const int idx = pose.opt_id*kPoseDim + ii;
-              s_(idx, idx) = 1.0;
+              s_(idx, idx) = 1e6;
             }
           }
         }

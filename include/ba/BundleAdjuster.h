@@ -66,6 +66,7 @@ struct Options
   Scalar error_change_threshold = 0.01;
   Scalar param_change_threshold = 1e-3;
 
+  uint32_t dogleg_max_inner_iterations = 100;
   bool use_dogleg = true;
   bool use_triangular_matrices = true;
   bool use_sparse_solver = true;

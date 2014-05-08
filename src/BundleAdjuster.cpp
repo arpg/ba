@@ -942,31 +942,30 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::CalculateGn(
        if (solver.info() != Eigen::Success) {
          std::cerr << "SimplicialLDLT SOLVE FAILED!" << std::endl;
        }
-       delta.delta_p = delta_p_k.head(delta_p_k.rows() - CalibSize);
-       delta.delta_k = delta_p_k.tail(CalibSize);
+       const uint32_t num_pose_params = delta_p_k.rows() - CalibSize;
+       delta.delta_p = delta_p_k.head(num_pose_params);
+       if (CalibSize) {
+         delta.delta_k = delta_p_k.tail(CalibSize);
+
+         if (options_.calculate_calibration_marginals) {
+           MatrixXt cov(delta_p_k.rows(), CalibSize);
+           for (int ii = 0; ii < CalibSize ; ++ii) {
+             VectorXt res = solver.solve(
+                   VectorXt::Unit(rhs_p.rows(), num_pose_params + ii));
+             if (solver.info() != Eigen::Success) {
+               std::cerr << "SimplicialLDLT SOLVE FAILED!" << std::endl;
+             }
+             cov.col(ii) = res;
+           }
+           summary_.calibration_marginals =
+               cov.template bottomRightCorner<CalibSize, CalibSize>();
+         }
+       }
      } else {
        delta.delta_p = VectorXt();
        delta.delta_k = VectorXt();
      }
 
-    //if (do_last_pose_cov_) {
-    //  //const uint32_t start_offset = rhs_p.rows()-kPoseDim;
-    //  const uint32_t start_offset = num_pose_params-kPoseDim;
-    //  Eigen::Matrix<Scalar,kPoseDim,kPoseDim> cov;
-    //  for (int ii = 0; ii < kPoseDim ; ++ii) {
-    //    cov.col(ii) = solver.solve(
-    //          VectorXt::Unit(rhs_p.rows(), start_offset+ii)).
-    //        template tail<kPoseDim>();
-    //  }
-
-    //  Eigen::Matrix<Scalar,7,6> dexp_dx;
-    //  // dexp_dx.block<3,3>(0,0) =
-    //  // dexp_dx.block<4,3>(3,3) = dqExp_dw()
-
-    //  // Propagate from the 6d error state to the 7d pose state, which is
-    //  // obtained through the exp operation
-
-    //}
   } else {
     Eigen::LDLT<Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>,
                 Eigen::Upper> solver;

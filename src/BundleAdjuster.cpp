@@ -1111,8 +1111,14 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::SolveInternal(
     StreamMessage(debug_level + 1) << "sd norm : " << delta_sd_norm <<
                                   std::endl;
 
+    uint32_t iteration_count = 0;
     while (1) {
-
+      iteration_count++;
+      if (iteration_count > options_.dogleg_max_inner_iterations) {
+        StreamMessage(debug_level) <<
+          "Maximum number of inner iterations reached." << std::endl;
+        break;
+      }
       if (delta_sd_norm > trust_region_size_) {
         StreamMessage(debug_level) <<
           "sd norm larger than trust region of " <<

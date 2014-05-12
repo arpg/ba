@@ -283,7 +283,7 @@ void parse_file(const char* filename)
 void solve()
 {
 	fprintf(stderr, "BA::Solve w [%zu] poses\n", nodes.size());
-  slam.Solve(25, 0.2, false, true);
+  slam.Solve(25, 0.2);
 	fprintf(stderr, "finish BA::Solve\n");
 }
 

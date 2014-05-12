@@ -2401,9 +2401,9 @@ double BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::
 }
 
 // specializations
-template class BundleAdjuster<REAL_TYPE, 1,6,5>;
-template class BundleAdjuster<REAL_TYPE, 1,6,0>;
-template class BundleAdjuster<REAL_TYPE, 1,15,0>;
+template class BundleAdjuster<REAL_TYPE, 1, 6, 5>;
+template class BundleAdjuster<REAL_TYPE, 1, 6, 0>;
+template class BundleAdjuster<REAL_TYPE, 1, 15, 0>;
 
 // specializations required for the applications
 #ifdef BUILD_APPS

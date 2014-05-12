@@ -3,6 +3,7 @@
 
 #include <sophus/se3.hpp>
 #include <vector>
+#include <Eigen/StdVector>
 #include <calibu/Calibu.h>
 //#include <cholmod.h>
 

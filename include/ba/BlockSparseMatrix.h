@@ -2,6 +2,7 @@
 #include <iostream>
 #include <vector>
 #include <Eigen/Eigen>
+#include <Eigen/StdVector>
 
 namespace ba {
 template<typename BlockType>

@@ -73,6 +73,9 @@ struct Options
   bool write_reduced_camera_matrix = false;
   bool calculate_calibration_marginals = false;
 
+  // Initialization.
+  bool regularize_biases_in_batch = true;
+
   // Robust norms.
   bool use_robust_norm_for_proj_residuals = true;
 };

@@ -1434,14 +1434,13 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
     root_pose.param_mask[0] = root_pose.param_mask[1] =
     root_pose.param_mask[2] = false;
 
-    // If the biases are in the state, we need to regularize them
-    /*if (kBiasInState) {
+    if (kBiasInState && options_.regularize_biases_in_batch) {
       StreamMessage(debug_level) <<
         "Regularizing bias of first pose." << std::endl;
       root_pose.param_mask[9] = root_pose.param_mask[10] =
       root_pose.param_mask[11] = root_pose.param_mask[12] =
       root_pose.param_mask[13] = root_pose.param_mask[14] = false;
-    }*/
+    }
 
     // if there is no velocity in the state, fix the three initial rotations,
     // as we don't need to accomodate gravity

@@ -1402,7 +1402,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
   if (kVelInState) {
     for (Pose& pose : poses_)
     {
-      if (pose.inertial_residuals.size() == 0) {
+      if (pose.inertial_residuals.size() == 0 && pose.is_active) {
         StreamMessage(debug_level) <<
           "Pose id " << pose.id << " found with no inertial residuals. "
           " regularizing velocities and biases. " << std::endl;
@@ -2107,14 +2107,15 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
     // now go through the measurements and assign weights
     for( ImuResidual& res : inertial_residuals_ ){
       // Is this a conditioning edge?
+      const bool use_robust = options_.use_robust_norm_for_inertial_residuals;
       const bool is_cond =
-          !poses_[res.pose1_id].is_active || !poses_[res.pose2_id].is_active;
+          !poses_[res.pose1_id].is_active && poses_[res.pose2_id].is_active;
 
       // calculate the huber norm weight for this measurement
       const Scalar e = sqrt(res.mahalanobis_distance);
       // We don't want to robust norm the conditioning edge
-      const Scalar weight = ((e > c_huber) && !is_cond ? c_huber/e : 1.0);
-
+      const Scalar weight = ((e > c_huber) && !is_cond && use_robust ?
+                               c_huber/e : 1.0);
 
       // std::cerr << "Imu res " << res.residual_id << " error " <<
       //              e << " and huber w: " << weight << std::endl;

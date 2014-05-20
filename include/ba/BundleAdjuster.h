@@ -78,6 +78,7 @@ struct Options
 
   // Robust norms.
   bool use_robust_norm_for_proj_residuals = true;
+  bool use_robust_norm_for_inertial_residuals = false;
 };
 
 
@@ -85,6 +86,7 @@ struct Options
 template<typename Scalar=double,int LmSize=1, int PoseSize=6, int CalibSize=0>
 class BundleAdjuster
 {
+public:
   static const uint32_t kPrPoseDim = 6;
   static const uint32_t kLmDim = LmSize;
   static const uint32_t kPoseDim = PoseSize;
@@ -118,8 +120,6 @@ class BundleAdjuster
     VectorXt delta_l;
   };
 
-
-public:
   static const bool kVelInState = (kPoseDim >= 9);
   static const bool kBiasInState = (kPoseDim >= 15);
   static const bool kTvsInState = (kPoseDim >= 21);
@@ -472,7 +472,8 @@ public:
     proj_residuals_.push_back(residual);
     proj_residual_offset += ProjectionResidual::kResSize;
 
-    if (poses_[residual.x_meas_id].is_active == false) {
+    if (poses_[residual.x_ref_id].is_active == false &&
+        poses_[residual.x_meas_id].is_active == true) {
       conditioning_proj_residuals_.push_back(residual.residual_id);
     }
 
@@ -504,8 +505,8 @@ public:
     poses_[pose1_id].inertial_residuals.push_back(residual.residual_id);
     poses_[pose2_id].inertial_residuals.push_back(residual.residual_id);
 
-    if (poses_[pose1_id].is_active == false ||
-        poses_[pose2_id].is_active == false) {
+    if (poses_[pose1_id].is_active == false &&
+        poses_[pose2_id].is_active == true) {
       conditioning_inertial_residuals_.push_back(residual.residual_id);
     }
 

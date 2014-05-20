@@ -1460,20 +1460,30 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
 
       // regularize one rotation axis due to gravity null space, depending on the
       // major gravity axis)
-      int max_id = fabs(gravity[0]) > fabs(gravity[1]) ? 0 : 1;
-      if (fabs(gravity[max_id]) < fabs(gravity[2])) {
-        max_id = 2;
+      const Eigen::Matrix<Scalar, 3, 3> rot = root_pose.t_wp.rotationMatrix();
+      double max_dot = 0;
+      uint32_t max_dim = 0;
+      for (uint32_t ii = 0; ii < 3 ; ++ii) {
+        const double dot = fabs(rot.col(ii).dot(gravity));
+        if (dot > max_dot) {
+          max_dot = dot;
+          max_dim = ii;
+        }
       }
+//      int max_id = fabs(gravity[0]) > fabs(gravity[1]) ? 0 : 1;
+//      if (fabs(gravity[max_id]) < fabs(gravity[2])) {
+//        max_id = 2;
+//      }
 
       StreamMessage(debug_level) <<
         "gravity is " << gravity.transpose() << " max id is " <<
-        max_id << std::endl;
+        max_dim << std::endl;
 
       StreamMessage(debug_level) <<
-        "Velocity in state. Regularizing dimension " << max_id << " of root "
+        "Velocity in state. Regularizing dimension " << max_dim << " of root "
         "pose rotation" << std::endl;
 
-      root_pose.param_mask[max_id+3] = false;
+      root_pose.param_mask[max_dim+3] = false;
       // root_pose.param_mask[5] = false;
     }
   }

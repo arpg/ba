@@ -54,10 +54,10 @@ template<typename Scalar=double>
 struct Options
 {
   Scalar trust_region_size = 1.0;
-  Scalar gyro_uncertainty = IMU_GYRO_UNCERTAINTY;
-  Scalar accel_uncertainty = IMU_ACCEL_UNCERTAINTY;
-  Scalar gyro_bias_uncertainty = IMU_GYRO_BIAS_UNCERTAINTY;
-  Scalar accel_bias_uncertainty = IMU_ACCEL_BIAS_UNCERTAINTY;
+  Scalar gyro_sigma = IMU_GYRO_SIGMA;
+  Scalar accel_sigma = IMU_ACCEL_SIGMA;
+  Scalar gyro_bias_sigma = IMU_GYRO_BIAS_SIGMA;
+  Scalar accel_bias_sigma = IMU_ACCEL_BIAS_SIGMA;
 
   // Outlier thresholds
   Scalar projection_outlier_threshold = 1.0;
@@ -164,20 +164,20 @@ public:
     imu_.t_vs = t_vs;
     last_tvs_ = imu_.t_vs;
     imu_.r = ((Eigen::Matrix<Scalar, 6, 1>() <<
-              options.gyro_uncertainty,
-              options.gyro_uncertainty,
-              options.gyro_uncertainty,
-              options.accel_uncertainty,
-              options.accel_uncertainty,
-              options.accel_uncertainty).finished().asDiagonal());
+              powi(options.gyro_sigma, 2),
+              powi(options.gyro_sigma, 2),
+              powi(options.gyro_sigma, 2),
+              powi(options.accel_sigma, 2),
+              powi(options.accel_sigma, 2),
+              powi(options.accel_sigma, 2)).finished().asDiagonal());
 
     imu_.r_b <<
-              options.gyro_bias_uncertainty,
-              options.gyro_bias_uncertainty,
-              options.gyro_bias_uncertainty,
-              options.accel_bias_uncertainty,
-              options.accel_bias_uncertainty,
-              options.accel_bias_uncertainty;
+              powi(options.gyro_bias_sigma, 2),
+              powi(options.gyro_bias_sigma, 2),
+              powi(options.gyro_bias_sigma, 2),
+              powi(options.accel_bias_sigma, 2),
+              powi(options.accel_bias_sigma, 2),
+              powi(options.accel_bias_sigma, 2);
 
     landmarks_.reserve(num_landmarks);
     proj_residuals_.reserve(num_measurements);

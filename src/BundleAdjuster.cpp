@@ -882,7 +882,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::Solve(
   summary_.proj_error_ = proj_error_;
   for (uint32_t id : conditioning_proj_residuals_) {
     const ProjectionResidual& res = proj_residuals_[id];
-    summary_.cond_proj_error += res.mahalanobis_distance;
+    summary_.cond_proj_error += res.mahalanobis_distance / res.weight;
   }
 }
 
@@ -2411,7 +2411,7 @@ double BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::
 }
 
 // specializations
-template class BundleAdjuster<REAL_TYPE, 1, 6, 5>;
+// template class BundleAdjuster<REAL_TYPE, 1, 6, 5>;
 template class BundleAdjuster<REAL_TYPE, 1, 6, 0>;
 template class BundleAdjuster<REAL_TYPE, 1, 15, 0>;
 

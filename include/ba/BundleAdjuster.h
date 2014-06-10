@@ -474,6 +474,7 @@ public:
 
     if (poses_[residual.x_ref_id].is_active == false &&
         poses_[residual.x_meas_id].is_active == true) {
+      residual.is_conditioning = true;
       conditioning_proj_residuals_.push_back(residual.residual_id);
     }
 

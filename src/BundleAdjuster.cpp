@@ -1491,6 +1491,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
   // used to store errors for robust norm calculation
   errors_.reserve(num_proj_res);
   errors_.clear();
+  std::vector<Scalar> cond_errors;
+  cond_errors.reserve(num_proj_res);
 
   StartTimer(_j_evaluation_);
   StartTimer(_j_evaluation_proj_);
@@ -1603,28 +1605,39 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
     res.weight =  res.orig_weight;
     res.mahalanobis_distance = res.residual.squaredNorm() * res.weight;
     // this array is used to calculate the robust norm
-    errors_.push_back(res.mahalanobis_distance);
-
+    if (res.is_conditioning) {
+      cond_errors.push_back(res.mahalanobis_distance);
+    } else {
+      errors_.push_back(res.mahalanobis_distance);
+    }
   }
 
   // get the sigma for robust norm calculation. This call is O(n) on average,
   // which is desirable over O(nlogn) sort
   if (errors_.size() > 0) {
-    auto it = errors_.begin()+std::floor(errors_.size() * 2. / 3.);
-    std::nth_element(errors_.begin(),it,errors_.end());
+    auto it = errors_.begin() + std::floor(errors_.size() * 0.5);
+    std::nth_element(errors_.begin(), it, errors_.end());
     const Scalar sigma = sqrt(*it);
+
+    it = cond_errors.begin() + std::floor(cond_errors.size() * 0.5);
+    std::nth_element(cond_errors.begin(), it, cond_errors.end());
+    const Scalar cond_sigma = sqrt(*it);
+
     // std::cout << "Projection error sigma is " << dSigma << std::endl;
     // See "Parameter Estimation Techniques: A Tutorial with Application to
     // Conic Fitting" by Zhengyou Zhang. PP 26 defines this magic number:
-    const Scalar c_huber = 1.2107*sigma;
+    const Scalar c_huber = 1.2107 * sigma;
+    const Scalar cond_c_huber = 1.2107 * cond_sigma;
 
     // now go through the measurements and assign weights
     for( ProjectionResidual& res : proj_residuals_ ){
       // calculate the huber norm weight for this measurement
       const Scalar e = sqrt(res.mahalanobis_distance);
-      const bool use_robust = options_.use_robust_norm_for_proj_residuals;
+      const bool use_robust = options_.use_robust_norm_for_proj_residuals; /*&&
+          !res.is_conditioning;*/
           //!poses_[res.x_meas_id].is_active || !poses_[res.x_ref_id].is_active;
-      const bool is_outlier = e > c_huber;
+      const bool is_outlier =
+          e > (res.is_conditioning ? cond_c_huber : c_huber);
       res.weight *= (is_outlier && use_robust ? c_huber/e : 1.0);
       res.mahalanobis_distance = res.residual.squaredNorm() * res.weight;
       r_pr_.template segment<ProjectionResidual::kResSize>(res.residual_offset) =

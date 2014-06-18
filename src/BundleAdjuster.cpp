@@ -451,7 +451,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::Solve(
 
       VectorXt jt_pp_r_pp(num_pose_params);
       Eigen::SparseBlockVectorProductDenseResult(jt_pp_, r_pp_, jt_pp_r_pp);
-      std::cerr << "Adding binary rhs: " << jt_pp_r_pp.norm() << std::endl;
+      StreamMessage(debug_level) << "Adding binary rhs: "
+                                 << jt_pp_r_pp.norm() << std::endl;
       rhs_p_ += jt_pp_r_pp;
     }
 
@@ -1400,9 +1401,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
   // If we are doing an inertial run, and any poses have no inertial constraints
   // we must regularize their velocity and (if applicable) biases.
   if (kVelInState) {
-    for (Pose& pose : poses_)
-    {
-      if (pose.inertial_residuals.size() == 0) {
+    for (Pose& pose : poses_) {
+      if (pose.inertial_residuals.empty()) {
         StreamMessage(debug_level) <<
           "Pose id " << pose.id << " found with no inertial residuals. "
           " regularizing velocities and biases. " << std::endl;

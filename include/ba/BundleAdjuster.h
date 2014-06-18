@@ -47,7 +47,8 @@ struct SolutionSummary
   Scalar pre_solve_norm;
   Scalar post_solve_norm;
 
-  Eigen::MatrixXd calibration_marginals;
+  typedef Eigen::Matrix<Scalar,Eigen::Dynamic,Eigen::Dynamic> MatrixXt;
+  MatrixXt calibration_marginals;
 };
 
 template<typename Scalar=double>

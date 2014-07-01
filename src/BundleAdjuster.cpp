@@ -55,7 +55,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::ApplyUpdate(
 
   // update the camera parameters
   if (kCamParamsInCalib && delta.delta_k.rows() > 0){
-    double* params = rig_.cameras_[0]->GetParams();
+    Scalar* params = rig_.cameras_[0]->GetParams();
     StreamMessage(debug_level) << "Prev params: " ;
     for (uint32_t ii = 0 ; ii < rig_.cameras_[0]->NumParams() ; ++ii) {
       StreamMessage(debug_level) << params[ii] << " ";
@@ -89,7 +89,6 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::ApplyUpdate(
     // only update active poses, as inactive ones are not part of the
     // optimization
     if (poses_[ii].is_active) {
-      const uint32_t opt_id = poses_[ii].opt_id;
       const uint32_t p_offset = poses_[ii].opt_id*kPoseDim;
       const Eigen::Matrix<Scalar, 6, 1>& p_update =
           -delta.delta_p.template block<6,1>(p_offset,0)*coef;
@@ -345,7 +344,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::EvaluateResiduals(
         total_tvs_change_ = total_tvs_change;
       }
     }
-  }  
+  }
 
 }
 

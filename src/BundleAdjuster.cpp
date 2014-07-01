@@ -1116,7 +1116,8 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::SolveInternal(
           "Maximum number of inner iterations reached." << std::endl;
         break;
       }
-      if (delta_sd_norm > trust_region_size_) {
+      if (delta_sd_norm > trust_region_size_ &&
+          trust_region_size_ != TRUST_REGION_AUTO) {
         StreamMessage(debug_level) <<
           "sd norm larger than trust region of " <<
           trust_region_size_ << " chosing sd update " << std::endl;
@@ -1145,8 +1146,13 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::SolveInternal(
         Scalar delta_gn_norm = sqrt(delta_gn.delta_p.squaredNorm() +
                                     delta_gn.delta_k.squaredNorm() +
                                     delta_gn.delta_l.squaredNorm());
-        if (!std::isnan(delta_gn_norm) && !std::isinf(delta_gn_norm) &&
-            delta_gn_norm <= trust_region_size_) {
+        const bool delta_gn_good =
+            !std::isnan(delta_gn_norm) && !std::isinf(delta_gn_norm);
+        if (delta_gn_good && trust_region_size_ == TRUST_REGION_AUTO) {
+          trust_region_size_ = delta_gn_norm;
+        }
+
+        if (delta_gn_good && delta_gn_norm <= trust_region_size_) {
           StreamMessage(debug_level) <<
             "Gauss newton delta: " << delta_gn_norm << "is smaller than trust "
             "region of " << trust_region_size_ << std::endl;

@@ -45,6 +45,15 @@ struct InterpolationBufferT {
   {
     elements.reserve(size);
   }
+
+  void Clear()
+  {
+    start_time = -1;
+    end_time = -1;
+    average_dt = -1;
+    elements.clear();
+  }
+
   //////////////////////////////////////////////////////////////////////////////
   /// \brief Adds an element to the interpolation buffer, updates the average
   /// and end times

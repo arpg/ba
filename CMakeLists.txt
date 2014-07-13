@@ -18,9 +18,9 @@ if(TEST_FLOAT)
   add_definitions(-DREAL_TYPE=float)
 endif()
 
-option( BUILD_APPLICATIONS "Build Applications" ON )
+option( BUILD_BA_APPLICATIONS "Build BA Applications" ON )
 
-if( BUILD_APPLICATIONS )
+if( BUILD_BA_APPLICATIONS )
   add_definitions(-DBUILD_APPS)
 endif()
 
@@ -41,7 +41,7 @@ string( TOLOWER ${PROJECT_NAME} LIBRARY_NAME )
 include_directories(include)
 add_subdirectory( src )
 
-if( (BUILD_APPLICATIONS) AND (NOT ANDROID) )
+if( (BUILD_BA_APPLICATIONS) AND (NOT ANDROID) )
   set(BA_DIR ${BA_BINARY_DIR}/src)
   add_subdirectory( applications )
 endif()

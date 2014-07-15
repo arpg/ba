@@ -87,7 +87,7 @@ struct Options
 template<typename Scalar=double,int LmSize=1, int PoseSize=6, int CalibSize=0>
 class BundleAdjuster
 {
-public:
+ public:
   static const uint32_t kPrPoseDim = 6;
   static const uint32_t kLmDim = LmSize;
   static const uint32_t kPoseDim = PoseSize;
@@ -220,6 +220,9 @@ public:
     }
   }
 
+  Vector3t GetGravity() const {
+    return kGravityInCalib ? GetGravityVector<Scalar>(imu_.g) : imu_.g_vec;
+  }
 
   ////////////////////////////////////////////////////////////////////////////
   uint32_t AddCamera(const calibu::CameraModelInterfaceT<Scalar>& cam_param,
@@ -317,8 +320,10 @@ public:
     landmark.external_id = external_id;
     landmark.x_w = x_w;
     // assume equal distribution of measurements amongst landmarks
-    landmark.proj_residuals.reserve(
-          proj_residuals_.capacity()/landmarks_.capacity());
+    if (proj_residuals_.capacity() && landmarks_.capacity()) {
+      landmark.proj_residuals.reserve(
+          proj_residuals_.capacity() / landmarks_.capacity());
+    }
 
     landmark.ref_pose_id = ref_pose_id;
     landmark.ref_cam_id = ref_cam_id;
@@ -520,11 +525,13 @@ public:
              const bool error_increase_allowed = false);
 
   void SetRootPoseId(const uint32_t id) { root_pose_id_ = id; }
+  uint32_t GetRootPoseId() { return root_pose_id_; }
 
   bool IsTranslationEnabled() { return translation_enabled_; }
   uint32_t GetNumPoses() const { return poses_.size(); }
   uint32_t GetNumImuResiduals() const { return inertial_residuals_.size(); }
   uint32_t GetNumProjResiduals() const { return proj_residuals_.size(); }
+  uint32_t GetNumLandmarks() const { return landmarks_.size(); }
 
   const ImuResidual& GetImuResidual(const uint32_t id)
   const { return inertial_residuals_[id]; }
@@ -567,9 +574,9 @@ public:
     inertial_error = inertial_error_;
   }
 
-  const SolutionSummary<Scalar>& GetSolutionSummary() { return summary_; }
+  const SolutionSummary<Scalar>& GetSolutionSummary() const { return summary_; }
   Options<Scalar>& options() { return options_; }
-  const calibu::Rig<Scalar>& rig() { return rig_; }
+  const calibu::Rig<Scalar>& rig() const { return rig_; }
 
 private:
   bool SolveInternal(VectorXt rhs_p_sc, const Scalar gn_damping,

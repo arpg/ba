@@ -21,6 +21,7 @@
 #ifndef BA_TYPES_H
 #define BA_TYPES_H
 
+#include <iostream>
 #include <Eigen/Eigen>
 #include <sophus/se3.hpp>
 #include "Utils.h"
@@ -224,14 +225,11 @@ struct ImuPoseT {
 
 template<typename Scalar = double>
 struct ImuMeasurementT {
-  ImuMeasurementT() {
-  }
+  ImuMeasurementT() {}
 
   ImuMeasurementT(const Eigen::Matrix<Scalar, 3, 1>& w,
                   const Eigen::Matrix<Scalar, 3, 1>& a, const double time)
-      : w(w),
-        a(a),
-        time(time) {
+      : w(w), a(a), time(time) {
   }
 
   /// \brief angular rates in inertial coordinates
@@ -240,11 +238,11 @@ struct ImuMeasurementT {
   Eigen::Matrix<Scalar, 3, 1> a;
   double time;
 
-  ImuMeasurementT operator*(const Scalar &rhs) {
+  ImuMeasurementT operator*(const Scalar &rhs) const {
     return ImuMeasurementT(w * rhs, a * rhs, time);
   }
 
-  ImuMeasurementT operator+(const ImuMeasurementT &rhs) {
+  ImuMeasurementT operator+(const ImuMeasurementT &rhs) const {
     return ImuMeasurementT(w + rhs.w, a + rhs.a, time);
   }
 };

@@ -55,10 +55,10 @@ template<typename Scalar=double>
 struct Options
 {
   Scalar trust_region_size = 1.0;
-  Scalar gyro_uncertainty = IMU_GYRO_UNCERTAINTY;
-  Scalar accel_uncertainty = IMU_ACCEL_UNCERTAINTY;
-  Scalar gyro_bias_uncertainty = IMU_GYRO_BIAS_UNCERTAINTY;
-  Scalar accel_bias_uncertainty = IMU_ACCEL_BIAS_UNCERTAINTY;
+  Scalar gyro_sigma = IMU_GYRO_SIGMA;
+  Scalar accel_sigma = IMU_ACCEL_SIGMA;
+  Scalar gyro_bias_sigma = IMU_GYRO_BIAS_SIGMA;
+  Scalar accel_bias_sigma = IMU_ACCEL_BIAS_SIGMA;
 
   // Outlier thresholds
   Scalar projection_outlier_threshold = 1.0;
@@ -74,8 +74,12 @@ struct Options
   bool write_reduced_camera_matrix = false;
   bool calculate_calibration_marginals = false;
 
+  // Initialization.
+  bool regularize_biases_in_batch = true;
+
   // Robust norms.
   bool use_robust_norm_for_proj_residuals = true;
+  bool use_robust_norm_for_inertial_residuals = false;
 };
 
 
@@ -83,6 +87,7 @@ struct Options
 template<typename Scalar=double,int LmSize=1, int PoseSize=6, int CalibSize=0>
 class BundleAdjuster
 {
+ public:
   static const uint32_t kPrPoseDim = 6;
   static const uint32_t kLmDim = LmSize;
   static const uint32_t kPoseDim = PoseSize;
@@ -116,8 +121,6 @@ class BundleAdjuster
     VectorXt delta_l;
   };
 
-
-public:
   static const bool kVelInState = (kPoseDim >= 9);
   static const bool kBiasInState = (kPoseDim >= 15);
   static const bool kTvsInState = (kPoseDim >= 21);
@@ -162,20 +165,20 @@ public:
     imu_.t_vs = t_vs;
     last_tvs_ = imu_.t_vs;
     imu_.r = ((Eigen::Matrix<Scalar, 6, 1>() <<
-              options.gyro_uncertainty,
-              options.gyro_uncertainty,
-              options.gyro_uncertainty,
-              options.accel_uncertainty,
-              options.accel_uncertainty,
-              options.accel_uncertainty).finished().asDiagonal());
+              powi(options.gyro_sigma, 2),
+              powi(options.gyro_sigma, 2),
+              powi(options.gyro_sigma, 2),
+              powi(options.accel_sigma, 2),
+              powi(options.accel_sigma, 2),
+              powi(options.accel_sigma, 2)).finished().asDiagonal());
 
     imu_.r_b <<
-              options.gyro_bias_uncertainty,
-              options.gyro_bias_uncertainty,
-              options.gyro_bias_uncertainty,
-              options.accel_bias_uncertainty,
-              options.accel_bias_uncertainty,
-              options.accel_bias_uncertainty;
+              powi(options.gyro_bias_sigma, 2),
+              powi(options.gyro_bias_sigma, 2),
+              powi(options.gyro_bias_sigma, 2),
+              powi(options.accel_bias_sigma, 2),
+              powi(options.accel_bias_sigma, 2),
+              powi(options.accel_bias_sigma, 2);
 
     landmarks_.reserve(num_landmarks);
     proj_residuals_.reserve(num_measurements);
@@ -217,6 +220,9 @@ public:
     }
   }
 
+  Vector3t GetGravity() const {
+    return kGravityInCalib ? GetGravityVector<Scalar>(imu_.g) : imu_.g_vec;
+  }
 
   ////////////////////////////////////////////////////////////////////////////
   uint32_t AddCamera(const calibu::CameraModelInterfaceT<Scalar>& cam_param,
@@ -314,8 +320,10 @@ public:
     landmark.external_id = external_id;
     landmark.x_w = x_w;
     // assume equal distribution of measurements amongst landmarks
-    landmark.proj_residuals.reserve(
-          proj_residuals_.capacity()/landmarks_.capacity());
+    if (proj_residuals_.capacity() && landmarks_.capacity()) {
+      landmark.proj_residuals.reserve(
+          proj_residuals_.capacity() / landmarks_.capacity());
+    }
 
     landmark.ref_pose_id = ref_pose_id;
     landmark.ref_cam_id = ref_cam_id;
@@ -470,7 +478,9 @@ public:
     proj_residuals_.push_back(residual);
     proj_residual_offset += ProjectionResidual::kResSize;
 
-    if (poses_[residual.x_meas_id].is_active == false) {
+    if (poses_[residual.x_ref_id].is_active == false &&
+        poses_[residual.x_meas_id].is_active == true) {
+      residual.is_conditioning = true;
       conditioning_proj_residuals_.push_back(residual.residual_id);
     }
 
@@ -502,8 +512,8 @@ public:
     poses_[pose1_id].inertial_residuals.push_back(residual.residual_id);
     poses_[pose2_id].inertial_residuals.push_back(residual.residual_id);
 
-    if (poses_[pose1_id].is_active == false ||
-        poses_[pose2_id].is_active == false) {
+    if (poses_[pose1_id].is_active == false &&
+        poses_[pose2_id].is_active == true) {
       conditioning_inertial_residuals_.push_back(residual.residual_id);
     }
 
@@ -515,11 +525,13 @@ public:
              const bool error_increase_allowed = false);
 
   void SetRootPoseId(const uint32_t id) { root_pose_id_ = id; }
+  uint32_t GetRootPoseId() { return root_pose_id_; }
 
   bool IsTranslationEnabled() { return translation_enabled_; }
   uint32_t GetNumPoses() const { return poses_.size(); }
   uint32_t GetNumImuResiduals() const { return inertial_residuals_.size(); }
   uint32_t GetNumProjResiduals() const { return proj_residuals_.size(); }
+  uint32_t GetNumLandmarks() const { return landmarks_.size(); }
 
   const ImuResidual& GetImuResidual(const uint32_t id)
   const { return inertial_residuals_[id]; }
@@ -562,9 +574,9 @@ public:
     inertial_error = inertial_error_;
   }
 
-  const SolutionSummary<Scalar>& GetSolutionSummary() { return summary_; }
+  const SolutionSummary<Scalar>& GetSolutionSummary() const { return summary_; }
   Options<Scalar>& options() { return options_; }
-  const calibu::Rig<Scalar>& rig() { return rig_; }
+  const calibu::Rig<Scalar>& rig() const { return rig_; }
 
 private:
   bool SolveInternal(VectorXt rhs_p_sc, const Scalar gn_damping,

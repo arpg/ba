@@ -882,7 +882,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::Solve(
   summary_.proj_error_ = proj_error_;
   for (uint32_t id : conditioning_proj_residuals_) {
     const ProjectionResidual& res = proj_residuals_[id];
-    summary_.cond_proj_error += res.mahalanobis_distance;
+    summary_.cond_proj_error += res.mahalanobis_distance / res.weight;
   }
 }
 
@@ -1401,7 +1401,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
   // we must regularize their velocity and (if applicable) biases.
   if (kVelInState) {
     for (Pose& pose : poses_) {
-      if (pose.inertial_residuals.empty()) {
+      if (pose.inertial_residuals.empty() && pose.is_active) {
         StreamMessage(debug_level) <<
           "Pose id " << pose.id << " found with no inertial residuals. "
           " regularizing velocities and biases. " << std::endl;
@@ -1433,14 +1433,13 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
     root_pose.param_mask[0] = root_pose.param_mask[1] =
     root_pose.param_mask[2] = false;
 
-    // If the biases are in the state, we need to regularize them
-    /*if (kBiasInState) {
+    if (kBiasInState && options_.regularize_biases_in_batch) {
       StreamMessage(debug_level) <<
         "Regularizing bias of first pose." << std::endl;
       root_pose.param_mask[9] = root_pose.param_mask[10] =
       root_pose.param_mask[11] = root_pose.param_mask[12] =
       root_pose.param_mask[13] = root_pose.param_mask[14] = false;
-    }*/
+    }
 
     // if there is no velocity in the state, fix the three initial rotations,
     // as we don't need to accomodate gravity
@@ -1460,20 +1459,30 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
 
       // regularize one rotation axis due to gravity null space, depending on the
       // major gravity axis)
-      int max_id = fabs(gravity[0]) > fabs(gravity[1]) ? 0 : 1;
-      if (fabs(gravity[max_id]) < fabs(gravity[2])) {
-        max_id = 2;
+      const Eigen::Matrix<Scalar, 3, 3> rot = root_pose.t_wp.rotationMatrix();
+      double max_dot = 0;
+      uint32_t max_dim = 0;
+      for (uint32_t ii = 0; ii < 3 ; ++ii) {
+        const double dot = fabs(rot.col(ii).dot(gravity));
+        if (dot > max_dot) {
+          max_dot = dot;
+          max_dim = ii;
+        }
       }
+//      int max_id = fabs(gravity[0]) > fabs(gravity[1]) ? 0 : 1;
+//      if (fabs(gravity[max_id]) < fabs(gravity[2])) {
+//        max_id = 2;
+//      }
 
       StreamMessage(debug_level) <<
         "gravity is " << gravity.transpose() << " max id is " <<
-        max_id << std::endl;
+        max_dim << std::endl;
 
       StreamMessage(debug_level) <<
-        "Velocity in state. Regularizing dimension " << max_id << " of root "
+        "Velocity in state. Regularizing dimension " << max_dim << " of root "
         "pose rotation" << std::endl;
 
-      root_pose.param_mask[max_id+3] = false;
+      root_pose.param_mask[max_dim+3] = false;
       // root_pose.param_mask[5] = false;
     }
   }
@@ -1481,6 +1490,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
   // used to store errors for robust norm calculation
   errors_.reserve(num_proj_res);
   errors_.clear();
+  std::vector<Scalar> cond_errors;
+  cond_errors.reserve(num_proj_res);
 
   StartTimer(_j_evaluation_);
   StartTimer(_j_evaluation_proj_);
@@ -1593,28 +1604,39 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
     res.weight =  res.orig_weight;
     res.mahalanobis_distance = res.residual.squaredNorm() * res.weight;
     // this array is used to calculate the robust norm
-    errors_.push_back(res.mahalanobis_distance);
-
+    if (res.is_conditioning) {
+      cond_errors.push_back(res.mahalanobis_distance);
+    } else {
+      errors_.push_back(res.mahalanobis_distance);
+    }
   }
 
   // get the sigma for robust norm calculation. This call is O(n) on average,
   // which is desirable over O(nlogn) sort
   if (errors_.size() > 0) {
-    auto it = errors_.begin()+std::floor(errors_.size() * 2. / 3.);
-    std::nth_element(errors_.begin(),it,errors_.end());
+    auto it = errors_.begin() + std::floor(errors_.size() * 0.5);
+    std::nth_element(errors_.begin(), it, errors_.end());
     const Scalar sigma = sqrt(*it);
+
+    it = cond_errors.begin() + std::floor(cond_errors.size() * 0.5);
+    std::nth_element(cond_errors.begin(), it, cond_errors.end());
+    const Scalar cond_sigma = sqrt(*it);
+
     // std::cout << "Projection error sigma is " << dSigma << std::endl;
     // See "Parameter Estimation Techniques: A Tutorial with Application to
     // Conic Fitting" by Zhengyou Zhang. PP 26 defines this magic number:
-    const Scalar c_huber = 1.2107*sigma;
+    const Scalar c_huber = 1.2107 * sigma;
+    const Scalar cond_c_huber = 1.2107 * cond_sigma;
 
     // now go through the measurements and assign weights
     for( ProjectionResidual& res : proj_residuals_ ){
       // calculate the huber norm weight for this measurement
       const Scalar e = sqrt(res.mahalanobis_distance);
-      const bool use_robust = options_.use_robust_norm_for_proj_residuals;
+      const bool use_robust = options_.use_robust_norm_for_proj_residuals; /*&&
+          !res.is_conditioning;*/
           //!poses_[res.x_meas_id].is_active || !poses_[res.x_ref_id].is_active;
-      const bool is_outlier = e > c_huber;
+      const bool is_outlier =
+          e > (res.is_conditioning ? cond_c_huber : c_huber);
       res.weight *= (is_outlier && use_robust ? c_huber/e : 1.0);
       res.mahalanobis_distance = res.residual.squaredNorm() * res.weight;
       r_pr_.template segment<ProjectionResidual::kResSize>(res.residual_offset) =
@@ -2107,14 +2129,15 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
     // now go through the measurements and assign weights
     for( ImuResidual& res : inertial_residuals_ ){
       // Is this a conditioning edge?
+      const bool use_robust = options_.use_robust_norm_for_inertial_residuals;
       const bool is_cond =
-          !poses_[res.pose1_id].is_active || !poses_[res.pose2_id].is_active;
+          !poses_[res.pose1_id].is_active && poses_[res.pose2_id].is_active;
 
       // calculate the huber norm weight for this measurement
       const Scalar e = sqrt(res.mahalanobis_distance);
       // We don't want to robust norm the conditioning edge
-      const Scalar weight = ((e > c_huber) && !is_cond ? c_huber/e : 1.0);
-
+      const Scalar weight = ((e > c_huber) && !is_cond && use_robust ?
+                               c_huber/e : 1.0);
 
       // std::cerr << "Imu res " << res.residual_id << " error " <<
       //              e << " and huber w: " << weight << std::endl;
@@ -2400,7 +2423,7 @@ double BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::
 }
 
 // specializations
-template class BundleAdjuster<REAL_TYPE, 1, 6, 5>;
+// template class BundleAdjuster<REAL_TYPE, 1, 6, 5>;
 template class BundleAdjuster<REAL_TYPE, 1, 6, 0>;
 template class BundleAdjuster<REAL_TYPE, 1, 15, 0>;
 

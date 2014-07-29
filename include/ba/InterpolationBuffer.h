@@ -21,6 +21,8 @@
 #ifndef INTERPOLATIONBUFFER_H
 #define INTERPOLATIONBUFFER_H
 
+#include <vector>
+
 namespace ba {
 ////////////////////////////////////////////////////////////////////////////////
 /// Templated interpolation buffer. Used to smoothly interpolate between stored
@@ -45,6 +47,15 @@ struct InterpolationBufferT {
   {
     elements.reserve(size);
   }
+
+  void Clear()
+  {
+    start_time = -1;
+    end_time = -1;
+    average_dt = -1;
+    elements.clear();
+  }
+
   //////////////////////////////////////////////////////////////////////////////
   /// \brief Adds an element to the interpolation buffer, updates the average
   /// and end times
@@ -76,7 +87,7 @@ struct InterpolationBufferT {
   /// in which case we've reached the end
   ///
   bool GetNext(const ScalarType max_time, size_t& index_out,
-               ElementType& output) {
+               ElementType& output) const {
     // if we have reached the end, interpolate and signal the end
     if (index_out + 1 >= elements.size()) {
       output = GetElement(max_time, &index_out);
@@ -96,7 +107,7 @@ struct InterpolationBufferT {
   /// \param dTime The time for which we check the element
   /// \return True if an element exists for this time
   ///
-  bool HasElement(const ScalarType time) {
+  bool HasElement(const ScalarType time) const {
     return (time >= start_time && time <= end_time);
   }
 
@@ -107,7 +118,7 @@ struct InterpolationBufferT {
   /// \param dTime The time for which we require the element
   /// \return The element
   ///
-  ElementType GetElement(const ScalarType time) {
+  ElementType GetElement(const ScalarType time) const {
     size_t index;
     return GetElement(time, &index);
   }
@@ -120,7 +131,7 @@ struct InterpolationBufferT {
   /// \param pIndex The output index
   /// \return The element
   ///
-  ElementType GetElement(const ScalarType time, size_t* pIndex) {
+  ElementType GetElement(const ScalarType time, size_t* pIndex) const {
     // assert(dTime >= StartTime && dTime <= EndTime);
     // guess what the index would be
     size_t guess_idx = (time - start_time) / average_dt;
@@ -171,7 +182,7 @@ struct InterpolationBufferT {
   }
 
   std::vector<ElementType> GetRange(ScalarType start,
-                                    ScalarType end) {
+                                    ScalarType end) const {
     std::vector<ElementType> measurements;
     size_t index;
 

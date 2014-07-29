@@ -21,6 +21,7 @@
 #ifndef BA_TYPES_H
 #define BA_TYPES_H
 
+#include <iostream>
 #include <Eigen/Eigen>
 #include <sophus/se3.hpp>
 #include "Utils.h"
@@ -29,10 +30,10 @@
 // #define IMU_GYRO_UNCERTAINTY 7.15584993e-5  // 0.00104719755 // 0.1 //
 // #define IMU_ACCEL_UNCERTAINTY 0.00159855109  // 0.0392266 // 10
 
-#define IMU_GYRO_UNCERTAINTY 7.15584993e-5 //0.00104719755
-#define IMU_GYRO_BIAS_UNCERTAINTY 1.8119e-4
-#define IMU_ACCEL_UNCERTAINTY 0.0159855109 //0.0392266
-#define IMU_ACCEL_BIAS_UNCERTAINTY 0.003981242
+#define IMU_GYRO_SIGMA 5.3088444e-5 //0.00104719755
+#define IMU_GYRO_BIAS_SIGMA 1.4125375e-4
+#define IMU_ACCEL_SIGMA 0.001883649 //0.0392266
+#define IMU_ACCEL_BIAS_SIGMA 1.2589254e-2
 
 namespace ba {
 static const double Gravity = 9.8007;
@@ -124,19 +125,19 @@ struct ImuCalibrationT {
         g(g),
         g_vec(GetGravityVector(g)),
         r((Eigen::Matrix<Scalar, 6, 1>() <<
-        IMU_GYRO_UNCERTAINTY,
-        IMU_GYRO_UNCERTAINTY,
-        IMU_GYRO_UNCERTAINTY,
-        IMU_ACCEL_UNCERTAINTY,
-        IMU_ACCEL_UNCERTAINTY,
-        IMU_ACCEL_UNCERTAINTY).finished().asDiagonal()) ,
+        powi(IMU_GYRO_SIGMA, 2),
+        powi(IMU_GYRO_SIGMA, 2),
+        powi(IMU_GYRO_SIGMA, 2),
+        powi(IMU_ACCEL_SIGMA, 2),
+        powi(IMU_ACCEL_SIGMA, 2),
+        powi(IMU_ACCEL_SIGMA, 2)).finished().asDiagonal()) ,
         r_b((Eigen::Matrix<Scalar, 6, 1>() <<
-             IMU_GYRO_BIAS_UNCERTAINTY,
-             IMU_GYRO_BIAS_UNCERTAINTY,
-             IMU_GYRO_BIAS_UNCERTAINTY,
-             IMU_ACCEL_BIAS_UNCERTAINTY,
-             IMU_ACCEL_BIAS_UNCERTAINTY,
-             IMU_ACCEL_BIAS_UNCERTAINTY).finished())
+             powi(IMU_GYRO_BIAS_SIGMA, 2),
+             powi(IMU_GYRO_BIAS_SIGMA, 2),
+             powi(IMU_GYRO_BIAS_SIGMA, 2),
+             powi(IMU_ACCEL_BIAS_SIGMA, 2),
+             powi(IMU_ACCEL_BIAS_SIGMA, 2),
+             powi(IMU_ACCEL_BIAS_SIGMA, 2)).finished())
   {
   }
 
@@ -224,14 +225,11 @@ struct ImuPoseT {
 
 template<typename Scalar = double>
 struct ImuMeasurementT {
-  ImuMeasurementT() {
-  }
+  ImuMeasurementT() {}
 
   ImuMeasurementT(const Eigen::Matrix<Scalar, 3, 1>& w,
                   const Eigen::Matrix<Scalar, 3, 1>& a, const double time)
-      : w(w),
-        a(a),
-        time(time) {
+      : w(w), a(a), time(time) {
   }
 
   /// \brief angular rates in inertial coordinates
@@ -240,11 +238,11 @@ struct ImuMeasurementT {
   Eigen::Matrix<Scalar, 3, 1> a;
   double time;
 
-  ImuMeasurementT operator*(const Scalar &rhs) {
+  ImuMeasurementT operator*(const Scalar &rhs) const {
     return ImuMeasurementT(w * rhs, a * rhs, time);
   }
 
-  ImuMeasurementT operator+(const ImuMeasurementT &rhs) {
+  ImuMeasurementT operator+(const ImuMeasurementT &rhs) const {
     return ImuMeasurementT(w + rhs.w, a + rhs.a, time);
   }
 };
@@ -296,6 +294,7 @@ struct ProjectionResidualT : public ResidualT<Scalar, 6> {
   Eigen::Matrix<Scalar, 2, 6> dz_dx_ref;
   Eigen::Matrix<Scalar, 2, Eigen::Dynamic> dz_dcam_params;
   Eigen::Matrix<Scalar, 2, 1> residual;
+  bool is_conditioning = false;
 };
 
 template<typename Scalar = double, int ResidualSize = 15, int PoseSize = 15>

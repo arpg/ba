@@ -1625,9 +1625,12 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
     std::nth_element(errors_.begin(), it, errors_.end());
     const Scalar sigma = sqrt(*it);
 
-    it = cond_errors.begin() + std::floor(cond_errors.size() * 0.5);
-    std::nth_element(cond_errors.begin(), it, cond_errors.end());
-    const Scalar cond_sigma = sqrt(*it);
+    Scalar cond_sigma = 0;
+    if (cond_errors.size() > 0) {
+      it = cond_errors.begin() + std::floor(cond_errors.size() * 0.5);
+      std::nth_element(cond_errors.begin(), it, cond_errors.end());
+      cond_sigma = sqrt(*it);
+    }
 
     // std::cout << "Projection error sigma is " << dSigma << std::endl;
     // See "Parameter Estimation Techniques: A Tutorial with Application to

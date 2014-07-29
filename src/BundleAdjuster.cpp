@@ -2425,7 +2425,8 @@ template<typename Scalar,int LmSize, int PoseSize, int CalibSize>
 double BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::
   LandmarkOutlierRatio(const uint32_t id) const
 {
-  return (double)landmarks_[id].num_outlier_residuals /
+  return landmarks_[id].proj_residuals.size() == 0 ? 0 :
+      (double)landmarks_[id].num_outlier_residuals /
       landmarks_[id].proj_residuals.size();
 }
 

@@ -55,19 +55,15 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::ApplyUpdate(
 
   // update the camera parameters
   if (kCamParamsInCalib && delta.delta_k.rows() > 0){
-    double* params = rig_.cameras_[0]->GetParams();
-    StreamMessage(debug_level) << "Prev params: " ;
-    for (uint32_t ii = 0 ; ii < rig_.cameras_[0]->NumParams() ; ++ii) {
-      StreamMessage(debug_level) << params[ii] << " ";
-    }
-    for (uint32_t ii = 0 ; ii < rig_.cameras_[0]->NumParams() ; ++ii) {
-      params[ii] -= delta.delta_k[ii];
-    }
-    StreamMessage(debug_level) << " Post params: " ;
-    for (uint32_t ii = 0 ; ii < rig_.cameras_[0]->NumParams() ; ++ii) {
-      StreamMessage(debug_level) << params[ii] << " ";
-    }
-    StreamMessage(debug_level) << std::endl;
+    Eigen::VectorXd params = rig_.cameras_[0]->GetParams();
+    StreamMessage(debug_level) << "Prev params: " << params.transpose() <<
+                                  std::endl;
+
+    params -= delta.delta_k;
+    rig_.cameras_[0]->SetParams(params);
+
+    StreamMessage(debug_level) << " Post params: " << params.transpose() <<
+                                  std::endl;
 
 
     // If we are in inverse depth mode, we have to reproject all landmarks.
@@ -1197,9 +1193,7 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::SolveInternal(
       decltype(landmarks_) landmarks_copy = landmarks_;
       decltype(poses_) poses_copy = poses_;
       decltype(imu_) imu_copy = imu_;
-      Scalar params_backup[10];
-      memcpy(params_backup, rig_.cameras_[0]->GetParams(),
-          rig_.cameras_[0]->NumParams() * sizeof(Scalar));
+      Eigen::VectorXd params_backup = rig_.cameras_[0]->GetParams();
       // decltype(rig_) rig_copy = rig_;
 
 
@@ -1231,8 +1225,7 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::SolveInternal(
         landmarks_ = landmarks_copy;
         poses_ = poses_copy;
         imu_ = imu_copy;
-        memcpy(rig_.cameras_[0]->GetParams(), params_backup,
-            rig_.cameras_[0]->NumParams() * sizeof(Scalar));
+        rig_.cameras_[0]->SetParams(params_backup);
         // rig_ = rig_copy;
 
         trust_region_size_ /= 2;
@@ -1262,9 +1255,7 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::SolveInternal(
     decltype(landmarks_) landmarks_copy = landmarks_;
     decltype(poses_) poses_copy = poses_;
     decltype(imu_) imu_copy = imu_;
-    double params_backup[10];
-    memcpy(params_backup, rig_.cameras_[0]->GetParams(),
-        rig_.cameras_[0]->NumParams() * sizeof(Scalar));
+    const Eigen::VectorXd params_backup = rig_.cameras_[0]->GetParams();
 
     // now back substitute the landmarks
     GetLandmarkDelta(delta, num_active_poses_, num_active_landmarks_,
@@ -1305,8 +1296,8 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::SolveInternal(
        landmarks_ = landmarks_copy;
        poses_ = poses_copy;
        imu_ = imu_copy;
-       memcpy(rig_.cameras_[0]->GetParams(), params_backup,
-           rig_.cameras_[0]->NumParams() * sizeof(Scalar));
+       rig_.cameras_[0]->SetParams(params_backup);
+
       return false;
     } else {
       proj_error_ = proj_error;
@@ -2434,7 +2425,7 @@ double BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::
 }
 
 // specializations
-// template class BundleAdjuster<REAL_TYPE, 1, 6, 5>;
+template class BundleAdjuster<REAL_TYPE, 1, 6, 5>;
 template class BundleAdjuster<REAL_TYPE, 1, 6, 0>;
 template class BundleAdjuster<REAL_TYPE, 1, 15, 0>;
 

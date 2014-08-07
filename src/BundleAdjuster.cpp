@@ -55,20 +55,15 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::ApplyUpdate(
 
   // update the camera parameters
   if (kCamParamsInCalib && delta.delta_k.rows() > 0){
-    Scalar* params = rig_.cameras_[0]->GetParams();
-    StreamMessage(debug_level) << "Prev params: " ;
-    for (uint32_t ii = 0 ; ii < rig_.cameras_[0]->NumParams() ; ++ii) {
-      StreamMessage(debug_level) << params[ii] << " ";
-    }
-    for (uint32_t ii = 0 ; ii < rig_.cameras_[0]->NumParams() ; ++ii) {
-      params[ii] -= delta.delta_k[ii];
-    }
-    StreamMessage(debug_level) << " Post params: " ;
-    for (uint32_t ii = 0 ; ii < rig_.cameras_[0]->NumParams() ; ++ii) {
-      StreamMessage(debug_level) << params[ii] << " ";
-    }
-    StreamMessage(debug_level) << std::endl;
+    Eigen::VectorXd params = rig_.cameras_[0]->GetParams();
+    StreamMessage(debug_level) << "Prev params: " << params.transpose() <<
+                                  std::endl;
 
+    params -= delta.delta_k;
+    rig_.cameras_[0]->SetParams(params);
+
+    StreamMessage(debug_level) << " Post params: " << params.transpose() <<
+                                  std::endl;
 
     // If we are in inverse depth mode, we have to reproject all landmarks.
     if (kLmDim == 1) {
@@ -1116,7 +1111,8 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::SolveInternal(
           "Maximum number of inner iterations reached." << std::endl;
         break;
       }
-      if (delta_sd_norm > trust_region_size_) {
+      if (delta_sd_norm > trust_region_size_ &&
+          trust_region_size_ != TRUST_REGION_AUTO) {
         StreamMessage(debug_level) <<
           "sd norm larger than trust region of " <<
           trust_region_size_ << " chosing sd update " << std::endl;
@@ -1145,8 +1141,13 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::SolveInternal(
         Scalar delta_gn_norm = sqrt(delta_gn.delta_p.squaredNorm() +
                                     delta_gn.delta_k.squaredNorm() +
                                     delta_gn.delta_l.squaredNorm());
-        if (!std::isnan(delta_gn_norm) && !std::isinf(delta_gn_norm) &&
-            delta_gn_norm <= trust_region_size_) {
+        const bool delta_gn_good =
+            !std::isnan(delta_gn_norm) && !std::isinf(delta_gn_norm);
+        if (delta_gn_good && trust_region_size_ == TRUST_REGION_AUTO) {
+          trust_region_size_ = delta_gn_norm;
+        }
+
+        if (delta_gn_good && delta_gn_norm <= trust_region_size_) {
           StreamMessage(debug_level) <<
             "Gauss newton delta: " << delta_gn_norm << "is smaller than trust "
             "region of " << trust_region_size_ << std::endl;
@@ -1191,9 +1192,7 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::SolveInternal(
       decltype(landmarks_) landmarks_copy = landmarks_;
       decltype(poses_) poses_copy = poses_;
       decltype(imu_) imu_copy = imu_;
-      Scalar params_backup[10];
-      memcpy(params_backup, rig_.cameras_[0]->GetParams(),
-          rig_.cameras_[0]->NumParams() * sizeof(Scalar));
+      Eigen::VectorXd params_backup = rig_.cameras_[0]->GetParams();
       // decltype(rig_) rig_copy = rig_;
 
 
@@ -1225,8 +1224,7 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::SolveInternal(
         landmarks_ = landmarks_copy;
         poses_ = poses_copy;
         imu_ = imu_copy;
-        memcpy(rig_.cameras_[0]->GetParams(), params_backup,
-            rig_.cameras_[0]->NumParams() * sizeof(Scalar));
+        rig_.cameras_[0]->SetParams(params_backup);
         // rig_ = rig_copy;
 
         trust_region_size_ /= 2;
@@ -1256,9 +1254,7 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::SolveInternal(
     decltype(landmarks_) landmarks_copy = landmarks_;
     decltype(poses_) poses_copy = poses_;
     decltype(imu_) imu_copy = imu_;
-    double params_backup[10];
-    memcpy(params_backup, rig_.cameras_[0]->GetParams(),
-        rig_.cameras_[0]->NumParams() * sizeof(Scalar));
+    const Eigen::VectorXd params_backup = rig_.cameras_[0]->GetParams();
 
     // now back substitute the landmarks
     GetLandmarkDelta(delta, num_active_poses_, num_active_landmarks_,
@@ -1299,8 +1295,8 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::SolveInternal(
        landmarks_ = landmarks_copy;
        poses_ = poses_copy;
        imu_ = imu_copy;
-       memcpy(rig_.cameras_[0]->GetParams(), params_backup,
-           rig_.cameras_[0]->NumParams() * sizeof(Scalar));
+       rig_.cameras_[0]->SetParams(params_backup);
+
       return false;
     } else {
       proj_error_ = proj_error;
@@ -1618,9 +1614,12 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
     std::nth_element(errors_.begin(), it, errors_.end());
     const Scalar sigma = sqrt(*it);
 
-    it = cond_errors.begin() + std::floor(cond_errors.size() * 0.5);
-    std::nth_element(cond_errors.begin(), it, cond_errors.end());
-    const Scalar cond_sigma = sqrt(*it);
+    Scalar cond_sigma = 0;
+    if (cond_errors.size() > 0) {
+      it = cond_errors.begin() + std::floor(cond_errors.size() * 0.5);
+      std::nth_element(cond_errors.begin(), it, cond_errors.end());
+      cond_sigma = sqrt(*it);
+    }
 
     // std::cout << "Projection error sigma is " << dSigma << std::endl;
     // See "Parameter Estimation Techniques: A Tutorial with Application to
@@ -2418,14 +2417,15 @@ template<typename Scalar,int LmSize, int PoseSize, int CalibSize>
 double BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::
   LandmarkOutlierRatio(const uint32_t id) const
 {
-  return (double)landmarks_[id].num_outlier_residuals /
+  return landmarks_[id].proj_residuals.size() == 0 ? 0 :
+      (double)landmarks_[id].num_outlier_residuals /
       landmarks_[id].proj_residuals.size();
 }
 
 // specializations
-// template class BundleAdjuster<REAL_TYPE, 1, 6, 5>;
-template class BundleAdjuster<REAL_TYPE, 1, 6, 0>;
-template class BundleAdjuster<REAL_TYPE, 1, 15, 0>;
+template class SelfCalBundleAdjuster<REAL_TYPE>;
+template class VisualBundleAdjuster<REAL_TYPE>;
+template class VisualInertialBundleAdjuster<REAL_TYPE>;
 
 // specializations required for the applications
 #ifdef BUILD_APPS

@@ -24,7 +24,10 @@
 #include <unsupported/Eigen/MatrixFunctions>
 // #endif
 
+
 namespace ba {
+constexpr int kTrustRegionAuto = -1.0;
+
 template<typename Scalar>
 using BlockMat = Eigen::SparseBlockMatrix<Scalar>;
 
@@ -54,7 +57,7 @@ struct SolutionSummary
 template<typename Scalar=double>
 struct Options
 {
-  Scalar trust_region_size = 1.0;
+  Scalar trust_region_size = kTrustRegionAuto;
   Scalar gyro_sigma = IMU_GYRO_SIGMA;
   Scalar accel_sigma = IMU_ACCEL_SIGMA;
   Scalar gyro_bias_sigma = IMU_GYRO_BIAS_SIGMA;
@@ -683,12 +686,12 @@ private:
 static const int NOT_USED = 0;
 
 // typedefs for convenience
-template< typename Scalar >
-using GlobalInertialBundleAdjuster = BundleAdjuster<Scalar, ba::NOT_USED,15, 2>;
-template< typename Scalar >
-using InverseDepthVisualInertialBundleAdjuster = BundleAdjuster<Scalar, 1,9>;
-template< typename Scalar >
-using VisualInertialBundleAdjuster = BundleAdjuster<Scalar, 3,9>;
+template<typename Scalar>
+using SelfCalBundleAdjuster = BundleAdjuster<Scalar, 1, 6, 5>;
+template<typename Scalar>
+using VisualBundleAdjuster = BundleAdjuster<Scalar, 1, 6, 0>;
+template<typename Scalar>
+using VisualInertialBundleAdjuster = BundleAdjuster<Scalar, 1, 15, 0>;
 
 }
 

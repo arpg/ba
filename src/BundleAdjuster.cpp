@@ -65,7 +65,6 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::ApplyUpdate(
     StreamMessage(debug_level) << " Post params: " << params.transpose() <<
                                   std::endl;
 
-
     // If we are in inverse depth mode, we have to reproject all landmarks.
     if (kLmDim == 1) {
       for (size_t ii = 0 ; ii < landmarks_.size() ; ++ii) {
@@ -85,7 +84,6 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::ApplyUpdate(
     // only update active poses, as inactive ones are not part of the
     // optimization
     if (poses_[ii].is_active) {
-      const uint32_t opt_id = poses_[ii].opt_id;
       const uint32_t p_offset = poses_[ii].opt_id*kPoseDim;
       const Eigen::Matrix<Scalar, 6, 1>& p_update =
           -delta.delta_p.template block<6,1>(p_offset,0)*coef;
@@ -341,7 +339,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::EvaluateResiduals(
         total_tvs_change_ = total_tvs_change;
       }
     }
-  }  
+  }
 
 }
 
@@ -447,7 +445,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::Solve(
 
       VectorXt jt_pp_r_pp(num_pose_params);
       Eigen::SparseBlockVectorProductDenseResult(jt_pp_, r_pp_, jt_pp_r_pp);
-      std::cerr << "Adding binary rhs: " << jt_pp_r_pp.norm() << std::endl;
+      StreamMessage(debug_level) << "Adding binary rhs: "
+                                 << jt_pp_r_pp.norm() << std::endl;
       rhs_p_ += jt_pp_r_pp;
     }
 
@@ -1397,9 +1396,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
   // If we are doing an inertial run, and any poses have no inertial constraints
   // we must regularize their velocity and (if applicable) biases.
   if (kVelInState) {
-    for (Pose& pose : poses_)
-    {
-      if (pose.inertial_residuals.size() == 0 && pose.is_active) {
+    for (Pose& pose : poses_) {
+      if (pose.inertial_residuals.empty() && pose.is_active) {
         StreamMessage(debug_level) <<
           "Pose id " << pose.id << " found with no inertial residuals. "
           " regularizing velocities and biases. " << std::endl;

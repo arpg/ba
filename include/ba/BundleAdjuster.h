@@ -24,9 +24,10 @@
 #include <unsupported/Eigen/MatrixFunctions>
 // #endif
 
-#define TRUST_REGION_AUTO -1.0
 
 namespace ba {
+constexpr int kTrustRegionAuto = -1.0;
+
 template<typename Scalar>
 using BlockMat = Eigen::SparseBlockMatrix<Scalar>;
 
@@ -56,7 +57,7 @@ struct SolutionSummary
 template<typename Scalar=double>
 struct Options
 {
-  Scalar trust_region_size = TRUST_REGION_AUTO;
+  Scalar trust_region_size = kTrustRegionAuto;
   Scalar gyro_sigma = IMU_GYRO_SIGMA;
   Scalar accel_sigma = IMU_ACCEL_SIGMA;
   Scalar gyro_bias_sigma = IMU_GYRO_BIAS_SIGMA;

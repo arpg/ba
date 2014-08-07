@@ -686,12 +686,12 @@ private:
 static const int NOT_USED = 0;
 
 // typedefs for convenience
-template< typename Scalar >
-using GlobalInertialBundleAdjuster = BundleAdjuster<Scalar, ba::NOT_USED,15, 2>;
-template< typename Scalar >
-using InverseDepthVisualInertialBundleAdjuster = BundleAdjuster<Scalar, 1,9>;
-template< typename Scalar >
-using VisualInertialBundleAdjuster = BundleAdjuster<Scalar, 3,9>;
+template<typename Scalar>
+using SelfCalBundleAdjuster = BundleAdjuster<Scalar, 1, 6, 5>;
+template<typename Scalar>
+using VisualBundleAdjuster = BundleAdjuster<Scalar, 1, 6, 0>;
+template<typename Scalar>
+using VisualInertialBundleAdjuster = BundleAdjuster<Scalar, 1, 15, 0>;
 
 }
 

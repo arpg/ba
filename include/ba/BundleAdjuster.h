@@ -406,7 +406,7 @@ class BundleAdjuster
                                const uint32_t pose2_id,
                                const SE3t& t_12,
                                Eigen::Matrix<Scalar, BinaryResidual::kResSize,
-                               UnaryResidual::kResSize> covariance,
+                               BinaryResidual::kResSize> covariance,
                                Scalar weight = 1.0)
   {
     assert(pose1_id < poses_.size());

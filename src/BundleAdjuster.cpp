@@ -1112,7 +1112,7 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::SolveInternal(
         break;
       }
       if (delta_sd_norm > trust_region_size_ &&
-          trust_region_size_ != TRUST_REGION_AUTO) {
+          trust_region_size_ != kTrustRegionAuto) {
         StreamMessage(debug_level) <<
           "sd norm larger than trust region of " <<
           trust_region_size_ << " chosing sd update " << std::endl;
@@ -1143,7 +1143,7 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::SolveInternal(
                                     delta_gn.delta_l.squaredNorm());
         const bool delta_gn_good =
             !std::isnan(delta_gn_norm) && !std::isinf(delta_gn_norm);
-        if (delta_gn_good && trust_region_size_ == TRUST_REGION_AUTO) {
+        if (delta_gn_good && trust_region_size_ == kTrustRegionAuto) {
           trust_region_size_ = delta_gn_norm;
         }
 
@@ -2423,9 +2423,12 @@ double BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::
 }
 
 // specializations
-template class SelfCalBundleAdjuster<REAL_TYPE>;
-template class VisualBundleAdjuster<REAL_TYPE>;
-template class VisualInertialBundleAdjuster<REAL_TYPE>;
+// SelfCalBundleAdjuster<REAL_TYPE>
+template class BundleAdjuster<REAL_TYPE, 1, 6, 5>;
+// VisualBundleAdjuster<REAL_TYPE>
+template class BundleAdjuster<REAL_TYPE, 1, 6, 0>;
+// BundleAdjuster<Scalar, 1, 15, 0>
+template class BundleAdjuster<REAL_TYPE, 1, 15, 0>;
 
 // specializations required for the applications
 #ifdef BUILD_APPS

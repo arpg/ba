@@ -535,6 +535,7 @@ class BundleAdjuster
   uint32_t GetNumImuResiduals() const { return inertial_residuals_.size(); }
   uint32_t GetNumProjResiduals() const { return proj_residuals_.size(); }
   uint32_t GetNumLandmarks() const { return landmarks_.size(); }
+  uint32_t GetNumUnaryResiduals() const { return unary_residuals_.size(); }
 
   const ImuResidual& GetImuResidual(const uint32_t id)
   const { return inertial_residuals_[id]; }

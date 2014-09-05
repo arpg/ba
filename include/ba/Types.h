@@ -40,7 +40,6 @@ static const double Gravity = 9.8007;
 template<typename Scalar = double>
 struct PoseT {
   Sophus::SE3Group<Scalar> t_wp;
-  Sophus::SE3Group<Scalar> t_vs;
   Eigen::Matrix<Scalar, 3, 1> v_w;
   /// Gyroscope and Acceleromeoter bias vector, in that order
   Eigen::Matrix<Scalar, 6, 1> b;
@@ -60,15 +59,9 @@ struct PoseT {
   std::vector<Sophus::SE3Group<Scalar>> t_sw;
 
   const Sophus::SE3Group<Scalar>& GetTsw(const uint32_t cam_id,
-                                         const calibu::Rig<Scalar>& rig,
-                                         const bool use_internal_t_sw) {
+                                         const calibu::Rig<Scalar>& rig) {
     while (t_sw.size() <= cam_id) {
-      if (use_internal_t_sw == false) {
-        t_sw.push_back((t_wp * rig.t_wc_[t_sw.size()]).inverse());
-      } else {
-        // this needs to be modified to work with stereo
-        t_sw.push_back((t_wp * t_vs).inverse());
-      }
+      t_sw.push_back((t_wp * rig.t_wc_[t_sw.size()]).inverse());
     }
     return t_sw[cam_id];
   }
@@ -430,7 +423,7 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
     ImuPose res = pose;
     Eigen::Matrix<Scalar, 9, 1> k;
 
-    if (dy_db_ptr != 0 && dy_dpose_ptr != 0) {
+    if (dy_db_ptr != 0 && dy_dpose_ptr != 0 && r != 0) {
       Eigen::Matrix<Scalar, 10, 6>& dy_db = *dy_db_ptr;
       Eigen::Matrix<Scalar, 10, 10>& dy_dy0 = *dy_dpose_ptr;
 
@@ -668,7 +661,7 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
       if (prev_meas != 0) {
         // std::cout << "Integrating from time " << pPrevMeas->Time <<
         // " to " << meas.Time << std::endl;
-        if (dpose_db != 0 || dpose_dpose != 0) {
+        if ((dpose_db != 0 || dpose_dpose != 0) && r != 0) {
           //double dt = meas.Time - pPrevMeas->Time;
           Eigen::Matrix<Scalar, 10, 6> dy_db;
           Eigen::Matrix<Scalar, 10, 10> dy_dy;

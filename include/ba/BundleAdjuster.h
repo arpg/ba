@@ -126,7 +126,6 @@ class BundleAdjuster
 
   static const bool kVelInState = (kPoseDim >= 9);
   static const bool kBiasInState = (kPoseDim >= 15);
-  static const bool kTvsInState = (kPoseDim >= 21);
   static const bool kGravityInCalib = (kCalibDim >= 2);
   static const bool kTvsInCalib = (kCalibDim >= 8);
   static const bool kCamParamsInCalib = (kCalibDim > 0);
@@ -256,9 +255,8 @@ class BundleAdjuster
                        const double time = -1,
                        const int external_id = -1)
   {
-    return AddPose(t_wp, SE3t(), VectorXt(5).setZero(),
-                   Vector3t::Zero(), Vector6t::Zero(), is_active, time,
-                   external_id);
+    return AddPose(t_wp, VectorXt(5).setZero(), Vector3t::Zero(),
+                   Vector6t::Zero(), is_active, time, external_id);
   }
 
   ////////////////////////////////////////////////////////////////////////////
@@ -277,16 +275,15 @@ class BundleAdjuster
   /// \param external_id external id used for bookkeeping outside of ba
   /// \return the internal optimization id used to form constraints
   ///
-  uint32_t AddPose(const SE3t& t_wv, const SE3t& t_vs,
-                       const VectorXt cam_params, const Vector3t& v_w,
-                       const Vector6t& b, const bool is_active = true,
-                       const double time = -1, const int external_id = -1)
+  uint32_t AddPose(const SE3t& t_wv, const VectorXt cam_params,
+                   const Vector3t& v_w, const Vector6t& b,
+                   const bool is_active = true, const double time = -1,
+                   const int external_id = -1)
   {
     Pose pose;
     pose.external_id = external_id;
     pose.time = time;
     pose.t_wp = t_wv;
-    pose.t_vs = t_vs;
     pose.v_w = v_w;
     pose.b = b;
     pose.cam_params = cam_params;

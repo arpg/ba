@@ -126,17 +126,6 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::ApplyUpdate(
             delta.delta_p.template block<6,1>(p_offset+9,0)*coef;
       }
 
-      if (kTvsInState) {
-        //const Eigen::Matrix<Scalar, 6, 1>& tvs_update =
-        //    delta.delta_p.template block<6,1>(p_offset+15,0)*coef;
-        //poses_[ii].t_vs = SE3t::exp(tvs_update)*poses_[ii].t_vs;
-        //poses_[ii].t_wp = poses_[ii].t_wp * SE3t::exp(-tvs_update);
-
-        //StreamMessage(debug_level) << "Tvs of pose " << ii <<
-        //  " after update " << (tvs_update).transpose() << " is "
-        //  << std::endl << poses_[ii].t_vs.matrix() << std::endl;
-      }
-
       StreamMessage(debug_level + 1) << "Pose delta for " << ii << " is " <<
         (-delta.delta_p.template block<kPoseDim,1>(p_offset,0) *
          coef).transpose() << " pose is " << std::endl <<
@@ -205,10 +194,8 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::EvaluateResiduals(
       Landmark& lm = landmarks_[res.landmark_id];
       Pose& pose = poses_[res.x_meas_id];
       Pose& ref_pose = poses_[res.x_ref_id];
-      const SE3t t_sw_m =
-          pose.GetTsw(res.cam_id, rig_, kTvsInState);
-      const SE3t t_ws_r =
-          ref_pose.GetTsw(lm.ref_cam_id,rig_, kTvsInState).inverse();
+      const SE3t t_sw_m = pose.GetTsw(res.cam_id, rig_);
+      const SE3t t_ws_r = ref_pose.GetTsw(lm.ref_cam_id,rig_).inverse();
 
       const Vector2t p = kLmDim == 3 ?
             rig_.cameras_[res.cam_id]->Transfer3d(
@@ -256,7 +243,6 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::EvaluateResiduals(
 
   if (inertial_error) {
     *inertial_error = 0;
-    Scalar total_tvs_change = 0;
     for (ImuResidual& res : inertial_residuals_) {
       // set up the initial pose for the integration
       const Vector3t gravity = kGravityInCalib ? GetGravityVector(imu_.g) :
@@ -282,30 +268,9 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::EvaluateResiduals(
         res.residual.template segment<6>(9) = pose1.b - pose2.b;
       }
 
-      // if (kCalibDim > 2 || kPoseDim > 15) {
-        // disable imu translation error
-      //  res.residual.template head<3>().setZero();
-      //  res.residual.template segment<3>(6).setZero(); // velocity error
-      // }
-
-      if (kTvsInState) {
-        res.residual.template segment<6>(15) =
-            SE3t::log(pose1.t_vs*pose2.t_vs.inverse());
-
-        if (translation_enabled_ == false) {
-          total_tvs_change += res.residual.template segment<6>(15).norm();
-
-        }
-        res.residual.template segment<3>(15).setZero();
-      }
-
-      // std::cout << "EVALUATE imu res between " << res.PoseAId << " and " <<
-      // res.PoseBId << ":" << res.Residual.transpose () << std::endl;
       res.mahalanobis_distance =
           (res.residual.transpose() * res.cov_inv * res.residual);
       *inertial_error += res.mahalanobis_distance;
-          ;
-      //res.weight;
     }
 
     if (inertial_residuals_.size() > 0 && translation_enabled_ == false) {
@@ -321,22 +286,6 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::EvaluateResiduals(
           translation_enabled_ = true;
         }
         last_tvs_ = imu_.t_vs;
-      }
-
-      if (kTvsInState) {
-        StreamMessage(debug_level) << "Total tvs change is: " <<
-                                      total_tvs_change << std::endl;
-
-        if (total_tvs_change_ != 0 &&
-            total_tvs_change/inertial_residuals_.size() < 0.1 &&
-            poses_.size() >= 30) {
-
-          StreamMessage(debug_level) << "EMABLING TRANSLATION ERRORS" <<
-                                        std::endl;
-          translation_enabled_ = true;
-          total_tvs_change = 0;
-        }
-        total_tvs_change_ = total_tvs_change;
       }
     }
   }
@@ -358,8 +307,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::Solve(
   if (kLmDim == 1) {
     for (Landmark& lm : landmarks_){
       lm.x_s = MultHomogeneous(
-            poses_[lm.ref_pose_id].GetTsw(lm.ref_cam_id,
-                                         rig_, kTvsInState) ,lm.x_w);
+            poses_[lm.ref_pose_id].GetTsw(lm.ref_cam_id, rig_) ,lm.x_w);
       // normalize so the ray size is 1
       const Scalar length = lm.x_s.template head<3>().norm();
       lm.x_s = lm.x_s / length;
@@ -832,25 +780,12 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::Solve(
     imu_.b_a = poses_.back().b.template tail<3>();
   }
 
-  if (kTvsInState && poses_.size() > 0) {
-    imu_.t_vs = poses_.back().t_vs;
-  }
-
   // after the solve transfor all landmarks to world view
   if (kLmDim == 1) {
     for (Landmark& lm : landmarks_){
       lm.x_w = MultHomogeneous(
-            poses_[lm.ref_pose_id].GetTsw(lm.ref_cam_id,
-                                         rig_, kTvsInState).inverse() ,lm.x_s);
-
-      /*
-      Vector3t ray_xs = lm.x_s.template head<3>() / lm.x_s[3];
-      Vector3t ray = rig_.cameras[lm.ref_cam_id].camera.Unproject(lm.z_ref);
-      StreamMessage(debug_level) <<
-        "OUT: Unmapping lm " << lm.id << " with z_ref " << lm.z_ref.transpose() <<
-        " ray: " << ray.transpose() << " xs " << ray_xs.transpose() <<
-        " cross: " << ray.cross(ray_xs).transpose() << std::endl;
-      */
+            poses_[lm.ref_pose_id].GetTsw(lm.ref_cam_id, rig_).inverse(),
+            lm.x_s);
     }
   }
 
@@ -1501,14 +1436,10 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
     Pose& ref_pose = poses_[res.x_ref_id];
     calibu::CameraInterface<Scalar>* cam = rig_.cameras_[res.cam_id];
 
-    const SE3t& t_vs_m =
-        (kTvsInState ? pose.t_vs : rig_.t_wc_[res.cam_id]);
-    const SE3t& t_vs_r =
-        (kTvsInState ? ref_pose.t_vs :  rig_.t_wc_[lm.ref_cam_id]);
-    const SE3t& t_sw_m =
-        pose.GetTsw(res.cam_id, rig_, kTvsInState);
-    const SE3t t_ws_r =
-        ref_pose.GetTsw(lm.ref_cam_id, rig_, kTvsInState).inverse();
+    const SE3t& t_vs_m = rig_.t_wc_[res.cam_id];
+    const SE3t& t_vs_r = rig_.t_wc_[lm.ref_cam_id];
+    const SE3t& t_sw_m = pose.GetTsw(res.cam_id, rig_);
+    const SE3t t_ws_r = ref_pose.GetTsw(lm.ref_cam_id, rig_).inverse();
 
     const Vector2t p = kLmDim == 3 ?
           cam->Transfer3d(t_sw_m, lm.x_w.template head<3>(), lm.x_w(3)) :

@@ -1500,6 +1500,55 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
                        std::endl;
           */
         }
+
+        if (kTvsInCalib) {
+          // Total derivative of transfer.
+          Eigen::Matrix<Scalar, 2, 6> dz_dtvs =
+              -dt_dp_m *
+              dt_x_dt<Scalar>(t_sw_m * t_ws_r, lm.x_s) *
+              (dt1_t2_dt2(t_vs_m.inverse()
+                          /*, pose.t_wp.inverse() * ref_pose.t_wp * t_vs_r*/) *
+               dt1_t2_dt2(pose.t_wp.inverse() * ref_pose.t_wp
+                          /*, t_vs_r*/) *
+               dexp_decoupled_dx(t_vs_r) +
+               dt1_t2_dt1(t_vs_m.inverse(),
+                          pose.t_wp.inverse() * ref_pose.t_wp * t_vs_r) *
+               dinv_exp_decoupled_dx(t_vs_m));
+
+          /*
+          Eigen::Matrix<Scalar, 2, 6> dz_dtvs_fd;
+          // Test the transfer jacobian.
+          const double eps = 1e-6;
+          for (int ii = 0 ; ii < 6 ; ++ii) {
+            Vector6t delta_plus = Vector6t::Zero();
+            delta_plus[ii] = eps;
+            const SE3t tvs_delta_plus = exp_decoupled(t_vs_m, delta_plus);
+            const Vector4t xm_plus = MultHomogeneous(
+                  tvs_delta_plus.inverse() * pose.t_wp.inverse() *
+                  ref_pose.t_wp * tvs_delta_plus, lm.x_s);
+            const Vector2t pix_plus =
+                cam->Transfer3d(SE3t(), xm_plus.template head<3>(), xm_plus(3));
+
+            Vector6t delta_minus = Vector6t::Zero();
+            delta_minus[ii] = -eps;
+            const SE3t tvs_delta_minus = exp_decoupled(t_vs_m, delta_minus);
+
+            const Vector4t xm_minus = MultHomogeneous(
+                  tvs_delta_minus.inverse() * pose.t_wp.inverse() *
+                  ref_pose.t_wp * tvs_delta_minus, lm.x_s);
+
+            const Vector2t pix_minus =
+                cam->Transfer3d(SE3t(), xm_minus.template head<3>(),
+                                xm_minus(3));
+
+            dz_dtvs_fd.col(ii) = -(pix_plus - pix_minus) / (2 * eps);
+          }
+
+          std::cerr << "dz_dtvs:\n" << dz_dtvs.format(kLongFmt) <<
+                       "\ndz_dtvs_fd\n" << dz_dtvs_fd.format(kLongFmt) <<
+                       std::endl;
+          */
+        }
       }
     }
 

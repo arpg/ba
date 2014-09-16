@@ -641,7 +641,7 @@ inline Eigen::Matrix<Scalar, 7, 7> dt1_t2_dt1(
 ///////////////////////////////////////////////////////////////////////////////
 template<typename Scalar = double>
 inline Eigen::Matrix<Scalar, 7, 7> dt1_t2_dt2(
-    const Sophus::SE3Group<Scalar>& t1, const Sophus::SE3Group<Scalar>& t2)
+    const Sophus::SE3Group<Scalar>& t1/*, const Sophus::SE3Group<Scalar>& t2*/)
 {
   Eigen::Matrix<Scalar, 7, 7> dt1t2;
   dt1t2.setZero();

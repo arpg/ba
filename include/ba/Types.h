@@ -286,6 +286,7 @@ struct ProjectionResidualT : public ResidualT<Scalar, 6> {
   Eigen::Matrix<Scalar, 2, 6> dz_dx_meas;
   Eigen::Matrix<Scalar, 2, 6> dz_dx_ref;
   Eigen::Matrix<Scalar, 2, Eigen::Dynamic> dz_dcam_params;
+  Eigen::Matrix<Scalar, 2, 6> dz_dtvs;
   Eigen::Matrix<Scalar, 2, 1> residual;
   bool is_conditioning = false;
 };

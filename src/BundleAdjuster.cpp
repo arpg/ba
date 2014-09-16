@@ -1444,21 +1444,33 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
       res.dz_dlm = -dt_dp_s.template block<2,kLmDim>( 0, kLmDim == 3 ? 0 : 3 );
     }
 
+    const bool diff_poses =  res.x_ref_id != res.x_meas_id;
+
     if (pose.is_active || ref_pose.is_active) {
-      res.dz_dx_meas =
-          -dt_dp_m *
-          dt_x_dt<Scalar>(t_sw_m, t_ws_r.matrix() * lm.x_s) *
-          dt1_t2_dt2(t_vs_m.inverse(), pose.t_wp.inverse()) *
-          dinv_exp_decoupled_dx(pose.t_wp);
+      // If the reference and measurement poses are the same, the derivative
+      // is zero.
+      if (diff_poses) {
+        res.dz_dx_meas =
+            -dt_dp_m *
+            dt_x_dt<Scalar>(t_sw_m, t_ws_r.matrix() * lm.x_s) *
+            dt1_t2_dt2(t_vs_m.inverse()/*, pose.t_wp.inverse()*/) *
+            dinv_exp_decoupled_dx(pose.t_wp);
+      } else {
+        res.dz_dx_meas.setZero();
+      }
 
       // only need this if we are in inverse depth mode and the poses aren't
       // the same
       if (kLmDim == 1) {
-        res.dz_dx_ref =
-            -dt_dp_m *
-            dt_x_dt<Scalar>(t_sw_m * ref_pose.t_wp, t_vs_r.matrix() * lm.x_s) *
-            dt1_t2_dt2(t_sw_m, ref_pose.t_wp) *
-            dexp_decoupled_dx(ref_pose.t_wp);
+        if (diff_poses) {
+          res.dz_dx_ref =
+              -dt_dp_m *
+              dt_x_dt<Scalar>(t_sw_m * ref_pose.t_wp, t_vs_r.matrix() * lm.x_s)
+              * dt1_t2_dt2(t_sw_m/*, ref_pose.t_wp*/) *
+              dexp_decoupled_dx(ref_pose.t_wp);
+        } else {
+          res.dz_dx_ref.setZero();
+        }
 
         if (kCamParamsInCalib) {
           res.dz_dcam_params =
@@ -1622,7 +1634,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
     res.dz_dx1 = dlog_dt1 * dt1_t2_dt1(t_1w, t_w2) *
         dinv_exp_decoupled_dx<Scalar>(t_w1);
 
-    res.dz_dx2 = dlog_dt1 * dt1_t2_dt2(t_1w, t_w2) *
+    res.dz_dx2 = dlog_dt1 * dt1_t2_dt2(t_1w/*, t_w2*/) *
         dexp_decoupled_dx<Scalar>(t_w2);
 
     BA_TEST(_Test_dBinaryResidual_dX(res, t_w1, t_w2));
@@ -2306,31 +2318,34 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
   // fill in calibration jacobians
   StartTimer(_j_insertion_calib);
   if (kCalibDim > 0) {
-    for (const ImuResidual& res : inertial_residuals_) {
-      // include gravity terms (t total)
-      if (kCalibDim > 0 ){
-        Eigen::Matrix<Scalar,9,2> dz_dg = res.dz_dg;
-        j_ki_.insert(res.residual_id, 0 ).setZero().
-            template block(0,0,9,2) =
-            res.cov_inv_sqrt * dz_dg.template block(0,0,9,2);
+    if (kGravityInCalib) {
+      for (const ImuResidual& res : inertial_residuals_) {
+        // include gravity terms (t total)
+        if (kCalibDim > 0 ){
+          Eigen::Matrix<Scalar,9,2> dz_dg = res.dz_dg;
+          j_ki_.insert(res.residual_id, 0 ).setZero().
+              template block(0,0,9,2) =
+              res.cov_inv_sqrt * dz_dg.template block(0,0,9,2);
 
-        // this down weights the velocity error
-        dz_dg.template block<3,2>(6,0) *= 0.1;
-        jt_ki_.insert( 0, res.residual_id ).setZero().
-            template block(0,0,2,9) =
-                dz_dg.transpose().template block(0,0,2,9) * res.cov_inv_sqrt;
-      }
+          // this down weights the velocity error
+          dz_dg.template block<3,2>(6,0) *= 0.1;
+          jt_ki_.insert( 0, res.residual_id ).setZero().
+              template block(0,0,2,9) =
+                  dz_dg.transpose().template block(0,0,2,9) * res.cov_inv_sqrt;
+        }
 
-      // include Y terms
-      if( kCalibDim > 2 ){
-        j_ki_.coeffRef(res.residual_id,0).setZero().
-            template block(0,2,ImuResidual::kResSize, 6) =
-                res.dz_dy.template block(0,0,ImuResidual::kResSize, 6);
+        // include Y terms
+        /*if( kCalibDim > 2 ){
+          j_ki_.coeffRef(res.residual_id,0).setZero().
+              template block(0,2,ImuResidual::kResSize, 6) =
+                  res.dz_dy.template block(0,0,ImuResidual::kResSize, 6);
 
-        jt_ki_.coeffRef( 0,res.residual_id).setZero().
-            template block(2,0, 6, ImuResidual::kResSize) =
-            res.dz_dy.template block(0,0,ImuResidual::kResSize, 6).transpose() *
-            res.weight;
+          jt_ki_.coeffRef( 0,res.residual_id).setZero().
+              template block(2,0, 6, ImuResidual::kResSize) =
+              res.dz_dy.template block(0,0,ImuResidual::kResSize,
+                                       6).transpose() *
+              res.weight;
+        }*/
       }
     }
 

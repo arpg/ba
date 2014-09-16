@@ -593,14 +593,6 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::Solve(
     }*/
 
     if(kCamParamsInCalib){
-      //MatrixXt djt_kpr(CalibSize, j_kpr_.rows() * 2);
-      //MatrixXt dj_kpr(j_kpr_.rows() * 2, CalibSize);
-      //Eigen::LoadDenseFromSparse(j_kpr_, dj_kpr);
-      //std::cerr << "dj_kpr:\n" << dj_kpr << std::endl;
-
-      //Eigen::LoadDenseFromSparse(jt_kpr_, djt_kpr);
-      //std::cerr << "djt_kpr:\n" << djt_kpr << std::endl;
-
       BlockMat< Eigen::Matrix<Scalar, CalibSize, CalibSize>> jt_kpr_j_kpr(1, 1);
       Eigen::SparseBlockProduct(jt_kpr_, j_kpr_, jt_kpr_j_kpr);
       MatrixXt djt_kpr_j_kpr(CalibSize, CalibSize);
@@ -640,8 +632,6 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::Solve(
       BlockMat< Eigen::Matrix<Scalar, CalibSize, kLmDim>> jt_kpr_jl(1, num_lm);
       Eigen::SparseBlockProduct(jt_kpr_, j_l_, jt_kpr_jl);
       decltype(jt_l_j_kpr_)::forceTranspose(jt_kpr_jl, jt_l_j_kpr_);
-      //Eigen::SparseBlockProduct(jt_l_,j_kpr_,jt_l_j_kpr);
-      //Jlt_Jkpr = Jkprt_Jl.transpose();
 
       MatrixXt djt_pr_j_l_vi_jt_l_j_kpr(kPoseDim*num_poses, CalibSize);
       BlockMat<Eigen::Matrix<Scalar, kPoseDim, CalibSize>>
@@ -651,9 +641,6 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::Solve(
             jt_pr_j_l_vi, jt_l_j_kpr_, jt_pr_j_l_vi_jt_l_j_kpr);
       Eigen::LoadDenseFromSparse(
             jt_pr_j_l_vi_jt_l_j_kpr, djt_pr_j_l_vi_jt_l_j_kpr);
-
-      // std::cerr << "jt_pr_j_l_vi_jt_l_j_kpr: " <<
-      //              djt_pr_j_l_vi_jt_l_j_kpr << std::endl;
 
       s_.template block(0, num_pose_params, num_pose_params, CalibSize) -=
           djt_pr_j_l_vi_jt_l_j_kpr;
@@ -678,9 +665,6 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::Solve(
             jt_kpr_j_l_vi_jt_l_j_kpr,
             djt_kpr_j_l_vi_jt_l_j_kpr);
 
-      // std::cerr << "djt_kpr_j_l_vi_jt_l_j_kpr: " <<
-      //              djt_kpr_j_l_vi_jt_l_j_kpr << std::endl;
-
       s_.template block<CalibSize, CalibSize>(num_pose_params, num_pose_params)
           -= djt_kpr_j_l_vi_jt_l_j_kpr;
 
@@ -688,13 +672,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::Solve(
       jt_kpr_j_l_vi_bl.resize(CalibSize);
       Eigen::SparseBlockVectorProductDenseResult(
             jt_kpr_j_l_vi, rhs_l_, jt_kpr_j_l_vi_bl);
-      // std::cout << "Eigen::SparseBlockVectorProductDenseResult(Wp_V_inv, bl,"
-      // " WV_inv_bl) took  " << Toc(dSchurTime) << " seconds."  << std::endl;
 
-      // std::cerr << "jt_kpr_j_l_vi_bl: " <<
-      //              jt_kpr_j_l_vi_bl.transpose() << std::endl;
-      // std::cerr << "rhs_p.template tail<CalibSize>(): " <<
-      //              rhs_p_.template tail<CalibSize>().transpose() << std::endl;
       rhs_p_sc.template tail<CalibSize>() -= jt_kpr_j_l_vi_bl;
     }
 

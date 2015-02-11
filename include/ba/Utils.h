@@ -21,6 +21,8 @@
 #ifndef BA_UTILS_H
 #define BA_UTILS_H
 
+#include <vector>
+
 #include <Eigen/Eigen>
 #include <sophus/se3.hpp>
 #include <sys/time.h>

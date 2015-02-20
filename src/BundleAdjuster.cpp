@@ -463,7 +463,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize, DoTvs>::Solve(
                u_, jt_pr_j_l_vi_jt_l_j_pr,
                s_.template block(
                  0, 0, num_pose_params,
-                 num_pose_params ));      
+                 num_pose_params ));
 
         // now form the rhs for the pose equations
         VectorXt jt_pr_j_l_vi_bll(num_pose_params);
@@ -1011,7 +1011,10 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize, DoTvs>::SolveInternal(
       decltype(landmarks_) landmarks_copy = landmarks_;
       decltype(poses_) poses_copy = poses_;
       decltype(imu_) imu_copy = imu_;
-      Eigen::VectorXd params_backup = rig_.cameras_[0]->GetParams();
+      Eigen::VectorXd params_backup;
+      if (rig_.cameras_.size() != 0) {
+        params_backup = rig_.cameras_[0]->GetParams();
+      }
       // decltype(rig_) rig_copy = rig_;
 
 
@@ -1048,7 +1051,9 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize, DoTvs>::SolveInternal(
           landmarks_ = landmarks_copy;
           poses_ = poses_copy;
           imu_ = imu_copy;
-          rig_.cameras_[0]->SetParams(params_backup);
+          if (rig_.cameras_.size() != 0) {
+            rig_.cameras_[0]->SetParams(params_backup);
+          }
         }
 
         trust_region_size_ /= 2;
@@ -1080,7 +1085,10 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize, DoTvs>::SolveInternal(
     decltype(landmarks_) landmarks_copy = landmarks_;
     decltype(poses_) poses_copy = poses_;
     decltype(imu_) imu_copy = imu_;
-    const Eigen::VectorXd params_backup = rig_.cameras_[0]->GetParams();
+    Eigen::VectorXd params_backup;
+    if (rig_.cameras_.size() != 0) {
+      params_backup = rig_.cameras_[0]->GetParams();
+    }
 
     // now back substitute the landmarks
     GetLandmarkDelta(delta, num_active_poses_, num_active_landmarks_,
@@ -1124,9 +1132,12 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize, DoTvs>::SolveInternal(
          landmarks_ = landmarks_copy;
          poses_ = poses_copy;
          imu_ = imu_copy;
-         rig_.cameras_[0]->SetParams(params_backup);
+         if (rig_.cameras_.size() != 0) {
+           rig_.cameras_[0]->SetParams(params_backup);
+         }
        }
       summary_.result = ErrorIncreased;
+
       return false;
     } else {
       proj_error_ = proj_error;
@@ -1295,7 +1306,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize, DoTvs>::BuildProblem()
       // regularize one rotation axis due to gravity null space, depending on
       // the major gravity axis)
       uint32_t reg_dim = GetGravityRegularizationDimension(root_pose_id_);
-      
+
       StreamMessage(debug_level) <<
         "Velocity in state. Regularizing dimension " << reg_dim << " of root "
         "pose rotation" << std::endl;

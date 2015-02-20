@@ -245,9 +245,7 @@ template<typename ProjModel>
 struct ImuReprojectionCostFunctor {
   ImuReprojectionCostFunctor(Eigen::Vector3d pw, Eigen::Vector2d pc)
       : p_w(pw),
-        p_c(pc) {
-    t_vr = (calibu::RdfVision * calibu::RdfRobotics.inverse());
-  }
+        p_c(pc) {}
 
   template<typename T>
   bool operator()(const T* const _t_wk, const T* const _r_ck,
@@ -270,16 +268,17 @@ struct ImuReprojectionCostFunctor {
 
   Eigen::Vector3d p_w;
   Eigen::Vector2d p_c;
-  Sophus::SO3d t_vr;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
 template<typename Scalar = double>
 struct SwitchedFullImuCostFunction {
   SwitchedFullImuCostFunction(const std::vector<ImuMeasurementT<Scalar>>& meas,
-                              const double weight, const bool* res_switch)
+                              const double weight, const bool* res_switch,
+                              const Eigen::Matrix<Scalar, 9, 9>& w_sqrt)
       : measurements(meas),
         weight(weight),
+        weight_sqrt(w_sqrt),
         residal_switch(res_switch) {
   }
 
@@ -288,11 +287,8 @@ struct SwitchedFullImuCostFunction {
                   const T* const _tvx2, const T* const _tvx1,
                   const T* const _tg, const T* const _tbg, const T* const _tba,
                   T* residuals) const {
-    //the residual vector consists of a 6d pose and a 3d velocity residual
-    //the pose residuals
-    Eigen::Map < Eigen::Matrix<T, 6, 1> > pose_residuals(residuals);
-    //the velocity residuals
-    Eigen::Map < Eigen::Matrix<T, 3, 1> > vel_residuals(&residuals[6]);
+    // the residual vector consists of a 6d pose and a 3d velocity residual
+    Eigen::Map<Eigen::Matrix<T, 9, 1> > residuals_vec(residuals);
 
     //parameter vector consists of a 6d pose delta plus starting velocity
     // and 2d gravity angles
@@ -319,26 +315,32 @@ struct SwitchedFullImuCostFunction {
     start_pose.v_w = v1;
     start_pose.time = measurements.front().time;
     std::vector<ImuPoseT<T>> poses;
-    ImuPoseT<T> end_pose = IntegrateResidualJet<T, Scalar>(start_pose,
-                                                           measurements, bg, ba,
-                                                           g_vector, poses);
+    ImuPoseT<T> end_pose = IntegrateResidualJet<T, Scalar>(
+          start_pose, measurements, bg, ba, g_vector, poses);
 
-    //and now calculate the error with this pose
-    pose_residuals = (end_pose.t_wp * t_wx2.inverse()).log() * (T) weight;
+    // and now calculate the error with this pose
+    residuals_vec.template head<6>() = (end_pose.t_wp * t_wx2.inverse()).log();
 
     // to calculate the velocity error, first augment the IMU integration
     // velocity with gravity and initial velocity
-    vel_residuals = (end_pose.v_w - v2) * (T) weight * (T) 0.5;
+    residuals_vec.template tail<3>() = (end_pose.v_w - v2);
 
-    if (*residal_switch == true) {
-      pose_residuals.template head<3>().setZero();
-      vel_residuals.setZero();
+
+    // Multiply by the weight matrix, which has been square rooted to be in
+    // standard.
+    residuals_vec = (residuals_vec.transpose() *
+                     weight_sqrt.template cast<T>()).transpose();
+
+    if (*residal_switch) {
+      residuals_vec.template head<3>().setZero();
+      residuals_vec.template tail<3>().setZero();
     }
     return true;
   }
 
-  const std::vector<ImuMeasurementT<Scalar>> measurements;
+  const std::vector<ImuMeasurementT<Scalar>>& measurements;
   const double weight;
+  Eigen::Matrix<Scalar, 9, 9> weight_sqrt;
   const bool* residal_switch;
 };
 

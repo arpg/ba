@@ -34,6 +34,16 @@ using BlockMat = Eigen::SparseBlockMatrix<Scalar>;
 template<typename Scalar>
 using aligned_vector = std::vector<Scalar, Eigen::aligned_allocator<Scalar>>;
 
+enum OptimizationResult
+{
+  Success,
+  ErrorIncreased,
+  ErrorChangeBelowThreshold,
+  ParamChangeBelowThreshold,
+  FactorizationError,
+  SolverError
+};
+
 template<typename Scalar=double>
 struct SolutionSummary
 {
@@ -52,6 +62,10 @@ struct SolutionSummary
 
   typedef Eigen::Matrix<Scalar,Eigen::Dynamic,Eigen::Dynamic> MatrixXt;
   MatrixXt calibration_marginals;
+  OptimizationResult result;
+
+  bool IsResultGood()
+  { return (result != SolverError) && (result != FactorizationError); }
 };
 
 template<typename Scalar=double>
@@ -71,30 +85,48 @@ struct Options
   Scalar param_change_threshold = 1e-3;
 
   uint32_t dogleg_max_inner_iterations = 100;
+  bool apply_results = true;
   bool use_dogleg = true;
   bool use_triangular_matrices = true;
   bool use_sparse_solver = true;
   bool write_reduced_camera_matrix = false;
   bool calculate_calibration_marginals = false;
 
+  bool use_per_pose_cam_params = false;
+
   // Initialization.
   bool regularize_biases_in_batch = true;
+  bool enable_auto_regularization = true;
 
   // Robust norms.
   bool use_robust_norm_for_proj_residuals = true;
   bool use_robust_norm_for_inertial_residuals = false;
+
+  bool calculate_inertial_covariance_once = false;
 };
 
 
 
-template<typename Scalar=double,int LmSize=1, int PoseSize=6, int CalibSize=0>
+template<typename Scalar=double,int LmSize=1, int PoseSize=6, int CalibSize=0,
+         bool DoTvs = false>
 class BundleAdjuster
 {
  public:
-  static const uint32_t kPrPoseDim = 6;
-  static const uint32_t kLmDim = LmSize;
-  static const uint32_t kPoseDim = PoseSize;
-  static const uint32_t kCalibDim = CalibSize;
+  int debug_level_threshold;
+  int debug_level;
+
+  static constexpr uint32_t kPrPoseDim = 6;
+  static constexpr uint32_t kLmDim = LmSize;
+  static constexpr uint32_t kPoseDim = PoseSize;
+  static constexpr uint32_t kCalibDim = CalibSize + (DoTvs ? 6 : 0);
+  static constexpr uint32_t kTvsOffset = CalibSize;
+
+  static constexpr bool kVelInState = (kPoseDim >= 9);
+  static constexpr bool kBiasInState = (kPoseDim >= 15);
+  static constexpr bool kGravityInCalib = false;//(kCalibDim >= 2);
+  static constexpr bool kTvsInCalib = (DoTvs);
+  static constexpr bool kCamParamsInCalib = (CalibSize > 0);
+  static constexpr bool kJkprUsed = kCamParamsInCalib || kTvsInCalib;
 
   typedef PoseT<Scalar> Pose;
   typedef LandmarkT<Scalar,LmSize> Landmark;
@@ -124,18 +156,14 @@ class BundleAdjuster
     VectorXt delta_l;
   };
 
-  static const bool kVelInState = (kPoseDim >= 9);
-  static const bool kBiasInState = (kPoseDim >= 15);
-  static const bool kTvsInState = (kPoseDim >= 21);
-  static const bool kGravityInCalib = (kCalibDim >= 2);
-  static const bool kTvsInCalib = (kCalibDim >= 8);
-  static const bool kCamParamsInCalib = (kCalibDim > 0);
 
   ////////////////////////////////////////////////////////////////////////////
   BundleAdjuster() :
     imu_(SE3t(),Vector3t::Zero(),Vector3t::Zero(),Vector2t::Zero()),
     translation_enabled_(kCalibDim > 15 ? false : true),
-    total_tvs_change_(0)
+    total_tvs_change_(0),
+    debug_level(0),
+    debug_level_threshold(0)
   {}
 
 
@@ -256,9 +284,8 @@ class BundleAdjuster
                        const double time = -1,
                        const int external_id = -1)
   {
-    return AddPose(t_wp, SE3t(), VectorXt(5).setZero(),
-                   Vector3t::Zero(), Vector6t::Zero(), is_active, time,
-                   external_id);
+    return AddPose(t_wp, VectorXt(5).setZero(), Vector3t::Zero(),
+                   Vector6t::Zero(), is_active, time, external_id);
   }
 
   ////////////////////////////////////////////////////////////////////////////
@@ -277,16 +304,15 @@ class BundleAdjuster
   /// \param external_id external id used for bookkeeping outside of ba
   /// \return the internal optimization id used to form constraints
   ///
-  uint32_t AddPose(const SE3t& t_wv, const SE3t& t_vs,
-                       const VectorXt cam_params, const Vector3t& v_w,
-                       const Vector6t& b, const bool is_active = true,
-                       const double time = -1, const int external_id = -1)
+  uint32_t AddPose(const SE3t& t_wv, const VectorXt cam_params,
+                   const Vector3t& v_w, const Vector6t& b,
+                   const bool is_active = true, const double time = -1,
+                   const int external_id = -1)
   {
     Pose pose;
     pose.external_id = external_id;
     pose.time = time;
     pose.t_wp = t_wv;
-    pose.t_vs = t_vs;
     pose.v_w = v_w;
     pose.b = b;
     pose.cam_params = cam_params;
@@ -523,6 +549,7 @@ class BundleAdjuster
     return residual.residual_id;
   }
 
+
   void Solve(const uint32_t uMaxIter,
              const Scalar gn_damping = 1.0,
              const bool error_increase_allowed = false);
@@ -582,7 +609,52 @@ class BundleAdjuster
   Options<Scalar>& options() { return options_; }
   const calibu::Rig<Scalar>& rig() const { return rig_; }
 
+  void RegularizePose(uint32_t pose_id, bool translation, bool gravity,
+                      bool bias, bool rotation) {
+    Pose& pose = poses_[pose_id];
+    pose.is_param_mask_used = true;
+    pose.param_mask.assign(kPoseDim, true);
+
+    // dsiable the translation components.
+    if (translation) {
+      pose.param_mask[0] = pose.param_mask[1] = pose.param_mask[2] = false;
+    }
+
+    if (rotation) {
+      pose.param_mask[2] = pose.param_mask[4] = pose.param_mask[5] = false;
+    }
+
+    if (gravity) {
+      pose.param_mask[GetGravityRegularizationDimension(pose_id)] = false;
+    }
+
+    if (bias && kBiasInState) {
+      pose.param_mask[9] = pose.param_mask[10] = pose.param_mask[11] =
+      pose.param_mask[12] = pose.param_mask[13] = pose.param_mask[14] = false;
+    }
+  }
+
 private:
+  uint32_t GetGravityRegularizationDimension(uint32_t pose_id)
+  {
+    Pose& pose = poses_[pose_id];
+    const Vector3t gravity = imu_.g_vec;
+
+    // regularize one rotation axis due to gravity null space, depending on the
+    // major gravity axis)
+    const Eigen::Matrix<Scalar, 3, 3> rot = pose.t_wp.rotationMatrix();
+    double max_dot = 0;
+    uint32_t max_dim = 0;
+    for (uint32_t ii = 0; ii < 3 ; ++ii) {
+      const double dot = fabs(rot.col(ii).dot(gravity));
+      if (dot > max_dot) {
+        max_dot = dot;
+        max_dim = ii;
+      }
+    }
+    return max_dim + 3;
+  }
+
   bool SolveInternal(VectorXt rhs_p_sc, const Scalar gn_damping,
                      const bool error_increase_allowed, const bool use_dogleg);
 
@@ -627,18 +699,18 @@ private:
   BlockMat<Eigen::Matrix<Scalar, kPoseDim, ImuResidual::kResSize>> jt_i_;
 
   VectorXt r_i_;
-  BlockMat<Eigen::Matrix<Scalar, ImuResidual::kResSize, CalibSize>> j_ki_;
-  BlockMat<Eigen::Matrix<Scalar, CalibSize, ImuResidual::kResSize>> jt_ki_;
+  BlockMat<Eigen::Matrix<Scalar, ImuResidual::kResSize, kCalibDim>> j_ki_;
+  BlockMat<Eigen::Matrix<Scalar, kCalibDim, ImuResidual::kResSize>> jt_ki_;
 
-  BlockMat<Eigen::Matrix<Scalar, ProjectionResidual::kResSize, CalibSize>>
+  BlockMat<Eigen::Matrix<Scalar, ProjectionResidual::kResSize, kCalibDim>>
                                                                         j_kpr_;
-  BlockMat<Eigen::Matrix<Scalar, CalibSize, ProjectionResidual::kResSize>>
+  BlockMat<Eigen::Matrix<Scalar, kCalibDim, ProjectionResidual::kResSize>>
                                                                         jt_kpr_;
 
   BlockMat<Eigen::Matrix<Scalar, kPoseDim, kPoseDim>> u_;
   BlockMat<Eigen::Matrix<Scalar, kLmDim, kLmDim>> vi_;
   BlockMat<Eigen::Matrix<Scalar, kLmDim, kPrPoseDim>> jt_l_j_pr_;
-  BlockMat< Eigen::Matrix<Scalar, kLmDim, CalibSize>> jt_l_j_kpr_;
+  BlockMat< Eigen::Matrix<Scalar, kLmDim, kCalibDim>> jt_l_j_kpr_;
   BlockMat<Eigen::Matrix<Scalar, kPrPoseDim, kLmDim>> jt_pr_j_l_;
 
 

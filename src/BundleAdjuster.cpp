@@ -234,7 +234,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::EvaluateResiduals(
     for (UnaryResidual& res : unary_residuals_) {
       const Pose& pose = poses_[res.pose_id];
       // res.residual = SE3t::log(res.t_wp.inverse() * pose.t_wp);
-      res.residual = log_decoupled(pose.t_wp, res.t_wp);
+      res.residual = log_decoupled(res.t_wp, pose.t_wp);
       res.mahalanobis_distance =
           (res.residual.transpose() * res.cov_inv * res.residual);
       *unary_error += res.mahalanobis_distance;
@@ -1403,9 +1403,6 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
     }
   }
 
-  StreamMessage(debug_level) <<
-    "All poses active: " << are_all_active << std::endl;
-
   // If we are doing an inertial run, and any poses have no inertial constraints
   // we must regularize their velocity and (if applicable) biases.
   if (kVelInState) {
@@ -1426,20 +1423,6 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
     }
   }
 
-  if (are_all_active && kBiasInState && options_.regularize_biases_in_batch) {
-    Pose& root_pose = poses_[root_pose_id_];
-    root_pose.is_param_mask_used = true;
-    if (root_pose.param_mask.size() == 0){
-      root_pose.param_mask.assign(kPoseDim, true);
-    }
-    StreamMessage(debug_level) <<
-      "Regularizing bias of first pose." << std::endl;
-    root_pose.is_param_mask_used = true;
-    root_pose.param_mask[9] = root_pose.param_mask[10] =
-    root_pose.param_mask[11] = root_pose.param_mask[12] =
-    root_pose.param_mask[13] = root_pose.param_mask[14] = false;
-  }
-
   // If all poses are active and we are not marginalizing (therefore, we have
   // no prior) then regularize some parameters by setting the parameter mask.
   // This in effect removes these parameters from the optimization, by setting
@@ -1451,12 +1434,18 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize>::BuildProblem()
 
     Pose& root_pose = poses_[root_pose_id_];
     root_pose.is_param_mask_used = true;
-    if (root_pose.param_mask.size() == 0){
-      root_pose.param_mask.assign(kPoseDim, true);
-    }
+    root_pose.param_mask.assign(kPoseDim, true);
     // dsiable the translation components.
     root_pose.param_mask[0] = root_pose.param_mask[1] =
     root_pose.param_mask[2] = false;
+
+    if (kBiasInState && options_.regularize_biases_in_batch) {
+      StreamMessage(debug_level) <<
+        "Regularizing bias of first pose." << std::endl;
+      root_pose.param_mask[9] = root_pose.param_mask[10] =
+      root_pose.param_mask[11] = root_pose.param_mask[12] =
+      root_pose.param_mask[13] = root_pose.param_mask[14] = false;
+    }
 
     // if there is no velocity in the state, fix the three initial rotations,
     // as we don't need to accomodate gravity
@@ -2451,10 +2440,8 @@ template class BundleAdjuster<REAL_TYPE, 1, 6, 0>;
 // BundleAdjuster<Scalar, 1, 15, 0>
 template class BundleAdjuster<REAL_TYPE, 1, 15, 0>;
 
-
 // specializations required for the applications
 #ifdef BUILD_APPS
 template class BundleAdjuster<double, 0,9,0>;
-template class BundleAdjuster<double, 0,6,0>;
 #endif
 }

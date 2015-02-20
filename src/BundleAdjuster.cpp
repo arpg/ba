@@ -190,7 +190,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize, DoTvs>::EvaluateResidua
     for (UnaryResidual& res : unary_residuals_) {
       const Pose& pose = poses_[res.pose_id];
       // res.residual = SE3t::log(res.t_wp.inverse() * pose.t_wp);
-      res.residual = log_decoupled(res.t_wp, pose.t_wp);
+      res.residual = log_decoupled(pose.t_wp, res.t_wp);
       res.mahalanobis_distance =
           (res.residual.transpose() * res.cov_inv * res.residual);
       *unary_error += res.mahalanobis_distance;

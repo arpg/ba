@@ -35,14 +35,11 @@ typedef Matrix<double, 9, 1> Vector9d;
 
 ///////////////////////////////////////////////////////////////////////////////
 namespace ba {
-// #define ENABLE_TIMING
-extern int debug_level_threshold;
-extern int debug_level;
 
 /** @todo Add stream message to Android logging */
 #ifndef StreamMessage
 #  define StreamMessage(error_level)                                    \
-  if (((int)error_level) <= ba::debug_level_threshold) std::cerr
+  if (((int)error_level) <= debug_level_threshold) std::cerr
 #endif
 
 #ifdef ENABLE_TESTING
@@ -54,9 +51,10 @@ extern int debug_level;
 #define ForceStartTimer(x) double x = ba::Tic()
 #define ForcePrintTimer(x) std::cout << ba::Toc(x) << " seconds -> " <<  \
                                         #x << std::endl
+#define ENABLE_TIMING
 #ifdef ENABLE_TIMING
 #define StartTimer(x) double x = ba::Tic()
-#define PrintTimer(x) std::cout << ba::Toc(x) << " seconds -> " <<  \
+#define PrintTimer(x) StreamMessage(debug_level) << ba::Toc(x) << " seconds -> " <<  \
   #x << std::endl
 #else
 #define StartTimer(x)
@@ -643,7 +641,7 @@ inline Eigen::Matrix<Scalar, 7, 7> dt1_t2_dt1(
 ///////////////////////////////////////////////////////////////////////////////
 template<typename Scalar = double>
 inline Eigen::Matrix<Scalar, 7, 7> dt1_t2_dt2(
-    const Sophus::SE3Group<Scalar>& t1, const Sophus::SE3Group<Scalar>& t2)
+    const Sophus::SE3Group<Scalar>& t1/*, const Sophus::SE3Group<Scalar>& t2*/)
 {
   Eigen::Matrix<Scalar, 7, 7> dt1t2;
   dt1t2.setZero();

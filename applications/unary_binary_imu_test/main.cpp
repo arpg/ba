@@ -292,8 +292,6 @@ int main(int argc, char** argv)
 {
 	setup();
 	parse_file(argv[1]);
-	
-  ba::debug_level_threshold = 0;
 
 	solve();
 }

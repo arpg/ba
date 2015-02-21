@@ -24,6 +24,8 @@
 #include <unsupported/Eigen/MatrixFunctions>
 // #endif
 
+#include <tbb/task_scheduler_init.h>
+
 
 namespace ba {
 constexpr int kTrustRegionAuto = -1.0;
@@ -111,6 +113,10 @@ template<typename Scalar=double,int LmSize=1, int PoseSize=6, int CalibSize=0,
          bool DoTvs = false>
 class BundleAdjuster
 {
+  template<typename BaType, typename ScalarType>
+  friend class ParallelProjectionResiduals;
+  template<typename BaType, typename ScalarType>
+  friend class ParallelInertialResiduals;
  public:
   int debug_level_threshold;
   int debug_level;
@@ -754,6 +760,8 @@ private:
 
   SolutionSummary<Scalar> summary_;
   Options<Scalar> options_;
+
+  tbb::task_scheduler_init tbb_scheduler_;
 };
 
 static const int NOT_USED = 0;

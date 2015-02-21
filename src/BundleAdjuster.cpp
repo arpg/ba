@@ -1,6 +1,7 @@
 #include <ba/BundleAdjuster.h>
 #include <iomanip>
 #include <fstream>
+#include <ba/parallel_algos.h>
 
 
 namespace ba {
@@ -1228,6 +1229,9 @@ namespace ba {
     // go through all the poses to check if they are all active
     bool are_all_active = true;
     for (Pose& pose : poses_) {
+      for (int ii = 0; ii < rig_.cameras_.size(); ++ii) {
+        pose.GetTsw(ii, rig_);
+      }
       if (pose.is_active == false) {
         are_all_active = false;
         break;
@@ -1324,188 +1328,17 @@ namespace ba {
     StartTimer(_j_evaluation_);
     StartTimer(_j_evaluation_proj_);
     proj_error_ = 0;
-    for (ProjectionResidual& res : proj_residuals_) {
-      // calculate measurement jacobians
 
-      // Tsw = T_cv * T_vw
-      Landmark& lm = landmarks_[res.landmark_id];
-      Pose& pose = poses_[res.x_meas_id];
-      Pose& ref_pose = poses_[res.x_ref_id];
-      calibu::CameraInterface<Scalar>* cam = rig_.cameras_[res.cam_id];
+    ParallelProjectionResiduals<BundleAdjuster<Scalar, LmSize, PoseSize,
+        CalibSize, DoTvs>, Scalar> parallel_proj(*this);
 
-      const SE3t& t_vs_m = rig_.t_wc_[res.cam_id];
-      const SE3t& t_vs_r = rig_.t_wc_[lm.ref_cam_id];
-      const SE3t& t_sw_m = pose.GetTsw(res.cam_id, rig_);
-      const SE3t t_ws_r = ref_pose.GetTsw(lm.ref_cam_id, rig_).inverse();
+    // tbb::parallel_reduce(tbb::blocked_range<int>(0, proj_residuals_.size()),
+    //                      parallel_proj);
+    parallel_proj(tbb::blocked_range<int>(0, proj_residuals_.size()));
 
-      Eigen::VectorXd backup_params = cam->GetParams();
-      if (options_.use_per_pose_cam_params) {
-        cam->SetParams(pose.cam_params);
-      }
+    cond_errors = parallel_proj.cond_errors;
+    errors_ = parallel_proj.errors;
 
-      const Vector2t p = kLmDim == 3 ?
-            cam->Transfer3d(t_sw_m, lm.x_w.template head<3>(), lm.x_w(3)) :
-            cam->Transfer3d(t_sw_m * t_ws_r, lm.x_s.template head<3>(),
-                            lm.x_s(3));
-
-      res.residual = res.z - p;
-      // std::cerr << "res " << res.residual_id << " : pre" <<
-      //                res.residual.norm() << std::endl;
-
-      const Vector4t x_s_m = kLmDim == 1 ?
-            MultHomogeneous(t_sw_m * t_ws_r, lm.x_s) :
-            MultHomogeneous(t_sw_m, lm.x_w);
-
-      const Eigen::Matrix<Scalar,2,4> dt_dp_m = cam->dTransfer3d_dray(
-            SE3t(), x_s_m.template head<3>(),x_s_m(3));
-
-      const Eigen::Matrix<Scalar,2,4> dt_dp_s = kLmDim == 3 ?
-            dt_dp_m * t_sw_m.matrix() :
-            dt_dp_m * (t_sw_m*t_ws_r).matrix();
-
-      // Landmark Jacobian
-      if (lm.is_active) {
-        res.dz_dlm = -dt_dp_s.template block<2,kLmDim>( 0, kLmDim == 3 ? 0 : 3 );
-      }
-
-      const bool diff_poses =  res.x_ref_id != res.x_meas_id;
-
-      if (pose.is_active || ref_pose.is_active) {
-        // If the reference and measurement poses are the same, the derivative
-        // is zero.
-        if (diff_poses) {
-          res.dz_dx_meas =
-              -dt_dp_m *
-              dt_x_dt<Scalar>(t_sw_m, t_ws_r.matrix() * lm.x_s) *
-              dt1_t2_dt2(t_vs_m.inverse()/*, pose.t_wp.inverse()*/) *
-              dinv_exp_decoupled_dx(pose.t_wp);
-        } else {
-          res.dz_dx_meas.setZero();
-        }
-
-        // only need this if we are in inverse depth mode and the poses aren't
-        // the same
-        if (kLmDim == 1) {
-          if (diff_poses) {
-            res.dz_dx_ref =
-                -dt_dp_m *
-                dt_x_dt<Scalar>(t_sw_m * ref_pose.t_wp, t_vs_r.matrix() * lm.x_s)
-                * dt1_t2_dt2(t_sw_m/*, ref_pose.t_wp*/) *
-                dexp_decoupled_dx(ref_pose.t_wp);
-          } else {
-            res.dz_dx_ref.setZero();
-          }
-
-          if (kCamParamsInCalib) {
-            res.dz_dcam_params =
-                -cam->dTransfer_dparams(t_sw_m * t_ws_r, lm.z_ref, lm.x_s(3));
-
-            /*
-          std::cerr << "dz_dcam_params for " << res.residual_id << " with z " <<
-                       landmarks_[res.landmark_id].z_ref.transpose() << "is\n" <<
-                       res.dz_dcam_params << std::endl;
-
-
-          calibu::CameraInterface<Scalar>* cam = rig_.cameras_[0];
-          Scalar* params = cam->GetParams();
-          const double eps = 1e-6;
-          Eigen::Matrix<Scalar, 2, Eigen::Dynamic> jacobian_fd(
-                2, cam->NumParams());
-          // Test the transfer jacobian.
-          for (int ii = 0 ; ii < cam->NumParams()  ; ++ii) {
-            const double old_param = params[ii];
-            // modify the parameters and transfer again.
-            params[ii] = old_param + eps;
-            const Vector3t ray_plus = cam->Unproject(lm.z_ref);
-            const Vector2t pix_plus = cam->Transfer3d(t_sw_m * t_ws_r,
-                                                      ray_plus, lm.x_s(3));
-
-            params[ii] = old_param - eps;
-            const Vector3t ray_minus = cam->Unproject(lm.z_ref);
-            const Vector2t pix_minus = cam->Transfer3d(t_sw_m * t_ws_r,
-                                                       ray_minus, lm.x_s(3));
-
-            jacobian_fd.col(ii) = -(pix_plus - pix_minus) / (2 * eps);
-            params[ii] = old_param;
-          }
-
-          // Now compare the two jacobians.
-          std::cerr << "jacobian:\n" << res.dz_dcam_params <<
-                       "\n jacobian_fd:\n" << jacobian_fd << "\n error: " <<
-                       (res.dz_dcam_params - jacobian_fd).norm() <<
-                       std::endl;
-          */
-          }
-
-          if (kTvsInCalib) {
-            // Total derivative of transfer.
-            res.dz_dtvs =
-                -dt_dp_m *
-                dt_x_dt<Scalar>(t_sw_m * t_ws_r, lm.x_s) *
-                (dt1_t2_dt2(t_vs_m.inverse()
-                            /*, pose.t_wp.inverse() * ref_pose.t_wp * t_vs_r*/) *
-                 dt1_t2_dt2(pose.t_wp.inverse() * ref_pose.t_wp
-                            /*, t_vs_r*/) *
-                 dexp_decoupled_dx(t_vs_r) +
-                 dt1_t2_dt1(t_vs_m.inverse(),
-                            pose.t_wp.inverse() * ref_pose.t_wp * t_vs_r) *
-                 dinv_exp_decoupled_dx(t_vs_m));
-
-
-            /*
-          Eigen::Matrix<Scalar, 2, 6> dz_dtvs_fd;
-          // Test the transfer jacobian.
-          const double eps = 1e-6;
-          for (int ii = 0 ; ii < 6 ; ++ii) {
-            Vector6t delta_plus = Vector6t::Zero();
-            delta_plus[ii] = eps;
-            const SE3t tvs_delta_plus = exp_decoupled(t_vs_m, delta_plus);
-            const Vector4t xm_plus = MultHomogeneous(
-                  tvs_delta_plus.inverse() * pose.t_wp.inverse() *
-                  ref_pose.t_wp * tvs_delta_plus, lm.x_s);
-            const Vector2t pix_plus =
-                cam->Transfer3d(SE3t(), xm_plus.template head<3>(), xm_plus(3));
-
-            Vector6t delta_minus = Vector6t::Zero();
-            delta_minus[ii] = -eps;
-            const SE3t tvs_delta_minus = exp_decoupled(t_vs_m, delta_minus);
-
-            const Vector4t xm_minus = MultHomogeneous(
-                  tvs_delta_minus.inverse() * pose.t_wp.inverse() *
-                  ref_pose.t_wp * tvs_delta_minus, lm.x_s);
-
-            const Vector2t pix_minus =
-                cam->Transfer3d(SE3t(), xm_minus.template head<3>(),
-                                xm_minus(3));
-
-            dz_dtvs_fd.col(ii) = -(pix_plus - pix_minus) / (2 * eps);
-          }
-
-          std::cerr << "dz_dtvs:\n" << res.dz_dtvs.format(kLongFmt) <<
-                       "\ndz_dtvs_fd\n" << dz_dtvs_fd.format(kLongFmt) <<
-                       std::endl;
-                       */
-
-          }
-        }
-      }
-
-      BA_TEST(_Test_dProjectionResidual_dX(res, pose, ref_pose, lm, rig_));
-
-      if (options_.use_per_pose_cam_params) {
-        cam->SetParams(backup_params);
-      }
-
-      // set the residual in m_R which is dense
-      res.weight =  res.orig_weight;
-      res.mahalanobis_distance = res.residual.squaredNorm() * res.weight;
-      // this array is used to calculate the robust norm
-      if (res.is_conditioning) {
-        cond_errors.push_back(res.mahalanobis_distance);
-      } else {
-        errors_.push_back(res.mahalanobis_distance);
-      }
-    }
 
     // get the sigma for robust norm calculation. This call is O(n) on average,
     // which is desirable over O(nlogn) sort
@@ -1633,174 +1466,14 @@ namespace ba {
     errors_.clear();
     StartTimer(_j_evaluation_inertial_);
     inertial_error_ = 0;
-    for (ImuResidual& res : inertial_residuals_) {
-      // set up the initial pose for the integration
-      const Vector3t gravity = kGravityInCalib ? GetGravityVector(imu_.g) :
-                                                 imu_.g_vec;
 
-      const Pose& pose1 = poses_[res.pose1_id];
-      const Pose& pose2 = poses_[res.pose2_id];
+    ParallelInertialResiduals<BundleAdjuster<Scalar, LmSize, PoseSize,
+        CalibSize, DoTvs>, Scalar> parallel_in(*this);
 
+    tbb::parallel_reduce(tbb::blocked_range<int>(
+        0, inertial_residuals_.size()), parallel_in);
 
-      StartTimer(_j_evaluation_inertial_integration_);
-      bool compute_covarince = !options_.calculate_inertial_covariance_once ||
-          !res.covariance_computed;
-      if (compute_covarince) {
-        res.c_integration.setZero();
-      }
-
-      ImuPose imu_pose = ImuResidual::IntegrateResidual(
-            pose1, res.measurements, pose1.b.template head<3>(),
-            pose1.b.template tail<3>(), gravity, res.poses,
-            compute_covarince ? &res.dintegration_db : nullptr,
-            nullptr,
-            compute_covarince ? &res.c_integration : nullptr,
-            compute_covarince ? &imu_.r : nullptr);
-      res.covariance_computed = true;
-      PrintTimer(_j_evaluation_inertial_integration_);
-
-      Scalar total_dt =
-          res.measurements.back().time - res.measurements.front().time;
-
-      const SE3t& t_w1 = pose1.t_wp;
-      const SE3t& t_w2 = pose2.t_wp;
-      // const SE3t& t_2w = t_w2.inverse();
-
-      // now given the poses, calculate the jacobians.
-      // First subtract gravity, initial pose and velocity from the delta T and delta V
-      SE3t t_12_0 = imu_pose.t_wp;
-      // subtract starting velocity and gravity
-      t_12_0.translation() -=
-          (-gravity*0.5*powi(total_dt,2) + pose1.v_w*total_dt);
-      // subtract starting pose
-      t_12_0 = pose1.t_wp.inverse() * t_12_0;
-      // Augment the velocity delta by subtracting effects of gravity
-      Vector3t v_12_0 = imu_pose.v_w - pose1.v_w;
-      v_12_0 += gravity*total_dt;
-      // rotate the velocity delta so that it starts from orientation=Ident
-      v_12_0 = pose1.t_wp.so3().inverse() * v_12_0;
-
-      // derivative with respect to the start pose
-      res.residual.setZero();
-      res.dz_dx1.setZero();
-      res.dz_dx2.setZero();
-      res.dz_dg.setZero();
-      res.dz_db.setZero();
-
-      // Twa^-1 is multiplied here as we need the velocity derivative in the
-      //frame of pose A, as the log is taken from this frame
-      res.dz_dx1.template block<3,3>(0,6) = Matrix3t::Identity()*total_dt;
-      for (int ii = 0; ii < 3 ; ++ii) {
-        res.dz_dx1.template block<3,1>(6,3+ii) =
-            t_w1.so3().matrix() *
-            Sophus::SO3Group<Scalar>::generator(ii) * v_12_0;
-      }
-
-      // dr/dv (pose1)
-      res.dz_dx1.template block<3,3>(6,6) = Matrix3t::Identity();
-      // dr/dx (pose1)
-      // res.dz_dx1.template block<6,6>(0,0) =  dlog_dse3*dse3_dx1;
-      res.dz_dx1.template block<6,6>(0,0) =
-          dLog_decoupled_dt1(imu_pose.t_wp, t_w2) *
-          dt1_t2_dt1(t_w1, t_12_0) *
-          dexp_decoupled_dx(t_w1);
-
-      // the - sign is here because of the exp(-x) within the log
-      // res.dz_dx2.template block<6,6>(0,0) = -dLog_dX(imu_pose.t_wp,t_2w);
-      res.dz_dx2.template block<6,6>(0,0) =
-          dlog_decoupled_dt2(imu_pose.t_wp, t_w2) *
-          dexp_decoupled_dx(t_w2);
-
-
-      // dr/dv (pose2)
-      res.dz_dx2.template block<3,3>(6,6) = -Matrix3t::Identity();
-
-      res.weight = res.orig_weight;
-      // res.residual.template head<6>() = SE3t::log(imu_pose.t_wp*t_2w);
-      res.residual.template head<6>() = log_decoupled(imu_pose.t_wp, t_w2);
-      res.residual.template segment<3>(6) = imu_pose.v_w - pose2.v_w;
-
-
-      const Eigen::Matrix<Scalar,6,7> dlogt1t2_dt1 =
-          dLog_decoupled_dt1(imu_pose.t_wp, t_w2);
-
-      // Transform the covariance through the multiplication by t_2w as well as
-      // the log
-      Eigen::Matrix<Scalar,9,10> dse3t1t2v_dt1;
-      dse3t1t2v_dt1.setZero();
-      dse3t1t2v_dt1.template topLeftCorner<6,7>() = dlogt1t2_dt1;
-      dse3t1t2v_dt1.template bottomRightCorner<3,3>().setIdentity();
-
-      res.cov_inv.setZero();
-      Eigen::Matrix<Scalar, ImuResidual::kResSize, 1> sigmas =
-          Eigen::Matrix<Scalar, ImuResidual::kResSize, 1>::Ones();
-      // Write the bias uncertainties into the covariance matrix.
-      if (kBiasInState) {
-        sigmas.template segment<6>(9) = imu_.r_b * total_dt;
-      }
-
-      res.cov_inv.diagonal() = sigmas;
-
-      // std::cout << "cres: " << std::endl << c_res.format(kLongFmt) << std::endl;
-      res.cov_inv.template topLeftCorner<9,9>() =
-          dse3t1t2v_dt1 * res.c_integration *
-          dse3t1t2v_dt1.transpose();
-
-      // Eigen::Matrix<Scalar, ImuResidual::kResSize, 1> diag = res.cov_inv.diagonal();
-      // res.cov_inv = diag.asDiagonal();
-
-      // res.cov_inv.setIdentity();
-
-      StreamMessage(debug_level + 1) << "cov:" << std::endl <<
-                                        res.cov_inv << std::endl;
-      res.cov_inv = res.cov_inv.inverse();
-      if (!pose1.is_active || pose2.is_active) {
-        // res.cov_inv *= 1000;
-      }
-
-      // bias jacbian, only if bias in the state.
-      if (kBiasInState) {
-        // Transform the bias jacobian for position and rotation through the
-        // jacobian of multiplication by t_2w and the log
-        // dt/dB
-        res.dz_db.template topLeftCorner<6, 6>() = dlogt1t2_dt1 *
-            res.dintegration_db.template topLeftCorner<7, 6>();
-
-        // dV/dB
-        res.dz_db.template block<3,6>(6,0) = res.dintegration_db.template block<3,6>(7,0);
-
-        // dB/dB
-        res.dz_db.template block<6,6>(9,0) =
-            Eigen::Matrix<Scalar,6,6>::Identity();
-
-        // The jacboian of the pose error wrt the biases.
-        res.dz_dx1.template block<ImuResidual::kResSize,6>(0,9) = res.dz_db;
-        // The process model jacobian of the biases.
-        res.dz_dx2.template block<6,6>(9,9) =
-            -Eigen::Matrix<Scalar,6,6>::Identity();
-
-        // write the residual
-        res.residual.template segment<6>(9) = pose1.b - pose2.b;
-      }
-
-      if (kGravityInCalib) {
-        const Eigen::Matrix<Scalar,3,2> d_gravity = dGravity_dDirection(imu_.g);
-        res.dz_dg.template block<3,2>(0,0) =
-            -0.5*powi(total_dt,2)*Matrix3t::Identity()*d_gravity;
-
-        res.dz_dg.template block<3,2>(6,0) =
-            -total_dt*Matrix3t::Identity()*d_gravity;
-      }
-
-      // _Test_dImuResidual_dX<Scalar, ImuResidual::kResSize, kPoseDim>(
-      //       pose1, pose2, imu_pose, res, gravity, dse3_dx1, jb_q, imu_);
-      // This is used to calculate the robust norm.
-      res.mahalanobis_distance =
-          res.residual.transpose() * res.cov_inv * res.residual;
-      errors_.push_back(res.mahalanobis_distance);
-    }
-
-
+    errors_ = parallel_proj.errors;
     StartTimer(_j_evaluation_inertial_sqrt_);
     if (errors_.size() > 0) {
       auto it = errors_.begin()+std::floor(errors_.size()* 0.5);

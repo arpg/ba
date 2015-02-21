@@ -1785,9 +1785,9 @@ namespace ba {
   double BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize, DoTvs>::
   LandmarkOutlierRatio(const uint32_t id) const
   {
-    return landmarks_[id].proj_residuals.size() == 0 ? 0 :
-                                                       (double)landmarks_[id].num_outlier_residuals /
-                                                       landmarks_[id].proj_residuals.size();
+    return landmarks_[id].proj_residuals.size() == 0 ?
+          0 : (double)landmarks_[id].num_outlier_residuals /
+          landmarks_[id].proj_residuals.size();
   }
 
   // specializations

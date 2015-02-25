@@ -258,6 +258,8 @@ struct UnaryResidualT : public ResidualT<Scalar, 6> {
   Eigen::Matrix<Scalar, kResSize, 1> residual;
   Eigen::Matrix<Scalar, kResSize, kResSize> cov_inv;
   Eigen::Matrix<Scalar, kResSize, kResSize> cov_inv_sqrt;
+
+  bool use_rotation = false;
 };
 
 template<typename Scalar = double>

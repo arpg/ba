@@ -396,9 +396,10 @@ class BundleAdjuster
   /// \return
   ///
   uint32_t AddUnaryConstraint(const uint32_t pose_id,
-                                  const SE3t& t_wv,
-                                  Eigen::Matrix<Scalar, UnaryResidual::kResSize,
-                                  UnaryResidual::kResSize> covariance)
+                              const SE3t& t_wv,
+                              Eigen::Matrix<Scalar, UnaryResidual::kResSize,
+                              UnaryResidual::kResSize> covariance,
+                              bool use_rotation)
   {
     assert(pose_id < poses_.size());
 
@@ -409,6 +410,12 @@ class BundleAdjuster
     residual.residual_id = unary_residuals_.size();
     residual.residual_offset = unary_residual_offset_;
     residual.t_wp = t_wv;
+    residual.use_rotation = use_rotation;
+
+    if (!use_rotation) {
+      covariance(3, 3) = covariance(4, 4) = covariance(5, 5) = 1.0;
+    }
+
     residual.cov_inv = covariance.inverse();
     residual.cov_inv_sqrt = residual.cov_inv.sqrt();
 

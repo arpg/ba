@@ -2,6 +2,7 @@
 #include <iomanip>
 #include <fstream>
 #include <ba/parallel_algos.h>
+#include <xmmintrin.h>
 
 
 namespace ba {
@@ -192,6 +193,11 @@ namespace ba {
         const Pose& pose = poses_[res.pose_id];
         // res.residual = SE3t::log(res.t_wp.inverse() * pose.t_wp);
         res.residual = log_decoupled(pose.t_wp, res.t_wp);
+
+        if (!res.use_rotation) {
+          res.residual.template tail<3>().setZero();
+        }
+
         res.mahalanobis_distance =
             (res.residual.transpose() * res.cov_inv * res.residual);
         *unary_error += res.mahalanobis_distance;
@@ -371,7 +377,6 @@ namespace ba {
 
         VectorXt jt_u_r_u(num_pose_params);
         Eigen::SparseBlockVectorProductDenseResult(jt_u_, r_u_, jt_u_r_u);
-        std::cerr << "Adding unary rhs: " << jt_u_r_u.norm() << std::endl;
         rhs_p_ += jt_u_r_u;
       }
 
@@ -1416,12 +1421,17 @@ namespace ba {
     unary_error_ = 0;
     errors_.clear();
     for( UnaryResidual& res : unary_residuals_ ){
-      const SE3t& t_wp = poses_[res.pose_id].t_wp;
+      /*const */SE3t& t_wp = poses_[res.pose_id].t_wp;
       res.dz_dx = dlog_decoupled_dx(t_wp, res.t_wp);
 
       BA_TEST(_Test_dUnaryResidual_dX(res, t_wp));
 
-      res.residual = res.cov_inv_sqrt * log_decoupled(t_wp, res.t_wp);
+      res.residual = log_decoupled(t_wp, res.t_wp);
+
+      if (!res.use_rotation) {
+        res.residual.template tail<3>().setZero();
+        res.dz_dx.template block<3, 6>(3, 0).setZero();
+      }
 
       res.weight = res.orig_weight;
       res.mahalanobis_distance =
@@ -1796,6 +1806,7 @@ namespace ba {
   // VisualBundleAdjuster<REAL_TYPE>
   template class BundleAdjuster<REAL_TYPE, 1, 6, 0>;
   // BundleAdjuster<Scalar, 1, 15, 0>
+  template class BundleAdjuster<REAL_TYPE, 0, 6, 0>;
   template class BundleAdjuster<REAL_TYPE, 1, 15, 0>;
   template class BundleAdjuster<REAL_TYPE, 1, 15, 5, false>;
   template class BundleAdjuster<REAL_TYPE, 1, 15, 0, true>;

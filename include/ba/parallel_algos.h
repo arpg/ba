@@ -294,6 +294,8 @@ namespace ba {
             dse3t1t2v_dt1 * res.c_integration *
             dse3t1t2v_dt1.transpose();
 
+        res.cov = res.cov_inv;
+
         // Eigen::Matrix<Scalar, ImuResidual::kResSize, 1> diag = res.cov_inv.diagonal();
         // res.cov_inv = diag.asDiagonal();
 

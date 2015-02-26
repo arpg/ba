@@ -1,4 +1,4 @@
-cmake_minimum_required( VERSION 3.0 )
+cmake_minimum_required( VERSION 2.8 )
 project("BA")
 set(BA_VERSION_MAJOR 0)
 set(BA_VERSION_MINOR 1)

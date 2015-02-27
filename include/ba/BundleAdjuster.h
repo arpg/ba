@@ -431,13 +431,15 @@ class BundleAdjuster
   uint32_t AddBinaryConstraint(const uint32_t pose1_id,
                                const uint32_t pose2_id,
                                const SE3t& t_12,
-                               Scalar weight = 1.0)
+                               Scalar weight = 1.0,
+                               bool use_rotation = true)
   {
     const Eigen::Matrix<Scalar, BinaryResidual::kResSize,
       UnaryResidual::kResSize> covariance =
         Eigen::Matrix<Scalar, BinaryResidual::kResSize,
               UnaryResidual::kResSize>::Identity();
-    return AddBinaryConstraint(pose1_id, pose2_id, t_12, covariance, weight);
+    return AddBinaryConstraint(pose1_id, pose2_id, t_12, covariance, weight,
+                               use_rotation);
   }
 
   ////////////////////////////////////////////////////////////////////////////
@@ -446,7 +448,8 @@ class BundleAdjuster
                                const SE3t& t_12,
                                Eigen::Matrix<Scalar, BinaryResidual::kResSize,
                                BinaryResidual::kResSize> covariance,
-                               Scalar weight = 1.0)
+                               Scalar weight = 1.0,
+                               bool use_rotation = true)
   {
     assert(pose1_id < poses_.size());
     assert(pose2_id < poses_.size());
@@ -461,6 +464,7 @@ class BundleAdjuster
     residual.t_12 = t_12;
     residual.cov_inv = covariance.inverse();
     residual.cov_inv_sqrt = residual.cov_inv.sqrt();
+    residual.use_rotation = use_rotation;
 
     binary_residuals_.push_back(residual);
     binary_residual_offset_ += BinaryResidual::kResSize;

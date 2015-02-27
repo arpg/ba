@@ -43,7 +43,7 @@ namespace ba {
     }
 
     // Update the camera intrinsics if optimized.
-    if (kCamParamsInCalib && delta.delta_k.rows() > 0){
+    if (kCamParamsInCalib && delta.delta_k.rows() > 0) {
       Eigen::VectorXd params = rig_.cameras_[0]->GetParams();
       StreamMessage(debug_level) << "Prev params: " << params.transpose() <<
                                     std::endl;
@@ -211,6 +211,11 @@ namespace ba {
         const Pose& pose2 = poses_[res.x2_id];
         res.residual = log_decoupled(pose1.t_wp.inverse() * pose2.t_wp,
                                      res.t_12);
+
+        if (!res.use_rotation) {
+          res.residual.template tail<3>().setZero();
+        }
+
         // res.residual = SE3t::log(pose1.t_wp.inverse() * pose2.t_wp * res.t_21);
         res.mahalanobis_distance = res.residual.squaredNorm() * res.weight;
         *binary_error += res.mahalanobis_distance;
@@ -1404,6 +1409,12 @@ namespace ba {
 
       res.dz_dx2 = dlog_dt1 * dt1_t2_dt2(t_1w/*, t_w2*/) *
           dexp_decoupled_dx<Scalar>(t_w2);
+
+      if (!res.use_rotation) {
+        res.residual.template tail<3>().setZero();
+        res.dz_dx1.template block<3, 6>(3, 0).setZero();
+        res.dz_dx2.template block<3, 6>(3, 0).setZero();
+      }
 
       BA_TEST(_Test_dBinaryResidual_dX(res, t_w1, t_w2));
 

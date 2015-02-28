@@ -165,11 +165,11 @@ class BundleAdjuster
 
   ////////////////////////////////////////////////////////////////////////////
   BundleAdjuster() :
+    debug_level_threshold(0),
+    debug_level(0),
     imu_(SE3t(),Vector3t::Zero(),Vector3t::Zero(),Vector2t::Zero()),
     translation_enabled_(kCalibDim > 15 ? false : true),
-    total_tvs_change_(0),
-    debug_level(0),
-    debug_level_threshold(0)
+    total_tvs_change_(0)
   {}
 
 
@@ -399,7 +399,7 @@ class BundleAdjuster
                               const SE3t& t_wv,
                               Eigen::Matrix<Scalar, UnaryResidual::kResSize,
                               UnaryResidual::kResSize> covariance,
-                              bool use_rotation)
+                              bool use_rotation = true)
   {
     assert(pose_id < poses_.size());
 

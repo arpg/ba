@@ -5,9 +5,9 @@ include(export_package)
 ################################################################################
 # Find required dependencies
 
-find_package( Eigen3 REQUIRED )
-find_package( Calibu 0.1 REQUIRED )
-find_package( Sophus REQUIRED )
+find_package(Eigen3 REQUIRED)
+find_package(Calibu 0.1 REQUIRED)
+find_package(Sophus REQUIRED)
 find_package(TBB REQUIRED)
 
 # Basic includes / libraries
@@ -25,7 +25,7 @@ list( APPEND LINK_LIBS  ${Calibu_LIBRARIES} ${TBB_LIBRARIES} )
 
 set( INCDIR "../include/ba" )
 
-list(APPEND SOURCES    
+list(APPEND SOURCES
     BundleAdjuster.cpp
 )
 

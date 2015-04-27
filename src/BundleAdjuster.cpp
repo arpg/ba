@@ -42,13 +42,13 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize, DoTvs>::ApplyUpdate(
 
   // Update the camera intrinsics if optimized.
   if (kCamParamsInCalib && delta.delta_k.rows() > 0){
-    Eigen::VectorXd params = rig_.cameras_[0]->GetParams();
+    Eigen::VectorXd params = rig_->cameras_[0]->GetParams();
     StreamMessage(debug_level) << "Prev params: " << params.transpose() <<
                                   std::endl;
 
     // Apply the update (camera intrinsics will always be first).
     params -= delta.delta_k.template head<CalibSize>();
-    rig_.cameras_[0]->SetParams(params);
+    rig_->cameras_[0]->SetParams(params);
 
     StreamMessage(debug_level) << " Post params: " << params.transpose() <<
                                   std::endl;
@@ -60,7 +60,7 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize, DoTvs>::ApplyUpdate(
         // std::cerr << "Prev x_s for lm " << ii << ":" << lm.x_s.transpose();
         const double norm = lm.x_s.template head<3>().norm();
         lm.x_s.template head<3>() =
-            rig_.cameras_[0]->Unproject(lm.z_ref).normalized() * norm;
+            rig_->cameras_[0]->Unproject(lm.z_ref).normalized() * norm;
         // std::cerr << " post x_s: " << lm.x_s.transpose() << std::endl;
       }
     }
@@ -68,14 +68,14 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize, DoTvs>::ApplyUpdate(
 
   // Update the camera extrinsics if optimized.
   if (kTvsInCalib && delta.delta_k.rows() > 0) {
-    StreamMessage(debug_level) << "Prev tvs:\n" << rig_.t_wc_[0].matrix() <<
+    StreamMessage(debug_level) << "Prev tvs:\n" << rig_->cameras_[0]->Pose().matrix() <<
                                   std::endl;
 
     const Eigen::Matrix<Scalar, 6, 1> tvs_delta =
         -delta.delta_k.template segment<6>(kTvsOffset);
-    rig_.t_wc_[0] = exp_decoupled(rig_.t_wc_[0], tvs_delta);
+    rig_->cameras_[0]->SetPose(exp_decoupled(rig_->cameras_[0]->Pose(), tvs_delta));
 
-    StreamMessage(debug_level) << "Post tvs:\n" << rig_.t_wc_[0].matrix() <<
+    StreamMessage(debug_level) << "Post tvs:\n" << rig_->cameras_[0]->Pose().matrix() <<
                                   std::endl;
   }
 
@@ -157,21 +157,21 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize, DoTvs>::EvaluateResidua
       const SE3t t_sw_m = pose.GetTsw(res.cam_id, rig_);
       const SE3t t_ws_r = ref_pose.GetTsw(lm.ref_cam_id,rig_).inverse();
 
-      Eigen::VectorXd backup_params = rig_.cameras_[res.cam_id]->GetParams();
+      Eigen::VectorXd backup_params = rig_->cameras_[res.cam_id]->GetParams();
       if (options_.use_per_pose_cam_params) {
-        rig_.cameras_[res.cam_id]->SetParams(pose.cam_params);
+        rig_->cameras_[res.cam_id]->SetParams(pose.cam_params);
       }
 
       const Vector2t p = kLmDim == 3 ?
-            rig_.cameras_[res.cam_id]->Transfer3d(
+            rig_->cameras_[res.cam_id]->Transfer3d(
               t_sw_m, lm.x_w.template head<3>(),lm.x_w(3)) :
-            rig_.cameras_[res.cam_id]->Transfer3d(
+            rig_->cameras_[res.cam_id]->Transfer3d(
               t_sw_m*t_ws_r, lm.x_s.template head<3>(),lm.x_s(3));
 
       res.residual = res.z - p;
 
       if (options_.use_per_pose_cam_params) {
-        rig_.cameras_[res.cam_id]->SetParams(backup_params);
+        rig_->cameras_[res.cam_id]->SetParams(backup_params);
       }
 
       //  std::cout << "res " << res.residual_id << " : pre" << res.residual.norm() <<
@@ -1012,8 +1012,8 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize, DoTvs>::SolveInternal(
       decltype(poses_) poses_copy = poses_;
       decltype(imu_) imu_copy = imu_;
       Eigen::VectorXd params_backup;
-      if (rig_.cameras_.size() != 0) {
-        params_backup = rig_.cameras_[0]->GetParams();
+      if (rig_->NumCams() != 0) {
+        params_backup = rig_->cameras_[0]->GetParams();
       }
       // decltype(rig_) rig_copy = rig_;
 
@@ -1051,8 +1051,8 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize, DoTvs>::SolveInternal(
           landmarks_ = landmarks_copy;
           poses_ = poses_copy;
           imu_ = imu_copy;
-          if (rig_.cameras_.size() != 0) {
-            rig_.cameras_[0]->SetParams(params_backup);
+          if (rig_->NumCams() != 0) {
+            rig_->cameras_[0]->SetParams(params_backup);
           }
         }
 
@@ -1086,8 +1086,8 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize, DoTvs>::SolveInternal(
     decltype(poses_) poses_copy = poses_;
     decltype(imu_) imu_copy = imu_;
     Eigen::VectorXd params_backup;
-    if (rig_.cameras_.size() != 0) {
-      params_backup = rig_.cameras_[0]->GetParams();
+    if (rig_->NumCams() != 0) {
+      params_backup = rig_->cameras_[0]->GetParams();
     }
 
     // now back substitute the landmarks
@@ -1132,8 +1132,8 @@ bool BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize, DoTvs>::SolveInternal(
          landmarks_ = landmarks_copy;
          poses_ = poses_copy;
          imu_ = imu_copy;
-         if (rig_.cameras_.size() != 0) {
-           rig_.cameras_[0]->SetParams(params_backup);
+         if (rig_->NumCams() != 0) {
+           rig_->cameras_[0]->SetParams(params_backup);
          }
        }
       summary_.result = ErrorIncreased;
@@ -1331,10 +1331,10 @@ void BundleAdjuster<Scalar, LmSize, PoseSize, CalibSize, DoTvs>::BuildProblem()
     Landmark& lm = landmarks_[res.landmark_id];
     Pose& pose = poses_[res.x_meas_id];
     Pose& ref_pose = poses_[res.x_ref_id];
-    calibu::CameraInterface<Scalar>* cam = rig_.cameras_[res.cam_id];
+    std::shared_ptr<calibu::CameraInterface<Scalar>> cam = rig_->cameras_[res.cam_id];
 
-    const SE3t& t_vs_m = rig_.t_wc_[res.cam_id];
-    const SE3t& t_vs_r = rig_.t_wc_[lm.ref_cam_id];
+    const SE3t& t_vs_m = rig_->cameras_[res.cam_id]->Pose();
+    const SE3t& t_vs_r = rig_->cameras_[lm.ref_cam_id]->Pose();
     const SE3t& t_sw_m = pose.GetTsw(res.cam_id, rig_);
     const SE3t t_ws_r = ref_pose.GetTsw(lm.ref_cam_id, rig_).inverse();
 

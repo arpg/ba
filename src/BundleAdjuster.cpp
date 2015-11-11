@@ -42,44 +42,43 @@ namespace ba {
       }
     }
 
-    // Update the camera intrinsics if optimized.
-    if (kCamParamsInCalib && delta.delta_k.rows() > 0) {
-      Eigen::VectorXd params = rig_.cameras_[0]->GetParams();
-      StreamMessage(debug_level) << "Prev params: " << params.transpose() <<
+  // Update the camera intrinsics if optimized.
+  if (kCamParamsInCalib && delta.delta_k.rows() > 0){
+    Eigen::VectorXd params = rig_->cameras_[0]->GetParams();
+    StreamMessage(debug_level) << "Prev params: " << params.transpose() <<
+                                  std::endl;
+
+    // Apply the update (camera intrinsics will always be first).
+    params -= delta.delta_k.template head<CalibSize>();
+    rig_->cameras_[0]->SetParams(params);
+
+    StreamMessage(debug_level) << " Post params: " << params.transpose() <<
                                     std::endl;
 
-      // Apply the update (camera intrinsics will always be first).
-      params -= delta.delta_k.template head<CalibSize>();
-      rig_.cameras_[0]->SetParams(params);
-
-      StreamMessage(debug_level) << " Post params: " << params.transpose() <<
-                                    std::endl;
-
-      // If we are in inverse depth mode, we have to reproject all landmarks.
-      if (kLmDim == 1) {
-        for (size_t ii = 0 ; ii < landmarks_.size() ; ++ii) {
-          Landmark& lm = landmarks_[ii];
-          // std::cerr << "Prev x_s for lm " << ii << ":" << lm.x_s.transpose();
-          const double norm = lm.x_s.template head<3>().norm();
-          lm.x_s.template head<3>() =
-              rig_.cameras_[0]->Unproject(lm.z_ref).normalized() * norm;
-          // std::cerr << " post x_s: " << lm.x_s.transpose() << std::endl;
-        }
+    // If we are in inverse depth mode, we have to reproject all landmarks.
+    if (kLmDim == 1) {
+      for (size_t ii = 0 ; ii < landmarks_.size() ; ++ii) {
+        Landmark& lm = landmarks_[ii];
+        // std::cerr << "Prev x_s for lm " << ii << ":" << lm.x_s.transpose();
+        const double norm = lm.x_s.template head<3>().norm();
+        lm.x_s.template head<3>() =
+            rig_->cameras_[0]->Unproject(lm.z_ref).normalized() * norm;
+        // std::cerr << " post x_s: " << lm.x_s.transpose() << std::endl;
       }
     }
 
-    // Update the camera extrinsics if optimized.
-    if (kTvsInCalib && delta.delta_k.rows() > 0) {
-      StreamMessage(debug_level) << "Prev tvs:\n" << rig_.t_wc_[0].matrix() <<
-                                    std::endl;
+  // Update the camera extrinsics if optimized.
+  if (kTvsInCalib && delta.delta_k.rows() > 0) {
+    StreamMessage(debug_level) << "Prev tvs:\n" << rig_->cameras_[0]->Pose().matrix() <<
+                                  std::endl;
 
-      const Eigen::Matrix<Scalar, 6, 1> tvs_delta =
-          -delta.delta_k.template segment<6>(kTvsOffset);
-      rig_.t_wc_[0] = exp_decoupled(rig_.t_wc_[0], tvs_delta);
+    const Eigen::Matrix<Scalar, 6, 1> tvs_delta =
+        -delta.delta_k.template segment<6>(kTvsOffset);
+    rig_->cameras_[0]->SetPose(exp_decoupled(rig_->cameras_[0]->Pose(), tvs_delta));
 
-      StreamMessage(debug_level) << "Post tvs:\n" << rig_.t_wc_[0].matrix() <<
-                                    std::endl;
-    }
+    StreamMessage(debug_level) << "Post tvs:\n" << rig_->cameras_[0]->Pose().matrix() <<
+                                  std::endl;
+  }
 
     // update poses
     // std::cout << "Updating " << uNumPoses << " active poses." << std::endl;
@@ -167,7 +166,7 @@ namespace ba {
         const Vector2t p = kLmDim == 3 ?
               rig_.cameras_[res.cam_id]->Transfer3d(
               t_sw_m, lm.x_w.template head<3>(),lm.x_w(3)) :
-            rig_.cameras_[res.cam_id]->Transfer3d(
+            rig_->cameras_[res.cam_id]->Transfer3d(
               t_sw_m*t_ws_r, lm.x_s.template head<3>(),lm.x_s(3));
 
         res.residual = res.z - p;
@@ -1097,8 +1096,8 @@ namespace ba {
       decltype(poses_) poses_copy = poses_;
       decltype(imu_) imu_copy = imu_;
       Eigen::VectorXd params_backup;
-      if (rig_.cameras_.size() != 0) {
-        params_backup = rig_.cameras_[0]->GetParams();
+      if (rig_->NumCams() != 0) {
+        params_backup = rig_->cameras_[0]->GetParams();
       }
 
       // now back substitute the landmarks
@@ -1143,8 +1142,8 @@ namespace ba {
           landmarks_ = landmarks_copy;
           poses_ = poses_copy;
           imu_ = imu_copy;
-          if (rig_.cameras_.size() != 0) {
-            rig_.cameras_[0]->SetParams(params_backup);
+          if (rig_->NumCams() != 0) {
+            rig_->cameras_[0]->SetParams(params_backup);
           }
         }
         summary_.result = ErrorIncreased;

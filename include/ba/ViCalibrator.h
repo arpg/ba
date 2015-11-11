@@ -32,8 +32,8 @@
 
 #include <sophus/se3.hpp>
 
-#include <calibu/cam/CameraModel.h>
-#include <calibu/cam/CameraXml.h>
+#include <calibu/cam/camera_crtp.h>
+#include <calibu/cam/camera_xml.h>
 #include <calibu/calib/CostFunctionAndParams.h>
 
 #include <ceres/ceres.h>
@@ -43,7 +43,8 @@
 #endif // CALIBU_CERES_COVAR
 
 #include "LocalParamSe3.h"
-#include <calibu/cam/CameraRig.h>
+#include <calibu/cam/camera_models_crtp.h>
+#include <calibu/cam/camera_rig.h>
 #include <calibu/calib/ReprojectionCostFunctor.h>
 #include <calibu/calib/CostFunctionAndParams.h>
 
@@ -52,6 +53,18 @@
 #include "CeresCostFunctions.h"
 
 namespace ba {
+
+// Tie together a single camera and its position relative to the IMU.
+struct CameraAndPose {
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+  CameraAndPose(const std::shared_ptr<calibu::CameraInterface<double>> camera,
+                const Sophus::SE3d& T_ck)
+      : camera(camera), T_ck(T_ck) {}
+
+  std::shared_ptr<calibu::CameraInterface<double>> camera;
+  Sophus::SE3d T_ck;
+};
+
 class ViCalibrator {
  public:
 
@@ -81,7 +94,7 @@ class ViCalibrator {
 
   /// Write XML file containing configuration of camera rig.
   void WriteCameraModels(const std::string filename) {
-    calibu::CameraRig rig;
+    std::shared_ptr<calibu::Rig<double>> rig(new calibu::Rig<double>);
 
     for (size_t c = 0; c < camera_.size(); ++c) {
       // Rdfrobotics.inverse is multiplied so that T_ck d oes not bake the
@@ -135,12 +148,12 @@ class ViCalibrator {
 
   /// Add camera to sensor rig. The returned ID should be used when adding
   /// measurements for this camera
-  int AddCamera(const calibu::CameraModel& cam, const Sophus::SE3d& t_ck =
-                    Sophus::SE3d()) {
+  int AddCamera(const std::shared_ptr<calibu::CameraInterface<double>> cam,
+                const Sophus::SE3d& t_ck = Sophus::SE3d()) {
     int id = camera_.size();
     camera_.push_back(
-        calibu::make_unique < calibu::CameraAndPose > (cam, t_ck));
-    camera_.back()->camera.SetIndex(id);
+        calibu::make_unique < CameraAndPose > (cam, t_ck));
+    camera_.back()->camera->SetIndex(id);
     return id;
   }
 
@@ -197,42 +210,52 @@ class ViCalibrator {
     // Create cost function
     calibu::CostFunctionAndParams* cost = new calibu::CostFunctionAndParams();
 
-    auto& interface = cp.camera.GetCameraModelInterface();
-    if (dynamic_cast<calibu::CameraModelT<calibu::Fov>*>(&interface)) {
-      cost->Cost() = new ceres::AutoDiffCostFunction<
-          ImuReprojectionCostFunctor<calibu::Fov>, 2,
-          Sophus::SE3d::num_parameters, Sophus::SO3d::num_parameters, 3,
-          calibu::Fov::NUM_PARAMS>(
-          new ImuReprojectionCostFunctor<calibu::Fov>(p_w, p_c));
+    std::shared_ptr<calibu::CameraInterface<double>> interface = cp.camera;
 
-    } else if (dynamic_cast<calibu::CameraModelT<calibu::Poly2>*>(&interface)) {
+    // Allocate and assign the correct cost function. Lifetimes are
+    // handled by Calibu.
+    if (dynamic_cast<calibu::FovCamera<double>*>( interface.get())) {  // NOLINT
       cost->Cost() = new ceres::AutoDiffCostFunction<
-          ImuReprojectionCostFunctor<calibu::Poly2>, 2,
+          ImuReprojectionCostFunctor<calibu::FovCamera<double>>, 2,
           Sophus::SE3d::num_parameters, Sophus::SO3d::num_parameters, 3,
-          calibu::Poly2::NUM_PARAMS>(
-          new ImuReprojectionCostFunctor<calibu::Poly2>(p_w, p_c));
+          calibu::FovCamera<double>::NumParams>(
+          new ImuReprojectionCostFunctor<calibu::FovCamera<double>>(p_w, p_c));
 
-    } else if (dynamic_cast<calibu::CameraModelT<calibu::Poly3>*>(&interface)) {
+    } else if (dynamic_cast<calibu::Poly2Camera<double>*>(
+                   interface.get())) {  // NOLINT
       cost->Cost() = new ceres::AutoDiffCostFunction<
-          ImuReprojectionCostFunctor<calibu::Poly3>, 2,
+          ImuReprojectionCostFunctor<calibu::Poly2Camera<double>>, 2,
           Sophus::SE3d::num_parameters, Sophus::SO3d::num_parameters, 3,
-          calibu::Poly3::NUM_PARAMS>(
-          new ImuReprojectionCostFunctor<calibu::Poly3>(p_w, p_c));
+          calibu::Poly2Camera<double>::NumParams>(
+          new ImuReprojectionCostFunctor<calibu::Poly2Camera<double>>(p_w, p_c));
 
-    } else if (dynamic_cast<calibu::CameraModelT<calibu::ProjectionKannalaBrandt>*>(&interface)) {
+    } else if (dynamic_cast<calibu::Poly3Camera<double>*>( interface.get())) {  // NOLINT
       cost->Cost() = new ceres::AutoDiffCostFunction<
-          ImuReprojectionCostFunctor<calibu::ProjectionKannalaBrandt>, 2,
+          ImuReprojectionCostFunctor<calibu::Poly3Camera<double>>, 2,
           Sophus::SE3d::num_parameters, Sophus::SO3d::num_parameters, 3,
-          calibu::ProjectionKannalaBrandt::NUM_PARAMS>(
-          new ImuReprojectionCostFunctor<calibu::ProjectionKannalaBrandt>(p_w,
-                                                                          p_c));
+          calibu::Poly3Camera<double>::NumParams>(
+          new ImuReprojectionCostFunctor<calibu::Poly3Camera<double>>(p_w, p_c));
+
+    } else if (dynamic_cast<calibu::KannalaBrandtCamera<double>*>( interface.get())) {
+      cost->Cost() = new ceres::AutoDiffCostFunction<
+          ImuReprojectionCostFunctor<calibu::KannalaBrandtCamera<double>>, 2,
+          Sophus::SE3d::num_parameters, Sophus::SO3d::num_parameters, 3,
+          calibu::KannalaBrandtCamera<double>::NumParams>(
+          new ImuReprojectionCostFunctor<calibu::KannalaBrandtCamera<double>>(p_w, p_c));
+    } else if (dynamic_cast<calibu::LinearCamera<double>*>( interface.get())) {
+      cost->Cost() = new ceres::AutoDiffCostFunction<
+          ImuReprojectionCostFunctor<calibu::LinearCamera<double>>, 2,
+          Sophus::SE3d::num_parameters, Sophus::SO3d::num_parameters, 3,
+          calibu::LinearCamera<double>::NumParams>(
+          new ImuReprojectionCostFunctor<calibu::LinearCamera<double>>(p_w, p_c));
 
     } else {
-      throw std::runtime_error("Don't know how to optimize CameraModel");
+      LOG(FATAL) << "Don't know how to optimize CameraModel: "
+                 << interface->Type();
     }
 
     cost->Params() = std::vector<double*> { t_wk.data(), cp.T_ck.so3().data(),
-        cp.T_ck.translation().data(), cp.camera.data() };
+        cp.T_ck.translation().data(), cp.camera->GetParams().data() };
     cost->Loss() = &loss_func_;
     proj_costs_.push_back(
         std::unique_ptr < calibu::CostFunctionAndParams > (cost));
@@ -256,7 +279,7 @@ class ViCalibrator {
   }
 
   /// Return camera i of camera rig
-  calibu::CameraAndPose& GetCamera(size_t i) {
+  CameraAndPose& GetCamera(size_t i) {
     return *camera_[i];
   }
 
@@ -289,16 +312,12 @@ class ViCalibrator {
 
   /// Print summary of calibration
   void PrintResults() {
-    std::cout << "------------------------------------------" << std::endl;
-
-    for (size_t c = 0; c < camera_.size(); ++c) {
-      std::cout << "Camera: " << c << std::endl;
-      std::cout << camera_[c]->camera.GenericParams().transpose() << std::endl;
-
-      if (c > 0) {
-        std::cout << camera_[c]->T_ck.matrix3x4() << std::endl;
-      }
-      std::cout << std::endl;
+    LOG(INFO) << "------------------------------------------" << std::endl;
+    for (size_t c = 0; c < cameras_.size(); ++c) {
+      LOG(INFO) << "Camera: " << c << std::endl;
+      LOG(INFO) << cameras_[c]->camera->GetParams().transpose() << std::endl;
+      LOG(INFO) << cameras_[c]->T_ck.matrix();
+      LOG(INFO) << std::endl;
     }
   }
 
@@ -332,10 +351,10 @@ class ViCalibrator {
       }
 
       if (fix_intrinsics_) {
-        problem.AddParameterBlock(camera_[c]->camera.data(),
-                                  camera_[c]->camera.NumParams());
+        problem.AddParameterBlock(camera_[c]->camera->GetParams().data(),
+                                  camera_[c]->camera->NumParams());
 
-        problem.SetParameterBlockConstant(camera_[c]->camera.data());
+        problem.SetParameterBlockConstant(camera_[c]->camera->GetParams().data());
       }
     }
 
@@ -451,7 +470,7 @@ class ViCalibrator {
   bool fix_intrinsics_;
 
   std::vector<std::unique_ptr<ba::ImuPoseT<double>> > t_wk_;
-  std::vector<std::unique_ptr<calibu::CameraAndPose> > camera_;
+  std::vector<std::unique_ptr<CameraAndPose> > camera_;
   std::vector<std::unique_ptr<calibu::CostFunctionAndParams> > proj_costs_;
   std::vector<std::unique_ptr<calibu::CostFunctionAndParams> > imu_costs_;
 

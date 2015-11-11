@@ -23,9 +23,9 @@
 
 #include <iostream>
 #include <Eigen/Eigen>
+#include <calibu/Calibu.h>
 #include <sophus/se3.hpp>
 #include "Utils.h"
-#include <calibu/cam/camera_crtp_interop.h>
 
 // #define IMU_GYRO_UNCERTAINTY 7.15584993e-5  // 0.00104719755 // 0.1 //
 // #define IMU_ACCEL_UNCERTAINTY 0.00159855109  // 0.0392266 // 10
@@ -58,10 +58,13 @@ struct PoseT {
   std::vector<int> landmarks;
   std::vector<Sophus::SE3Group<Scalar>> t_sw;
 
-  const Sophus::SE3Group<Scalar>& GetTsw(const uint32_t cam_id,
-                                         const calibu::Rig<Scalar>& rig) {
+  const Sophus::SE3Group<Scalar>& GetTsw(
+      const uint32_t                              cam_id,
+      const std::shared_ptr<calibu::Rig<Scalar>>  rig
+    )
+  {
     while (t_sw.size() <= cam_id) {
-      t_sw.push_back((t_wp * rig.t_wc_[t_sw.size()]).inverse());
+      t_sw.push_back((t_wp * rig->cameras_[t_sw.size()]->Pose()).inverse());
     }
     return t_sw[cam_id];
   }

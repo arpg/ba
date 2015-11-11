@@ -64,6 +64,7 @@ namespace ba {
         lm.x_s.template head<3>() =
             rig_->cameras_[0]->Unproject(lm.z_ref).normalized() * norm;
         // std::cerr << " post x_s: " << lm.x_s.transpose() << std::endl;
+        }
       }
     }
 
@@ -158,13 +159,13 @@ namespace ba {
         const SE3t t_sw_m = pose.GetTsw(res.cam_id, rig_);
         const SE3t t_ws_r = ref_pose.GetTsw(lm.ref_cam_id,rig_).inverse();
 
-        Eigen::VectorXd backup_params = rig_.cameras_[res.cam_id]->GetParams();
+        Eigen::VectorXd backup_params = rig_->cameras_[res.cam_id]->GetParams();
         if (options_.use_per_pose_cam_params) {
-          rig_.cameras_[res.cam_id]->SetParams(pose.cam_params);
+          rig_->cameras_[res.cam_id]->SetParams(pose.cam_params);
         }
 
         const Vector2t p = kLmDim == 3 ?
-              rig_.cameras_[res.cam_id]->Transfer3d(
+              rig_->cameras_[res.cam_id]->Transfer3d(
               t_sw_m, lm.x_w.template head<3>(),lm.x_w(3)) :
             rig_->cameras_[res.cam_id]->Transfer3d(
               t_sw_m*t_ws_r, lm.x_s.template head<3>(),lm.x_s(3));
@@ -172,7 +173,7 @@ namespace ba {
         res.residual = res.z - p;
 
         if (options_.use_per_pose_cam_params) {
-          rig_.cameras_[res.cam_id]->SetParams(backup_params);
+          rig_->cameras_[res.cam_id]->SetParams(backup_params);
         }
 
         //  std::cout << "res " << res.residual_id << " : pre" << res.residual.norm() <<
@@ -1022,8 +1023,8 @@ namespace ba {
         decltype(poses_) poses_copy = poses_;
         decltype(imu_) imu_copy = imu_;
         Eigen::VectorXd params_backup;
-        if (rig_.cameras_.size() != 0) {
-          params_backup = rig_.cameras_[0]->GetParams();
+        if (rig_->cameras_.size() != 0) {
+          params_backup = rig_->cameras_[0]->GetParams();
         }
         // decltype(rig_) rig_copy = rig_;
 
@@ -1061,8 +1062,8 @@ namespace ba {
             landmarks_ = landmarks_copy;
             poses_ = poses_copy;
             imu_ = imu_copy;
-            if (rig_.cameras_.size() != 0) {
-              rig_.cameras_[0]->SetParams(params_backup);
+            if (rig_->cameras_.size() != 0) {
+              rig_->cameras_[0]->SetParams(params_backup);
             }
           }
 
@@ -1238,7 +1239,7 @@ namespace ba {
     // go through all the poses to check if they are all active
     bool are_all_active = true;
     for (Pose& pose : poses_) {
-      for (int ii = 0; ii < rig_.cameras_.size(); ++ii) {
+      for (int ii = 0; ii < rig_->cameras_.size(); ++ii) {
         pose.GetTsw(ii, rig_);
       }
       if (pose.is_active == false) {

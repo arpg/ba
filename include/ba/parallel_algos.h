@@ -41,11 +41,11 @@ namespace ba {
         typename BaType::Landmark& lm = tracker.landmarks_[res.landmark_id];
         typename BaType::Pose& pose = tracker.poses_[res.x_meas_id];
         typename BaType::Pose& ref_pose = tracker.poses_[res.x_ref_id];
-        calibu::CameraInterface<Scalar>* cam =
-            tracker.rig_.cameras_[res.cam_id];
+        std::shared_ptr<calibu::CameraInterface<Scalar>> cam =
+            tracker.rig_->cameras_[res.cam_id];
 
-        const typename BaType::SE3t& t_vs_m = tracker.rig_.t_wc_[res.cam_id];
-        const typename BaType::SE3t& t_vs_r = tracker.rig_.t_wc_[lm.ref_cam_id];
+        const typename BaType::SE3t& t_vs_m = tracker.rig_->cameras_[res.cam_id]->Pose();
+        const typename BaType::SE3t& t_vs_r = tracker.rig_->cameras_[lm.ref_cam_id]->Pose();
         const typename BaType::SE3t& t_sw_m =
             pose.GetTsw(res.cam_id, tracker.rig_);
         const typename BaType::SE3t t_ws_r =

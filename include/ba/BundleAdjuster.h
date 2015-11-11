@@ -23,6 +23,8 @@
 #include <unsupported/Eigen/MatrixFunctions>
 // #endif
 
+#include <tbb/task_scheduler_init.h>
+
 
 namespace ba {
 constexpr int kTrustRegionAuto = -1.0;
@@ -110,6 +112,10 @@ template<typename Scalar=double,int LmSize=1, int PoseSize=6, int CalibSize=0,
          bool DoTvs = false>
 class BundleAdjuster
 {
+  template<typename BaType, typename ScalarType>
+  friend class ParallelProjectionResiduals;
+  template<typename BaType, typename ScalarType>
+  friend class ParallelInertialResiduals;
  public:
   int debug_level_threshold;
   int debug_level;
@@ -369,9 +375,10 @@ class BundleAdjuster
   /// \return
   ///
   uint32_t AddUnaryConstraint(const uint32_t pose_id,
-                                  const SE3t& t_wv,
-                                  Eigen::Matrix<Scalar, UnaryResidual::kResSize,
-                                  UnaryResidual::kResSize> covariance)
+                              const SE3t& t_wv,
+                              Eigen::Matrix<Scalar, UnaryResidual::kResSize,
+                              UnaryResidual::kResSize> covariance,
+                              bool use_rotation = true)
   {
     assert(pose_id < poses_.size());
 
@@ -382,6 +389,12 @@ class BundleAdjuster
     residual.residual_id = unary_residuals_.size();
     residual.residual_offset = unary_residual_offset_;
     residual.t_wp = t_wv;
+    residual.use_rotation = use_rotation;
+
+    if (!use_rotation) {
+      covariance(3, 3) = covariance(4, 4) = covariance(5, 5) = 1.0;
+    }
+
     residual.cov_inv = covariance.inverse();
     residual.cov_inv_sqrt = residual.cov_inv.sqrt();
 
@@ -397,13 +410,15 @@ class BundleAdjuster
   uint32_t AddBinaryConstraint(const uint32_t pose1_id,
                                const uint32_t pose2_id,
                                const SE3t& t_12,
-                               Scalar weight = 1.0)
+                               Scalar weight = 1.0,
+                               bool use_rotation = true)
   {
     const Eigen::Matrix<Scalar, BinaryResidual::kResSize,
       UnaryResidual::kResSize> covariance =
         Eigen::Matrix<Scalar, BinaryResidual::kResSize,
               UnaryResidual::kResSize>::Identity();
-    return AddBinaryConstraint(pose1_id, pose2_id, t_12, covariance, weight);
+    return AddBinaryConstraint(pose1_id, pose2_id, t_12, covariance, weight,
+                               use_rotation);
   }
 
   ////////////////////////////////////////////////////////////////////////////
@@ -412,7 +427,8 @@ class BundleAdjuster
                                const SE3t& t_12,
                                Eigen::Matrix<Scalar, BinaryResidual::kResSize,
                                BinaryResidual::kResSize> covariance,
-                               Scalar weight = 1.0)
+                               Scalar weight = 1.0,
+                               bool use_rotation = true)
   {
     assert(pose1_id < poses_.size());
     assert(pose2_id < poses_.size());
@@ -427,6 +443,7 @@ class BundleAdjuster
     residual.t_12 = t_12;
     residual.cov_inv = covariance.inverse();
     residual.cov_inv_sqrt = residual.cov_inv.sqrt();
+    residual.use_rotation = use_rotation;
 
     binary_residuals_.push_back(residual);
     binary_residual_offset_ += BinaryResidual::kResSize;
@@ -731,6 +748,8 @@ private:
 
   SolutionSummary<Scalar> summary_;
   Options<Scalar> options_;
+
+  tbb::task_scheduler_init tbb_scheduler_;
 };
 
 static const int NOT_USED = 0;

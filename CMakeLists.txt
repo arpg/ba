@@ -49,15 +49,17 @@ include_directories( include )
 find_package( Eigen3 REQUIRED )
 find_package( Calibu 0.1 REQUIRED )
 find_package( Sophus REQUIRED )
+find_package( TBB REQUIRED )
 
 # Basic includes / libraries
 list( APPEND LIB_INC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../include" )
 list( APPEND USER_INC    ${EIGEN3_INCLUDE_DIR}
                          ${Calibu_INCLUDE_DIRS}
-                         ${Sophus_INCLUDE_DIR} )
+                         ${Sophus_INCLUDE_DIR}
+                         ${TBB_INCLUDE_DIR} )
 
 # this is done in baConfig.cmake.in
-list( APPEND LINK_LIBS  ${Calibu_LIBRARIES} )
+list( APPEND LINK_LIBS  ${Calibu_LIBRARIES} ${TBB_LIBRARIES})
 
 ################################################################################
 # Specify source files
@@ -90,6 +92,7 @@ include_directories( ${CMAKE_CURRENT_BINARY_DIR}/include )
 
 # build calibu library
 add_library( ba ${BA_SRCS} ${BA_HDRS} )
+target_link_libraries( ba ${LINK_LIBS} )
 
 # install everything
 install_package(

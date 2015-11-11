@@ -261,6 +261,8 @@ struct UnaryResidualT : public ResidualT<Scalar, 6> {
   Eigen::Matrix<Scalar, kResSize, 1> residual;
   Eigen::Matrix<Scalar, kResSize, kResSize> cov_inv;
   Eigen::Matrix<Scalar, kResSize, kResSize> cov_inv_sqrt;
+
+  bool use_rotation;
 };
 
 template<typename Scalar = double>
@@ -274,6 +276,7 @@ struct BinaryResidualT : public ResidualT<Scalar, 6> {
   Eigen::Matrix<Scalar, kResSize, 1> residual;
   Eigen::Matrix<Scalar, kResSize, kResSize> cov_inv;
   Eigen::Matrix<Scalar, kResSize, kResSize> cov_inv_sqrt;
+  bool use_rotation;
 };
 
 template<typename Scalar = double, int LmSize = 1>
@@ -306,6 +309,7 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
   std::vector<ImuPose> poses;
   Eigen::Matrix<Scalar, kResSize, PoseSize> dz_dx1;
   Eigen::Matrix<Scalar, kResSize, PoseSize> dz_dx2;
+  Eigen::Matrix<Scalar, kResSize, kResSize> cov;
   Eigen::Matrix<Scalar, kResSize, kResSize> cov_inv;
   Eigen::Matrix<Scalar, kResSize, kResSize> cov_inv_sqrt;
   Eigen::Matrix<Scalar, kResSize, 6> dz_dy;

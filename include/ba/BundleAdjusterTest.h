@@ -1,5 +1,6 @@
 
 #include <Eigen/Sparse>
+#include <calibu/Calibu.h>
 #include "SparseBlockMatrix.h"
 #include "SparseBlockMatrixOps.h"
 #include "CeresCostFunctions.h"
@@ -14,7 +15,7 @@ bool _Test_dProjectionResidual_dX(
     const ProjectionResidualT<Scalar, kLmDim>& res,
     const PoseT<Scalar>& pose, const PoseT<Scalar>& ref_pose,
     const LandmarkT<Scalar, kLmDim>& lm,
-    calibu::CameraRigT<Scalar> rig)
+    std::shared_ptr<calibu::Rig<Scalar>> rig)
 {
   Eigen::Matrix<Scalar,2,1> dl_diff;
   Eigen::Matrix<Scalar,2,6> dx_meas_diff;
@@ -29,15 +30,15 @@ bool _Test_dProjectionResidual_dX(
     Eigen::Matrix<Scalar,2,1> dz_dl_fd;
 
     Sophus::SE3Group<Scalar> Tss =
-        (pose.t_wp * rig.cameras[res.cam_id].T_wc).inverse() *
-        ref_pose.t_wp * rig.cameras[lm.ref_cam_id].T_wc;
+        (pose.t_wp * rig->cameras_[res.cam_id]->Pose()).inverse() *
+        ref_pose.t_wp * rig->cameras_[lm.ref_cam_id]->Pose();
 
     const Eigen::Matrix<Scalar,2,1> pPlus =
-    rig.cameras[res.cam_id].camera.Transfer3D(
+    rig->cameras_[res.cam_id]->Transfer3D(
           Tss,lm.x_s.template head(3),lm.x_s[3]+eps);
 
     const Eigen::Matrix<Scalar,2,1> pMinus =
-    rig.cameras[res.cam_id].camera.Transfer3D(
+    rig->cameras_[res.cam_id]->Transfer3D(
           Tss,lm.x_s.template head(3),lm.x_s[3]-eps);
 
     dz_dl_fd = -(pPlus-pMinus)/(2*eps);
@@ -58,21 +59,21 @@ bool _Test_dProjectionResidual_dX(
         delta[ii] = eps;
         Sophus::SE3Group<Scalar> Tss = (exp_decoupled(pose.t_wp, delta) *
             //(pose.t_wp * SE3t::exp(delta)*
-                    rig.cameras[res.cam_id].T_wc).inverse() *
-                    ref_pose.t_wp * rig.cameras[lm.ref_cam_id].T_wc;
+                    rig->cameras_[res.cam_id]->Pose()).inverse() *
+                    ref_pose.t_wp * rig->cameras_[lm.ref_cam_id]->Pose();
 
         const Eigen::Matrix<Scalar,2,1> pPlus =
-        rig.cameras[res.cam_id].camera.Transfer3D(
+        rig->cameras_[res.cam_id]->Transfer3D(
               Tss,lm.x_s.template head(3),lm.x_s[3]);
 
         delta[ii] = -eps;
         // Tss = (pose.t_wp *SE3t::exp(delta) *
         Tss = (exp_decoupled(pose.t_wp, delta) *
-               rig.cameras[res.cam_id].T_wc).inverse() *
-               ref_pose.t_wp * rig.cameras[lm.ref_cam_id].T_wc;
+               rig->cameras_[res.cam_id]->Pose()).inverse() *
+               ref_pose.t_wp * rig->cameras_[lm.ref_cam_id]->Pose();
 
         const Eigen::Matrix<Scalar,2,1> pMinus =
-        rig.cameras[res.cam_id].camera.Transfer3D(
+        rig->cameras_[res.cam_id]->Transfer3D(
               Tss,lm.x_s.template head(3),lm.x_s[3]);
 
         dz_dx_fd.col(ii) = -(pPlus-pMinus)/(2*eps);
@@ -90,23 +91,23 @@ bool _Test_dProjectionResidual_dX(
           delta.setZero();
           delta[ii] = eps;
           Sophus::SE3Group<Scalar> Tss =
-              (pose.t_wp * rig.cameras[res.cam_id].T_wc).inverse() *
+              (pose.t_wp * rig->cameras_[res.cam_id]->Pose()).inverse() *
               exp_decoupled(ref_pose.t_wp, delta) *
               // (ref_pose.t_wp*SE3t::exp(delta)) *
-              rig.cameras[lm.ref_cam_id].T_wc;
+              rig->cameras_[lm.ref_cam_id]->Pose();
 
           const Eigen::Matrix<Scalar,2,1> pPlus =
-          rig.cameras[res.cam_id].camera.Transfer3D(
+          rig->cameras_[res.cam_id]->Transfer3D(
                 Tss,lm.x_s.template head(3),lm.x_s[3]);
 
           delta[ii] = -eps;
-          Tss = (pose.t_wp * rig.cameras[res.cam_id].T_wc).inverse() *
+          Tss = (pose.t_wp * rig->cameras_[res.cam_id]->Pose()).inverse() *
               exp_decoupled(ref_pose.t_wp, delta) *
               // (ref_pose.t_wp*SE3t::exp(delta)) *
-              rig.cameras[lm.ref_cam_id].T_wc;
+              rig->cameras_[lm.ref_cam_id]->Pose();
 
           const Eigen::Matrix<Scalar,2,1> pMinus =
-          rig.cameras[res.cam_id].camera.Transfer3D(
+          rig->cameras_[res.cam_id]->Transfer3D(
                 Tss,lm.x_s.template head(3),lm.x_s[3]);
 
           dz_dx_ref_fd.col(ii) = -(pPlus-pMinus)/(2*eps);

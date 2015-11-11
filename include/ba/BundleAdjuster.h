@@ -17,7 +17,6 @@
 #include "CeresCostFunctions.h"
 #include "Utils.h"
 #include "Types.h"
-#include <calibu/cam/camera_crtp_interop.h>
 // #ifdef ENABLE_TESTING
 #include "BundleAdjusterTest.h"
 // Only used for matrix square root.
@@ -159,12 +158,13 @@ class BundleAdjuster
 
   ////////////////////////////////////////////////////////////////////////////
   BundleAdjuster() :
+    debug_level_threshold(0),
+    debug_level(0),
     imu_(SE3t(),Vector3t::Zero(),Vector3t::Zero(),Vector2t::Zero()),
     translation_enabled_(kCalibDim > 15 ? false : true),
-    total_tvs_change_(0),
-    debug_level(0),
-    debug_level_threshold(0)
-  {}
+    total_tvs_change_(0)
+  {
+  }
 
 
   ////////////////////////////////////////////////////////////////////////////
@@ -215,16 +215,10 @@ class BundleAdjuster
     proj_residuals_.reserve(num_measurements);
     poses_.reserve(num_poses);
 
-    // Delete the cameras that we own.
-    for (size_t ii = 0; ii < rig_.cameras_.size() ; ++ii) {
-      if (camera_owned_[ii] == true) {
-        delete rig_.cameras_[ii];
-      }
-    }
-    rig_.cameras_.clear();
+    // Reset shared pointer.
+    rig_.reset(new calibu::Rig<double>());
 
     // clear all arrays
-    rig_.Clear();
     poses_.clear();
     proj_residuals_.clear();
     binary_residuals_.clear();
@@ -256,25 +250,10 @@ class BundleAdjuster
   }
 
   ////////////////////////////////////////////////////////////////////////////
-  uint32_t AddCamera(const calibu::CameraModelInterfaceT<Scalar>& cam_param,
-                     const SE3t& cam_pose)
+  uint32_t AddCamera(std::shared_ptr<calibu::CameraInterface<Scalar>> cam)
   {
-    rig_.AddCamera(calibu::CreateFromOldCamera<Scalar>(cam_param), cam_pose);
-    // Signal that we own this camera so we delete it.
-    camera_owned_.resize(rig_.cameras_.size());
-    camera_owned_.back() = true;
-    return rig_.cameras_.size()-1;
-  }
-
-  ////////////////////////////////////////////////////////////////////////////
-  uint32_t AddCamera(calibu::CameraInterface<Scalar>* cam,
-                     const SE3t& cam_pose)
-  {
-    rig_.AddCamera(cam, cam_pose);
-    // Signal that we don't own this camera so we don't delete it.
-    camera_owned_.resize(rig_.cameras_.size());
-    camera_owned_.back() = false;
-    return rig_.cameras_.size();
+    rig_->AddCamera(cam);
+    return rig_->NumCams();
   }
 
 
@@ -318,7 +297,7 @@ class BundleAdjuster
     pose.cam_params = cam_params;
     pose.is_active = is_active;
     pose.is_param_mask_used = false;
-    pose.t_sw.reserve(rig_.cameras_.size());
+    pose.t_sw.reserve(rig_->NumCams());
 
     pose.id = poses_.size();
     if (is_active) {
@@ -607,7 +586,7 @@ class BundleAdjuster
 
   const SolutionSummary<Scalar>& GetSolutionSummary() const { return summary_; }
   Options<Scalar>& options() { return options_; }
-  const calibu::Rig<Scalar>& rig() const { return rig_; }
+  const std::shared_ptr<calibu::Rig<Scalar>> rig() const { return rig_; }
 
   void RegularizePose(uint32_t pose_id, bool translation, bool gravity,
                       bool bias, bool rotation) {
@@ -738,9 +717,7 @@ private:
   uint32_t unary_residual_offset_;
   uint32_t proj_residual_offset;
   uint32_t inertial_residual_offset_;
-  // calibu::CameraRigT<Scalar> rig_;
-  calibu::Rig<Scalar> rig_;
-  std::vector<bool> camera_owned_;
+  std::shared_ptr<calibu::Rig<Scalar>> rig_;
   std::vector<Pose> poses_;
   std::vector<Landmark> landmarks_;
   std::vector<ProjectionResidual > proj_residuals_;

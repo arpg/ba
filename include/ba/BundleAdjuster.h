@@ -17,7 +17,6 @@
 #include "CeresCostFunctions.h"
 #include "Utils.h"
 #include "Types.h"
-#include <calibu/cam/camera_crtp_interop.h>
 // #ifdef ENABLE_TESTING
 #include "BundleAdjusterTest.h"
 // Only used for matrix square root.

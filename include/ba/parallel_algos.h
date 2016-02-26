@@ -69,6 +69,7 @@ namespace ba {
               MultHomogeneous(t_sw_m * t_ws_r, lm.x_s) :
               MultHomogeneous(t_sw_m, lm.x_w);
 
+        // Derivative of the projection of a point in to a camera
         const Eigen::Matrix<Scalar,2,4> dt_dp_m = cam->dTransfer3d_dray(
               typename BaType::SE3t(), x_s_m.template head<3>(),x_s_m(3));
 

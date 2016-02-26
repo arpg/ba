@@ -691,7 +691,7 @@ struct ImuResidualT : public ResidualT<Scalar, PoseSize> {
         // " to " << meas.Time << std::endl;
         if ((dpose_db != 0 || dpose_dpose != 0) && r != 0) {
           //double dt = meas.Time - pPrevMeas->Time;
-          const ImuPose& y0 = pose;
+          //const ImuPose& y0 = pose;
           pose = IntegrateImu(pose, *prev_meas, meas, bg, ba, g, &dy_db,
                               &dy_dy, c_res, r);
 

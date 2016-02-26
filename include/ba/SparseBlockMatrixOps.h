@@ -406,11 +406,13 @@ static void LoadDenseFromSparse(const SparseMatrix& sparse,
   DenseMatrix& dense = const_cast< DenseMatrix& >(dense_mat);
 
   typedef typename SparseMatrix::Scalar BlockType;
-  /*const int block_rows = BlockType::RowsAtCompileTime;*/
-  /*const int block_cols = BlockType::ColsAtCompileTime;*/
+  #ifndef NDEBUG
+  const int block_rows = BlockType::RowsAtCompileTime;
+  const int block_cols = BlockType::ColsAtCompileTime;
 
   assert(dense.rows() == block_rows * sparse.rows() &&
          dense.cols() == block_cols * sparse.cols());
+  #endif
 
   dense.setZero();
   for (int jj = 0; jj < sparse.cols(); ++jj)

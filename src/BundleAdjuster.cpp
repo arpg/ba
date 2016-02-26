@@ -1252,7 +1252,7 @@ namespace ba {
       if (pose.proj_residuals.size() == 0 &&
           pose.binary_residuals.size() == 0 &&
           pose.unary_residuals.size() == 0 &&
-          pose.inertial_residuals.size()) {
+          pose.inertial_residuals.size() == 0) {
         pose.is_param_mask_used = true;
         pose.param_mask.assign(kPoseDim, false);
       }
@@ -1822,6 +1822,8 @@ namespace ba {
   template class BundleAdjuster<REAL_TYPE, 1, 15, 5, false>;
   template class BundleAdjuster<REAL_TYPE, 1, 15, 0, true>;
   template class BundleAdjuster<REAL_TYPE, 1, 15, 5, true>;
+  template class BundleAdjuster<REAL_TYPE, 0, 15, 0, false>;
+
 
   // specializations required for the applications
 #ifdef BUILD_APPS

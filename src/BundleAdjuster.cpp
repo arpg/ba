@@ -239,6 +239,12 @@ namespace ba {
 
         const SE3t& t_wb = pose2.t_wp;
 
+//        if( std::isnan(imu_pose.t_wp.translation()[0]) ){
+//          std::cerr << "NAN in IMU integraiton from pose: " << pose1.id << " to pose "
+//                    << pose2.id << " with " << res.measurements.size() << "measurements."
+//                    << std::endl;
+//        }
+
         res.residual.setZero();
         // TODO: This is bad, as the error is taken in the world frame. The order
         // of these should be swapped
@@ -259,12 +265,14 @@ namespace ba {
           const Scalar log_dif =
               SE3t::log(imu_.t_vs * last_tvs_.inverse()).norm();
 
-          StreamMessage(debug_level) << "logDif is " << log_dif << std::endl;
+          StreamMessage(debug_level+1) << "logDif is " << log_dif << std::endl;
 
+          // heuristic for determining if we have converged on a reasonable
+          // estimate for the rotation.
           if (log_dif < 0.01 && poses_.size() >= 30) {
-            StreamMessage(debug_level) << "EMABLING TRANSLATION ERRORS" <<
+            StreamMessage(debug_level+1) << "ENABLING TRANSLATION ERRORS" <<
                                           std::endl;
-            translation_enabled_ = true;
+            //translation_enabled_ = true;
           }
           last_tvs_ = imu_.t_vs;
         }
@@ -597,10 +605,19 @@ namespace ba {
         }
       }
 
+      // regularize disabled calibration parameters
+      if(!translation_enabled_){
+        // translation component of camera-imu transform disabled
+        for(uint32_t ii = 0; ii < 3; ++ii){
+          s_(num_pose_params + ii, num_pose_params+ii) = 1e6;
+        }
+      }
+
       if (options_.write_reduced_camera_matrix) {
         std::cerr << "Writing reduced camera matrix for " << num_pose_params <<
                      " pose parameters and " << kCalibDim << " calib "
                                                              " parameters " << std::endl;
+
         std::ofstream("s.txt", std::ios_base::trunc) << s_.format(kLongCsvFmt);
         std::ofstream("rhs.txt", std::ios_base::trunc) << rhs_p_sc.format(kLongCsvFmt);
 
@@ -1575,6 +1592,9 @@ namespace ba {
 
     StreamMessage(debug_level + 1) << "Reserving jacobians..." << std::endl;
 
+    // Reserving the number of nonzero elements in the jacobians
+    // will avoid multiple reallocations during the insertion phase.
+
     if (!proj_residuals_.empty() && num_poses > 0) {
       j_pr_.reserve(j_pr_sizes);
       jt_pr.reserve(Eigen::VectorXi::Constant(jt_pr.cols(),
@@ -1767,7 +1787,16 @@ namespace ba {
       }
 
       if (kTvsInCalib) {
-        for (const ProjectionResidual& res : proj_residuals_) {
+        for (ProjectionResidual& res : proj_residuals_) {
+
+          // If we are only optimizing over rotation, zero the translation
+          // derivatives. First three columns of dz_dk are translation
+          if(!translation_enabled_){
+            for(uint32_t ii = 0; ii < 3; ++ii){
+              res.dz_dtvs.col(ii).setZero();
+            }
+          }
+
           const Eigen::Matrix<Scalar,2, 6>& dz_dk =
               res.dz_dtvs;
 

@@ -65,7 +65,7 @@ struct SolutionSummary
   MatrixXt calibration_marginals;
   OptimizationResult result;
 
-  bool IsResultGood()
+  bool IsResultGood() const
   { return (result != SolverError) && (result != FactorizationError); }
 };
 
@@ -98,6 +98,7 @@ struct Options
   // Initialization.
   bool regularize_biases_in_batch = true;
   bool enable_auto_regularization = true;
+  bool translation_enabled = true;
 
   // Robust norms.
   bool use_robust_norm_for_proj_residuals = true;
@@ -167,7 +168,10 @@ class BundleAdjuster
     debug_level_threshold(0),
     debug_level(0),
     imu_(SE3t(),Vector3t::Zero(),Vector3t::Zero(),Vector2t::Zero()),
-    translation_enabled_(kCalibDim > 15 ? false : true),
+    //translation_enabled_(kCalibDim > 15 ? false : true),
+    // If we're optimizing over the imu calibration, start with the translation
+    // disabled so we converge on rotation first.
+    translation_enabled_(!kTvsInCalib),
     total_tvs_change_(0)
   {
   }
@@ -191,6 +195,7 @@ class BundleAdjuster
 
     options_ = options;
     trust_region_size_ = options_.trust_region_size;
+    translation_enabled_ = options.translation_enabled;
     root_pose_id_ = 0;
     num_active_poses_ = 0;
     num_active_landmarks_ = 0;
@@ -703,8 +708,14 @@ private:
   BlockMat<Eigen::Matrix<Scalar, kCalibDim, ProjectionResidual::kResSize>>
                                                                         jt_kpr_;
 
+  // Hessian blocks:
+  // Camera block U
   BlockMat<Eigen::Matrix<Scalar, kPoseDim, kPoseDim>> u_;
+
+  // Landmark block V
   BlockMat<Eigen::Matrix<Scalar, kLmDim, kLmDim>> vi_;
+
+
   BlockMat<Eigen::Matrix<Scalar, kLmDim, kPrPoseDim>> jt_l_j_pr_;
   BlockMat< Eigen::Matrix<Scalar, kLmDim, kCalibDim>> jt_l_j_kpr_;
   BlockMat<Eigen::Matrix<Scalar, kPrPoseDim, kLmDim>> jt_pr_j_l_;
@@ -715,6 +726,7 @@ private:
   VectorXt rhs_l_;
   VectorXt r_pi_;
 
+  // Reduced camera matrix S
   Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic> s_;
   Eigen::SparseMatrix<Scalar> s_sparse_;
   Scalar trust_region_size_;

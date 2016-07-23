@@ -25,6 +25,11 @@
 
 #include <tbb/task_scheduler_init.h>
 
+//TEMP
+#include <calibu/cam/camera_crtp.h>
+#include <calibu/cam/camera_crtp_impl.h>
+#include <calibu/cam/camera_models_crtp.h>
+
 
 namespace ba {
 constexpr int kTrustRegionAuto = -1.0;
@@ -258,6 +263,26 @@ class BundleAdjuster
 
   Vector3t GetGravity() const {
     return kGravityInCalib ? GetGravityVector<Scalar>(imu_.g) : imu_.g_vec;
+  }
+
+
+  ////////////////////////////////////////////////////////////////////////////
+  uint32_t AddCamera(std::shared_ptr<calibu::CameraInterface<Scalar>> cam,
+                     bool copy)
+  {
+    if(copy){
+      // Copy camera from passed in rig to the ba rig
+      // ZZZZZ: Using FovCamera for now until we can
+      // correcly get the type dynamically
+      std::shared_ptr<calibu::CameraInterface<Scalar>> cam_ptr(
+            new calibu::FovCamera<Scalar>());
+      cam_ptr->SetPose(cam->Pose());
+      cam_ptr->SetParams(cam->GetParams());
+      return AddCamera(cam_ptr);
+    }else{
+      // Don't copy, just pass the reference into ba
+      return AddCamera(cam);
+    }
   }
 
   ////////////////////////////////////////////////////////////////////////////
